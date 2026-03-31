@@ -1,0 +1,157 @@
+"use client";
+
+import { useState } from "react";
+import { signIn } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { AlertCircle } from "lucide-react";
+import Image from "next/image";
+
+export default function LoginPage() {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    const res = await signIn("credentials", { email, password, redirect: false });
+    setLoading(false);
+    if (res?.error) {
+      setError("Invalid email or password");
+    } else {
+      router.push("/dashboard");
+      router.refresh();
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex bg-[hsl(var(--background))]">
+      {/* Left panel — brand gradient */}
+      <div
+        className="hidden lg:flex lg:w-[45%] flex-col justify-between p-12 relative overflow-hidden"
+        style={{
+          background: "linear-gradient(135deg, hsl(214 89% 52%) 0%, hsl(214 80% 42%) 50%, hsl(214 70% 32%) 100%)",
+        }}
+      >
+        {/* Subtle decorative elements */}
+        <div className="absolute inset-0 opacity-[0.07]" style={{
+          backgroundImage: "radial-gradient(circle at 25% 25%, white 1px, transparent 1px), radial-gradient(circle at 75% 75%, white 1px, transparent 1px)",
+          backgroundSize: "40px 40px",
+        }} />
+        <div className="absolute top-[20%] right-[-10%] w-[400px] h-[400px] rounded-full bg-white/[0.06] blur-3xl" />
+        <div className="absolute bottom-[10%] left-[-5%] w-[300px] h-[300px] rounded-full bg-white/[0.04] blur-3xl" />
+
+        <Link href="/" className="flex items-center gap-2.5 relative z-10">
+          <Image src="/logo.svg" alt="Focus" width={32} height={32} />
+          <span className="font-bold text-[17px] text-white tracking-tight">Focus</span>
+        </Link>
+
+        <div className="space-y-6 relative z-10">
+          <div className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">
+              Operational Intelligence
+            </p>
+            <h1 className="text-[42px] font-extrabold leading-[1.1] text-white">
+              Your operations,<br />unified.
+            </h1>
+          </div>
+          <p className="text-white/70 text-base leading-relaxed max-w-sm">
+            From raw data to intelligent rules and powerful applications — all in one platform.
+          </p>
+          <div className="space-y-3 pt-2">
+            {[
+              "Unified data model across all sources",
+              "Operational graph engine (ODE)",
+              "Versioned rule brain",
+              "Deploy apps instantly",
+            ].map((f) => (
+              <div key={f} className="flex items-center gap-3 text-sm text-white/60">
+                <div className="w-1.5 h-1.5 rounded-full bg-white/50 shrink-0" />
+                {f}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p className="text-xs text-white/30 relative z-10">&copy; 2026 Focus Platform</p>
+      </div>
+
+      {/* Right panel — form */}
+      <div className="flex-1 flex items-center justify-center p-8">
+        <div className="w-full max-w-sm">
+          {/* Mobile logo */}
+          <Link href="/" className="flex items-center gap-2 mb-10 lg:hidden">
+            <Image src="/logo.svg" alt="Focus" width={32} height={32} />
+            <span className="font-bold text-[17px] text-foreground">Focus</span>
+          </Link>
+
+          <div className="mb-8">
+            <h2 className="text-2xl font-bold text-foreground">Sign in</h2>
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              Welcome back to your workspace
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="email" className="text-xs font-semibold text-foreground">
+                Email
+              </Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="you@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-xs font-semibold text-foreground">
+                Password
+              </Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+
+            {error && (
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm bg-destructive/8 border border-destructive/20 text-destructive">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                {error}
+              </div>
+            )}
+
+            <Button type="submit" className="w-full mt-1" disabled={loading}>
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  Signing in…
+                </span>
+              ) : "Sign in"}
+            </Button>
+          </form>
+
+          <p className="mt-6 text-center text-sm text-muted-foreground">
+            No workspace?{" "}
+            <Link href="/register" className="text-[hsl(var(--primary))] font-semibold hover:underline">
+              Create one free
+            </Link>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" fill="none">
+  <!-- Outer orange ring with gap at top-right -->
+  <path d="M250 30 C120 30 30 130 30 250 C30 370 120 470 250 470 C380 470 470 370 470 250 C470 190 445 140 410 105 L350 170 C370 195 385 225 385 250 C385 330 330 385 250 385 C170 385 115 330 115 250 C115 170 170 115 250 115 C270 115 290 120 305 130 L355 65 C325 45 290 30 250 30Z" fill="#F04A00"/>
+  <!-- Inner black circle -->
+  <circle cx="250" cy="250" r="75" fill="#000000"/>
+  <!-- Orange notch/arm extending to the right -->
+  <path d="M310 170 C340 195 355 225 355 260 L470 250 C470 190 445 140 410 105 Z" fill="#F04A00"/>
+</svg>

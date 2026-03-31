@@ -1,0 +1,2015 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// MULTI-TENANT CORE
+// ============================================================
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  plan                     String   @default("free")
+  customDailyTokenLimit    Int?
+  customWeeklyTokenLimit   Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  onboardingCompletedAt    DateTime?
+
+  // Workspace settings
+  industry                 String?
+  defaultTimezone          String?
+  notifyImportCompleted    Boolean  @default(true)
+  notifyImportFailed       Boolean  @default(true)
+  notifyRuleUpdated        Boolean  @default(false)
+  notifyBillingIssue       Boolean  @default(true)
+  notifyProductUpdates     Boolean  @default(false)
+
+  members                  OrgMember[]
+  dataSources              DataSource[]
+  mappingTemplates         MappingTemplate[]
+  flaggedColumns           FlaggedColumn[]
+  products                 Product[]
+  suppliers                Supplier[]
+  locations                Location[]
+  inventory                InventoryItem[]
+  orders                   Order[]
+  forecastEntries          ForecastEntry[]
+  mpsEntries               MpsEntry[]
+  workOrders               WorkOrder[]
+  routings                 Routing[]
+  workCenters              WorkCenter[]
+  brainRules               BrainRule[]
+  appInstances             AppInstance[]
+  // ODE
+  connectors               Connector[]
+  operationalRelationships OperationalRelationship[]
+  operationalEvents        OperationalEvent[]
+  // Normalization
+  entityResolutionLogs     EntityResolutionLog[]
+  modelCompletenessReport  ModelCompletenessReport?
+  modelFreshness           ModelFreshness[]
+  logicParams              LogicParam[]
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String?
+  image         String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Profile fields
+  jobTitle      String?
+  companyName   String?
+  industry      String?
+  primaryFocus  String[]
+  timezone      String?
+  language      String?   @default("en")
+  aiAnswerStyle String?   // "concise" | "detailed"
+
+  memberships OrgMember[]
+  accounts    Account[]
+  sessions    Session[]
+}
+
+model OrgMember {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  role           OrgRole  @default(MEMBER)
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+// NextAuth.js models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ============================================================
+// LAYER 1 — OPERATIONAL DATA LAYER
+// ============================================================
+
+model DataSource {
+  id             String         @id @default(cuid())
+  organizationId String
+  name           String
+  type           DataSourceType
+  originalName   String
+  fileSize       Int
+  status         ImportStatus   @default(PENDING)
+  rowCount       Int?
+  importedRows   Int?
+  errorMessage   String?
+  mappingConfig  Json?
+  rawHeaders     String[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  normalizationStatus String @default("pending") // "pending" | "complete" | "failed"
+  dataQualityScores   Json? // { Product: 87, Supplier: 62, InventoryItem: 45 }
+
+  // Snapshot import tracking
+  snapshotDeactivatedCount Int?      // How many records were deactivated by this import
+  snapshotCompletedAt      DateTime? // When deactivation ran (for 24h undo window)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// Saved mapping configurations for re-use across imports
+model MappingTemplate {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  entity         String // EntityType: Product | Supplier | InventoryItem | Order
+  mapping        Json // Record<string, string> canonical → source column
+  attributeKeys  String[] // Extra column keys chosen for attributes storage
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+enum DataSourceType {
+  CSV
+  XLSX
+}
+
+enum ImportStatus {
+  PENDING
+  MAPPING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Product {
+  id                    String       @id @default(cuid())
+  organizationId        String
+  sku                   String
+  name                  String
+  description           String?
+  category              String?
+  unit                  String?
+  unitCost              Decimal?     @db.Decimal(12, 4)
+  active                Boolean      @default(true)
+  externalId            String?
+  attributes            Json? // Extra columns from import not in canonical schema
+  metadata              Json?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  // Manufacturing canonical fields (merged)
+  type                  ProductType?
+  uom                   String       @default("")
+  unitPrice             Decimal?
+  leadTimeDays          Int?
+  reorderPoint          Decimal?
+  safetyStock           Decimal?
+  isActive              Boolean      @default(true)
+  deletedAt             DateTime?
+  deactivatedAt         DateTime?    // Set when snapshot import deactivates this record
+  deactivatedBySourceId String?      // DataSource.id that caused deactivation (for undo)
+  // v2 additions
+  makeBuy               MakeBuyType  @default(BUY)
+  safetyStockConstraint Decimal?
+  moq                   Int?
+  orderMultiple         Int?
+  // v3 canonical additions
+  productFamily         String?
+  shelfLifeDays         Int?
+  drawingNumber         String?
+  drawingRevision       String?
+  abcClass              String?
+  productLine           String?
+  regulatoryClass       String?
+  listPrice             Decimal?     @db.Decimal(12, 2)
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  inventory       InventoryItem[]
+  orderLines      OrderLine[]
+  bomParent       BOMItem[]        @relation("BOMParent")
+  bomChildren     BOMItem[]        @relation("BOMChild")
+  lots            Lot[]
+  bomHeaders      BOMHeader[]
+  bomLines        BOMLine[]        @relation("BOMComponent")
+  poLines         POLine[]
+  soLines         SOLine[]
+  workOrders      WorkOrder[]
+  supplierItems   SupplierItem[]
+  demandForecasts DemandForecast[]
+  mpsEntries      MPSEntry[]
+  routings        Routing[]        @relation("ProductRoutings")
+
+  @@unique([organizationId, sku])
+  @@index([organizationId])
+}
+
+model Supplier {
+  id             String    @id @default(cuid())
+  organizationId String
+  code           String
+  name           String
+  email          String?
+  phone          String?
+  country        String?
+  leadTimeDays   Int?
+  paymentTerms   String?
+  active         Boolean   @default(true)
+  externalId     String?
+  attributes     Json? // Extra columns from import not in canonical schema
+  metadata       Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  // Manufacturing canonical fields (merged)
+  contactName    String?
+  address        String?
+  currency       String?
+  isActive       Boolean   @default(true)
+  deletedAt      DateTime?
+  deactivatedAt         DateTime?    // Set when snapshot import deactivates this record
+  deactivatedBySourceId String?      // DataSource.id that caused deactivation (for undo)
+  // v3 canonical additions
+  city              String?
+  leadTimeCategory  String?
+  qualityRating     Decimal?  @db.Decimal(3, 1)
+  onTimePct         Decimal?  @db.Decimal(5, 2)
+  certifications    String?
+  status            String?
+  approvedSince     DateTime?
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  orders         Order[]
+  purchaseOrders PurchaseOrder[]
+  supplierItems  SupplierItem[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+model Location {
+  id             String   @id @default(cuid())
+  organizationId String
+  code           String
+  name           String
+  type           String?
+  parentId       String?
+  active         Boolean  @default(true)
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  // Manufacturing canonical fields (merged)
+  attributes     Json?
+  isActive       Boolean  @default(true)
+  deactivatedAt         DateTime?    // Set when snapshot import deactivates this record
+  deactivatedBySourceId String?      // DataSource.id that caused deactivation (for undo)
+  // v3 canonical additions
+  city           String?
+  countryCode    String?
+  notes          String?
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent       Location?       @relation("LocationHierarchy", fields: [parentId], references: [id])
+  children     Location[]      @relation("LocationHierarchy")
+  inventory    InventoryItem[]
+  equipment    Equipment[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+model InventoryItem {
+  id                 String    @id @default(cuid())
+  organizationId     String
+  productId          String
+  locationId         String?
+  quantity           Decimal   @db.Decimal(12, 4)
+  reservedQty        Decimal   @default(0) @db.Decimal(12, 4)
+  reorderPoint       Decimal?  @db.Decimal(12, 4)
+  reorderQty         Decimal?  @db.Decimal(12, 4)
+  attributes         Json? // Extra columns from import not in canonical schema
+  updatedAt          DateTime  @updatedAt
+  // Manufacturing canonical fields (merged)
+  lotId              String?
+  qtyOnHand          Decimal   @default(0)
+  qtyAllocated       Decimal   @default(0)
+  qtyAvailable       Decimal   @default(0)
+  uom                String    @default("")
+  // v2 additions
+  qtyOnHold          Decimal   @default(0)
+  qtyOnHandTotal     Decimal   @default(0)
+  qtyOpenPO          Decimal   @default(0)
+  qtyOnHandPlusPO    Decimal   @default(0)
+  demandCurrentMonth Decimal?
+  demandNextMonth    Decimal?
+  demandMonth3       Decimal?
+  demandPerDay       Decimal?
+  daysOfSupply       Decimal?
+  lastReceiptDate    DateTime?
+  buyRecommendation  Boolean?
+  recommendedQty     Decimal?
+  moq                Int?
+  orderMultiple      Int?
+  leadTimeDays       Int?
+  // v3 canonical additions
+  unitCost           Decimal?  @db.Decimal(12, 4)
+  totalValue         Decimal?  @db.Decimal(16, 2)
+  // Outflow fields — raw counts from ERP
+  outflow7d          Int?      // Units consumed/shipped in last 7 days
+  outflow30d         Int?      // Units consumed/shipped in last 30 days
+  outflow60d         Int?      // Units consumed/shipped in last 60 days
+  outflow92d         Int?      // Units consumed/shipped in last 92 days
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id])
+  location     Location?    @relation(fields: [locationId], references: [id])
+
+  @@unique([organizationId, productId, locationId])
+  @@index([organizationId])
+}
+
+model Order {
+  id             String      @id @default(cuid())
+  organizationId String
+  orderNumber    String
+  type           OrderType   @default(PURCHASE)
+  supplierId     String?
+  status         OrderStatus @default(PENDING)
+  orderDate      DateTime?
+  expectedDate   DateTime?
+  totalAmount    Decimal?    @db.Decimal(12, 2)
+  currency       String?
+  notes          String?
+  externalId     String?
+  attributes     Json? // Extra columns from import not in canonical schema
+  metadata       Json?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier     Supplier?    @relation(fields: [supplierId], references: [id])
+  lines        OrderLine[]
+
+  @@unique([organizationId, orderNumber])
+  @@index([organizationId])
+}
+
+enum OrderType {
+  PURCHASE
+  SALES
+  TRANSFER
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
+}
+
+model OrderLine {
+  id         String   @id @default(cuid())
+  orderId    String
+  productId  String
+  quantity   Decimal  @db.Decimal(12, 4)
+  unitPrice  Decimal? @db.Decimal(12, 4)
+  totalPrice Decimal? @db.Decimal(12, 2)
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+}
+
+model BOMItem {
+  id          String   @id @default(cuid())
+  parentId    String
+  childId     String
+  quantity    Decimal  @db.Decimal(12, 4)
+  unit        String?
+  scrapFactor Decimal? @db.Decimal(6, 4)
+  attributes  Json?
+
+  parent Product @relation("BOMParent", fields: [parentId], references: [id])
+  child  Product @relation("BOMChild", fields: [childId], references: [id])
+
+  @@unique([parentId, childId])
+}
+
+model ForecastEntry {
+  id             String   @id @default(cuid())
+  organizationId String
+  sku            String
+  period         String
+  forecastQty    Decimal  @db.Decimal(12, 4)
+  forecastUnit   String?
+  channel        String?
+  version        String?
+  attributes     Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, sku, period, channel, version])
+  @@index([organizationId])
+  @@index([organizationId, sku])
+}
+
+model MpsEntry {
+  id             String   @id @default(cuid())
+  organizationId String
+  sku            String
+  period         String
+  plannedQty     Decimal  @db.Decimal(12, 4)
+  confirmedQty   Decimal? @db.Decimal(12, 4)
+  workCenter     String?
+  attributes     Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, sku, period, workCenter])
+  @@index([organizationId])
+  @@index([organizationId, sku])
+}
+
+model WorkOrder {
+  id             String    @id @default(cuid())
+  organizationId String
+  orderNumber    String
+  sku            String
+  plannedQty     Decimal   @db.Decimal(12, 4)
+  actualQty      Decimal?  @db.Decimal(12, 4)
+  unit           String?
+  workCenter     String?
+  scheduledDate  DateTime?
+  dueDate        DateTime?
+  status         String    @default("PLANNED")
+  attributes     Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  // Manufacturing canonical fields (merged)
+  woNumber       String?
+  productId      String?
+  bomHeaderId    String?
+  salesOrderId   String?
+  qtyPlanned     Decimal   @default(0)
+  qtyProduced    Decimal   @default(0)
+  qtyScrapped    Decimal   @default(0)
+  scheduledEnd   DateTime?
+  actualStart    DateTime?
+  actualEnd        DateTime?
+  priority         Int?
+  // v3 canonical additions
+  routingId        String?
+  productionLine   String?
+  yieldPct         Decimal?  @db.Decimal(5, 2)
+  lotNumber        String?
+  operatorLeadId   String?
+
+  organization  Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  product       Product?             @relation(fields: [productId], references: [id])
+  bomHeader     BOMHeader?           @relation(fields: [bomHeaderId], references: [id])
+  salesOrder    SalesOrder?          @relation(fields: [salesOrderId], references: [id])
+  operations    WorkOrderOperation[]
+  batches       ProductionBatch[]
+  qcInspections QCInspection[]
+
+  @@unique([organizationId, orderNumber])
+  @@index([organizationId])
+  @@index([organizationId, sku])
+}
+
+model Routing {
+  id             String   @id @default(cuid())
+  organizationId String
+  sku            String
+  operationNo    Int
+  workCenter     String
+  description    String?
+  setupTimeMins  Decimal? @db.Decimal(8, 2)
+  runTimeMins    Decimal? @db.Decimal(8, 4)
+  runTimeUnit    String?
+  attributes     Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  // v2 canonical fields (merged — new canonical Routing header model)
+  orgId          String?
+  productId      String?
+  revision       String?
+  isActive       Boolean  @default(true)
+  notes          String?
+  // v3 canonical additions
+  status         String?
+  effectiveFrom  DateTime?
+  effectiveTo    DateTime?
+  approvedBy     String?
+  approvalDate   DateTime?
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  product      Product?           @relation("ProductRoutings", fields: [productId], references: [id])
+  operations   RoutingOperation[]
+
+  @@unique([organizationId, sku, operationNo])
+  @@index([organizationId])
+  @@index([organizationId, sku])
+}
+
+model WorkCenter {
+  id                    String   @id @default(cuid())
+  organizationId        String
+  code                  String
+  name                  String
+  description           String?
+  availableHoursPerWeek Decimal? @db.Decimal(6, 2)
+  efficiency            Decimal? @db.Decimal(5, 4)
+  costRatePerHour       Decimal? @db.Decimal(10, 2)
+  calendar              String?
+  attributes            Json?
+  isActive              Boolean  @default(true)
+  deactivatedAt         DateTime?    // Set when snapshot import deactivates this record
+  deactivatedBySourceId String?      // DataSource.id that caused deactivation (for undo)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  // v3 canonical additions
+  department            String?
+  capacityHrsDay        Decimal?  @db.Decimal(5, 2)
+  operatorsPerShift     Int?
+  shiftsPerDay          Int?
+  availableDaysWeek     Int?
+  oeeTargetPct          Decimal?  @db.Decimal(5, 2)
+  oeeCurrentPct         Decimal?  @db.Decimal(5, 2)
+  notes                 String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+// ============================================================
+// LAYER 2 — OPERATIONAL BRAIN LAYER
+// ============================================================
+
+model BrainRule {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  category       RuleCategory
+  entity         String
+  condition      Json
+  parameters     Json?
+  status         RuleStatus   @default(DRAFT)
+  currentVersion Int          @default(1)
+  tags           String[]
+  createdBy      String
+  updatedBy      String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  versions     BrainRuleVersion[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+enum RuleCategory {
+  THRESHOLD
+  POLICY
+  CONSTRAINT
+  KPI
+}
+
+enum RuleStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+model BrainRuleVersion {
+  id            String   @id @default(cuid())
+  ruleId        String
+  version       Int
+  snapshot      Json
+  commitMessage String?
+  committedBy   String
+  committedAt   DateTime @default(now())
+
+  rule BrainRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, version])
+}
+
+// ============================================================
+// LAYER 3 — APPLICATION LAYER
+// ============================================================
+
+model AppInstance {
+  id             String      @id @default(cuid())
+  organizationId String
+  template       AppTemplate
+  name           String
+  description    String?
+  config         Json        @default("{}")
+  customCode     String?
+  pinned         Boolean     @default(false)
+  active         Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+enum AppTemplate {
+  INVENTORY_COMMAND_CENTER
+  PROCUREMENT_HUB
+  DEMAND_FULFILLMENT
+  DATA_CHAT
+  CUSTOM_DASHBOARD
+}
+
+// ============================================================
+// OPERATIONAL DATA ENVIRONMENT (ODE)
+// ============================================================
+
+// ----------------------------------------------------------
+// Connectors — links to operational systems
+// ----------------------------------------------------------
+
+model Connector {
+  id             String          @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  type           ConnectorType
+  status         ConnectorStatus @default(INACTIVE)
+
+  // Connection configuration: endpoints, auth, headers, field mappings, etc.
+  config Json @default("{}")
+
+  // Scheduling
+  syncIntervalMs Int? // null = manual only
+  lastSyncAt     DateTime?
+  nextSyncAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  syncs        ConnectorSync[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+enum ConnectorType {
+  FILE_IMPORT // CSV / XLSX uploads (wraps existing DataSource pipeline)
+  REST_API // Pull from an external REST endpoint
+  WEBHOOK // Receive pushed payloads from an external system
+  DATABASE // Direct read from a remote Postgres / MySQL DB
+  SFTP // Poll an SFTP share for new files
+}
+
+enum ConnectorStatus {
+  ACTIVE
+  INACTIVE
+  SYNCING
+  ERROR
+}
+
+model ConnectorSync {
+  id          String     @id @default(cuid())
+  connectorId String
+  status      SyncStatus @default(PENDING)
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  recordsRead     Int @default(0)
+  recordsUpserted Int @default(0)
+  recordsFailed   Int @default(0)
+
+  errors   Json? // Array of { row, message } error objects
+  metadata Json? // Connector-specific diagnostics
+
+  connector Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  @@index([connectorId])
+}
+
+enum SyncStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  PARTIAL
+}
+
+// ----------------------------------------------------------
+// Operational Graph — explicit relationship edges
+// ----------------------------------------------------------
+
+model OperationalRelationship {
+  id             String @id @default(cuid())
+  organizationId String
+
+  type RelationshipType
+
+  // Source node
+  sourceType OdeEntityType
+  sourceId   String
+
+  // Target node
+  targetType OdeEntityType
+  targetId   String
+
+  // Edge properties
+  strength Float? // Optional weight / confidence (0–1)
+  metadata Json? // e.g., { "leadTimeDays": 14, "unitCost": 9.99 }
+
+  // Validity window (open-ended = currently active)
+  validFrom DateTime  @default(now())
+  validTo   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, type, sourceType, sourceId, targetType, targetId])
+  @@index([organizationId, sourceType, sourceId])
+  @@index([organizationId, targetType, targetId])
+  @@index([organizationId, type])
+}
+
+// Relationship semantics
+enum RelationshipType {
+  SUPPLIES // Supplier → Product  (supplier provides this SKU)
+  STOCKS_AT // Product  → Location (product is held at this location)
+  SOURCES_FROM // Order    → Supplier (purchase order placed with supplier)
+  FULFILLS // Order    → Product  (order line fulfils demand for this product)
+  COMPONENT_OF // Product  → Product  (BOM: child is component of parent)
+  LOCATED_IN // Location → Location (location is child of parent location)
+  TRANSFERS_BETWEEN // Location → Location (transfer order moves stock between these)
+  SHIPS_TO // Supplier → Location (supplier delivers to this location)
+}
+
+// Which canonical entity types participate in the graph
+enum OdeEntityType {
+  PRODUCT
+  SUPPLIER
+  LOCATION
+  INVENTORY_ITEM
+  ORDER
+  ORDER_LINE
+}
+
+// ============================================================
+// MANUFACTURING CANONICAL ENUMS
+// ============================================================
+
+enum ProductType {
+  FINISHED_GOOD
+  RAW_MATERIAL
+  COMPONENT
+  SUBASSEMBLY
+  SERVICE
+}
+
+enum LocationType {
+  WAREHOUSE
+  AREA
+  AISLE
+  BIN
+  EXTERNAL
+}
+
+enum MovementType {
+  RECEIPT
+  ISSUE
+  TRANSFER
+  ADJUSTMENT
+  RETURN
+  SCRAP
+}
+
+enum POStatus {
+  DRAFT
+  SENT
+  CONFIRMED
+  PARTIAL
+  RECEIVED
+  CANCELLED
+}
+
+enum WOStatus {
+  PLANNED
+  RELEASED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum OpStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+  SKIPPED
+}
+
+enum SOStatus {
+  DRAFT
+  CONFIRMED
+  IN_PRODUCTION
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum QCType {
+  INCOMING
+  IN_PROCESS
+  FINAL
+  PERIODIC
+}
+
+enum QCStatus {
+  PENDING
+  PASS
+  FAIL
+  CONDITIONAL_PASS
+}
+
+enum EquipmentStatus {
+  OPERATIONAL
+  MAINTENANCE
+  DOWN
+  RETIRED
+}
+
+enum MaintenanceType {
+  PREVENTIVE
+  CORRECTIVE
+  PREDICTIVE
+  INSPECTION
+}
+
+// ----------------------------------------------------------
+// Operational Events — immutable state-change log
+// ----------------------------------------------------------
+
+model OperationalEvent {
+  id             String @id @default(cuid())
+  organizationId String
+
+  entityType OdeEntityType
+  entityId   String
+
+  // e.g. "inventory.quantity_changed", "order.status_changed", "product.created"
+  eventType String
+
+  previousState Json? // Snapshot before the change
+  currentState  Json // Snapshot after the change
+
+  // Which connector/system triggered this event
+  connectorId String?
+  source      String? // Human-readable source label
+
+  occurredAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, entityType, entityId])
+  @@index([organizationId, occurredAt])
+  @@index([organizationId, eventType])
+}
+
+// ============================================================
+// MANUFACTURING CANONICAL MODELS
+// ============================================================
+
+// ── SALES ─────────────────────────────────────────────────────
+
+model Customer {
+  id              String    @id @default(cuid())
+  orgId           String
+  code            String
+  name            String
+  contactName     String?
+  email           String?
+  phone           String?
+  shippingAddress String?
+  billingAddress  String?
+  country         String?
+  currency        String?
+  paymentTerms    String?
+  creditLimit     Decimal?
+  isActive        Boolean   @default(true)
+  attributes      Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+  deactivatedAt         DateTime?    // Set when snapshot import deactivates this record
+  deactivatedBySourceId String?      // DataSource.id that caused deactivation (for undo)
+  // v3 canonical additions
+  type              String?
+  city              String?
+  vatNumber         String?
+  accountManagerId  String?
+  status            String?
+  sinceDate         DateTime?
+
+  salesOrders SalesOrder[]
+
+  @@unique([orgId, code])
+  @@index([orgId])
+}
+
+// ── EQUIPMENT ─────────────────────────────────────────────────
+
+model Equipment {
+  id                String          @id @default(cuid())
+  orgId             String
+  code              String
+  name              String
+  type              String?
+  locationId        String?
+  status            EquipmentStatus @default(OPERATIONAL)
+  serialNumber      String?
+  manufacturer      String?
+  purchasedAt       DateTime?
+  warrantyExpiry           DateTime?
+  nextMaintenanceAt        DateTime?
+  attributes               Json?
+  isActive                 Boolean         @default(true)
+  deactivatedAt            DateTime?       // Set when snapshot import deactivates this record
+  deactivatedBySourceId    String?         // DataSource.id that caused deactivation (for undo)
+  createdAt                DateTime        @default(now())
+  updatedAt                DateTime        @updatedAt
+  // v3 canonical additions
+  installationDate         DateTime?
+  maintenanceIntervalDays  Int?
+  lastPmDate               DateTime?
+  calibrationDue           DateTime?
+  notes                    String?
+
+  location   Location?            @relation(fields: [locationId], references: [id])
+  operations WorkOrderOperation[]
+  logs       MaintenanceLog[]
+
+  @@unique([orgId, code])
+  @@index([orgId])
+}
+
+// ── BOM ───────────────────────────────────────────────────────
+
+model BOMHeader {
+  id            String    @id @default(cuid())
+  orgId         String
+  productId     String
+  version       String
+  isActive      Boolean   @default(false)
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+  yieldPct            Decimal?
+  notes               String?
+  attributes          Json?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  // v3 canonical additions
+  status              String?
+  totalComponents     Int?
+  totalBomCost        Decimal?  @db.Decimal(12, 2)
+  applicableStandard  String?
+  createdBy           String?
+  approvedBy          String?
+  approvalDate        DateTime?
+
+  product    Product     @relation(fields: [productId], references: [id])
+  lines      BOMLine[]
+  workOrders WorkOrder[]
+
+  @@unique([orgId, productId, version])
+  @@index([orgId])
+}
+
+model BOMLine {
+  id                String   @id @default(cuid())
+  bomHeaderId       String
+  componentId       String
+  qty               Decimal
+  uom               String
+  wasteFactorPct    Decimal?
+  isPhantom         Boolean  @default(false)
+  sequence          Int?
+  notes             String?
+  // v2 additions
+  parentComponentId String?
+  componentCost     Decimal?
+  // v3 canonical additions
+  section           String?
+  extendedCost      Decimal?  @db.Decimal(12, 4)
+  makeBuy           String?
+  isCritical        Boolean   @default(false)
+  approvedSubSku    String?
+
+  bomHeader BOMHeader @relation(fields: [bomHeaderId], references: [id])
+  component Product   @relation("BOMComponent", fields: [componentId], references: [id])
+}
+
+// ── INVENTORY ─────────────────────────────────────────────────
+
+model Lot {
+  id               String    @id @default(cuid())
+  orgId            String
+  lotNumber        String
+  productId        String
+  expiryDate       DateTime?
+  manufacturedDate DateTime?
+  supplierId       String?
+  attributes       Json?
+  createdAt        DateTime  @default(now())
+  // v3 canonical additions
+  lotType          String?
+  originType       String?
+  originReference  String?
+  qtyCreated       Decimal?
+  qtyOnHand        Decimal?
+  qtyConsumed      Decimal?
+  qtyScrapped      Decimal?
+  locationId       String?
+  status           String?
+  releasedBy       String?
+  notes            String?
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([orgId, lotNumber])
+  @@index([orgId])
+}
+
+model StockMovement {
+  id         String       @id @default(cuid())
+  orgId      String
+  productId  String
+  locationId String
+  lotId      String?
+  type       MovementType
+  qty        Decimal
+  refType    String?
+  refId          String?
+  notes          String?
+  occurredAt     DateTime
+  createdBy      String?
+  // v3 canonical additions
+  uom            String?
+  fromLocationId String?
+  toLocationId   String?
+
+  @@index([orgId, productId])
+  @@index([orgId, occurredAt])
+}
+
+// ── PROCUREMENT ───────────────────────────────────────────────
+
+model PurchaseOrder {
+  id           String    @id @default(cuid())
+  orgId        String
+  poNumber     String
+  supplierId   String
+  status       POStatus  @default(DRAFT)
+  currency     String
+  totalAmount  Decimal?
+  expectedDate DateTime?
+  receivedDate DateTime?
+  notes        String?
+  attributes   Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // v2 addition
+  confirmedETA DateTime?
+  // v3 canonical additions
+  orderDate    DateTime?
+  totalLines   Int?
+  buyerId      String?
+  approvedBy   String?
+  poType       String?
+
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  lines    POLine[]
+
+  @@unique([orgId, poNumber])
+  @@index([orgId])
+}
+
+model POLine {
+  id              String    @id @default(cuid())
+  purchaseOrderId String
+  productId       String
+  lineNumber      Int
+  qtyOrdered      Decimal
+  qtyReceived     Decimal   @default(0)
+  unitCost        Decimal
+  uom             String
+  expectedDate    DateTime?
+  // v2 additions
+  qtyOpen         Decimal?
+  confirmedETA    DateTime?
+  // v3 canonical additions
+  lineValue       Decimal?
+  status          String?
+  notes           String?
+
+  purchaseOrder PurchaseOrder  @relation(fields: [purchaseOrderId], references: [id])
+  product       Product        @relation(fields: [productId], references: [id])
+  qcInspections QCInspection[]
+}
+
+// ── SALES ─────────────────────────────────────────────────────
+
+model SalesOrder {
+  id              String    @id @default(cuid())
+  orgId           String
+  soNumber        String
+  customerId      String
+  status          SOStatus  @default(DRAFT)
+  currency        String
+  totalAmount     Decimal?
+  requestedDate   DateTime?
+  confirmedDate   DateTime?
+  shippingAddress    String?
+  notes              String?
+  attributes         Json?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  // v3 canonical additions
+  orderDate          DateTime?
+  actualShipDate     DateTime?
+  paymentTerms       String?
+  salesRepId         String?
+  incoterms          String?
+  shipToLocationId   String?
+  customerPoRef      String?
+
+  customer   Customer    @relation(fields: [customerId], references: [id])
+  lines      SOLine[]
+  workOrders WorkOrder[]
+
+  @@unique([orgId, soNumber])
+  @@index([orgId, status])
+}
+
+model SOLine {
+  id            String    @id @default(cuid())
+  salesOrderId  String
+  productId     String
+  lineNumber    Int
+  qtyOrdered    Decimal
+  qtyShipped    Decimal   @default(0)
+  unitPrice     Decimal
+  uom           String
+  requestedDate DateTime?
+  // v3 canonical additions
+  qtyOpen       Decimal?
+  lineValue     Decimal?
+  status        String?
+  confirmedDate DateTime?
+
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id])
+  product    Product    @relation(fields: [productId], references: [id])
+}
+
+// ── PRODUCTION ────────────────────────────────────────────────
+
+model WorkOrderOperation {
+  id          String   @id @default(cuid())
+  workOrderId String
+  sequence    Int
+  name        String
+  equipmentId String?
+  plannedMins Int?
+  actualMins  Int?
+  status      OpStatus @default(PENDING)
+  notes       String?
+  // v2 additions
+  workCenter        String?
+  line              String?
+  setupMins         Decimal?
+  // v3 canonical additions
+  routingOpId       String?
+  operatorId        String?
+  plannedQty        Decimal?
+  actualQtyGood     Decimal?
+  actualQtyScrap    Decimal?
+  actualQtyRework   Decimal?
+  plannedSetupMin   Decimal?  @db.Decimal(8, 2)
+  actualSetupMin    Decimal?  @db.Decimal(8, 2)
+  plannedRunMin     Decimal?  @db.Decimal(8, 2)
+  actualRunMin      Decimal?  @db.Decimal(8, 2)
+  plannedStart      DateTime?
+  actualStart       DateTime?
+  actualEnd         DateTime?
+  yieldPct          Decimal?  @db.Decimal(5, 2)
+
+  workOrder WorkOrder  @relation(fields: [workOrderId], references: [id])
+  equipment Equipment? @relation(fields: [equipmentId], references: [id])
+}
+
+model ProductionBatch {
+  id             String    @id @default(cuid())
+  orgId          String
+  workOrderId    String
+  batchNumber    String
+  outputLotId    String?
+  qtyPlanned     Decimal
+  qtyActual      Decimal?
+  yieldActualPct Decimal?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  attributes     Json?
+
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id])
+
+  @@unique([orgId, batchNumber])
+}
+
+// ── QUALITY ───────────────────────────────────────────────────
+
+model QCInspection {
+  id          String   @id @default(cuid())
+  orgId       String
+  type        QCType
+  status      QCStatus @default(PENDING)
+  productId   String?
+  lotId       String?
+  workOrderId String?
+  poLineId    String?
+  inspectedBy String?
+  inspectedAt   DateTime
+  notes         String?
+  attributes    Json?
+  // v3 canonical additions
+  qtyInspected  Decimal?
+  qtyPassed     Decimal?
+  qtyFailed     Decimal?
+  yieldPct      Decimal?  @db.Decimal(5, 2)
+  disposition   String?
+
+  workOrder WorkOrder? @relation(fields: [workOrderId], references: [id])
+  poLine    POLine?    @relation(fields: [poLineId], references: [id])
+  results   QCResult[]
+
+  @@index([orgId, status])
+}
+
+model QCResult {
+  id           String   @id @default(cuid())
+  inspectionId String
+  criterion    String
+  specMin      Decimal?
+  specMax      Decimal?
+  actualValue  String?
+  isPassed     Boolean
+  notes        String?
+
+  inspection QCInspection @relation(fields: [inspectionId], references: [id])
+}
+
+// ── MAINTENANCE ───────────────────────────────────────────────
+
+// ============================================================
+// MANUFACTURING CANONICAL ENUMS (v2 additions)
+// ============================================================
+
+enum MakeBuyType {
+  MAKE
+  BUY
+  OTHER
+}
+
+enum SupplierItemStatus {
+  APPROVED
+  PREFERRED
+  BLOCKED
+}
+
+enum ForecastType {
+  STARTING
+  SALES_ADJ
+  BACKLOG_CATCHUP
+  FINAL
+}
+
+model MaintenanceLog {
+  id              String          @id @default(cuid())
+  equipmentId     String
+  type            MaintenanceType
+  description     String
+  performedBy     String?
+  performedAt     DateTime
+  durationMins    Int?
+  cost                Decimal?
+  nextScheduledAt     DateTime?
+  attributes          Json?
+  // v3 canonical additions
+  performedByExternal String?
+  partsUsed           String?
+  result              String?
+  notes               String?
+
+  equipment Equipment @relation(fields: [equipmentId], references: [id])
+}
+
+// ============================================================
+// MANUFACTURING CANONICAL MODELS (v2 additions)
+// ============================================================
+
+// ── SUPPLIER ITEM (Migration 5) ────────────────────────────
+// One component can have multiple approved suppliers,
+// each with their own pricing, lead time, MOQ, and status.
+
+model SupplierItem {
+  id                 String             @id @default(cuid())
+  orgId              String
+  supplierId         String
+  productId          String
+  supplierPartNumber String?
+  status             SupplierItemStatus @default(APPROVED)
+  leadTimeDays       Int?
+  moq                Int?
+  orderMultiple      Int?
+  contractUnitCost   Decimal?
+  costValidFrom      DateTime?
+  costValidTo        DateTime?
+  countryOfOrigin    String?
+  approvedSubstitute String?
+  notes              String?
+  attributes         Json?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  // v3 canonical additions
+  currency           String?
+
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  product  Product  @relation(fields: [productId], references: [id])
+
+  @@unique([orgId, supplierId, productId])
+  @@index([orgId, productId])
+}
+
+// ── ROUTING OPERATION (Migration 7) ───────────────────────
+// Detail rows for the canonical Routing header model.
+// References Routing.id — works whether the Routing row is
+// a legacy flat-routing row or a new canonical header row.
+
+model RoutingOperation {
+  id                String   @id @default(cuid())
+  routingId         String
+  sequence          Int
+  name              String
+  workCenter        String?
+  line              String?
+  setupMins         Decimal?
+  runMinsPerUnit    Decimal?
+  effRunMinsPerUnit Decimal?
+  yieldPct          Decimal?
+  hasInspection        Boolean  @default(false)
+  lotSize              Int?
+  notes                String?
+  // v3 canonical additions
+  requiredSkill        String?
+  certOperatorRequired Boolean  @default(false)
+
+  routing Routing @relation(fields: [routingId], references: [id])
+}
+
+// ── DEMAND FORECAST (Migration 9) ─────────────────────────
+// Monthly demand forecast per SKU per period.
+// Each forecast type stored as a separate record.
+
+model DemandForecast {
+  id          String       @id @default(cuid())
+  orgId       String
+  productId   String
+  periodYear  Int
+  periodMonth Int
+  type        ForecastType
+  qty         Decimal
+  source      String?
+  notes       String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([orgId, productId, periodYear, periodMonth, type])
+  @@index([orgId, productId])
+  @@index([orgId, periodYear, periodMonth])
+}
+
+// ── MPS ENTRY (Migration 10) ───────────────────────────────
+// Master Production Schedule — one row per SKU per period.
+// Distinct from the legacy MpsEntry (period-string model).
+
+model MPSEntry {
+  id          String @id @default(cuid())
+  orgId       String
+  productId   String
+  periodYear  Int
+  periodMonth Int
+
+  forecastQty        Decimal?
+  backlogCatchup     Decimal?
+  begFGInventory     Decimal?
+  targetEndInventory Decimal?
+  unconstrainedBuild Decimal?
+  lotSize            Int?
+  plannedBuild       Decimal?
+  endFGInventory     Decimal?
+
+  isLocked  Boolean  @default(false)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([orgId, productId, periodYear, periodMonth])
+  @@index([orgId, productId])
+  @@index([orgId, periodYear, periodMonth])
+}
+
+// ============================================================
+// NORMALIZATION LAYER
+// ============================================================
+
+enum ResolutionStatus {
+  PENDING // 70–90% confidence — awaiting human review
+  AUTO_MERGED // >90% confidence — merged automatically
+  REVIEWED_MERGED // Human confirmed merge
+  REVIEWED_KEPT // Human decided to keep as separate entity
+  NO_MATCH // No candidate above 70% threshold
+}
+
+// Records every entity deduplication decision made during import.
+// matchFields stores both similarity scores and (for auto-merges)
+// the dry-run FK change plan for full auditability.
+model EntityResolutionLog {
+  id             String           @id @default(cuid())
+  organizationId String
+  entityType     String // "Product" | "Supplier" | "Location" | "Customer"
+  incomingId     String // ID of the newly imported entity
+  matchedId      String? // ID of the existing canonical entity
+  confidence     Float // 0–100
+  status         ResolutionStatus @default(PENDING)
+  matchFields    Json? // [{field, incomingVal, matchedVal, score}, ...fkChanges]
+  resolvedAt     DateTime?
+  resolvedBy     String? // userId of human reviewer
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, entityType, status])
+  @@index([organizationId, incomingId])
+}
+
+// One row per org — always overwritten with the latest completeness snapshot.
+model ModelCompletenessReport {
+  id                String   @id @default(cuid())
+  organizationId    String   @unique
+  generatedAt       DateTime @default(now())
+  entityCounts      Json // { Product: 42, Supplier: 5, ... }
+  capabilities      Json // { demand_forecasting: { unlocked, coverage, qualityGates, missing[] }, ... }
+  overallScore      Float // 0–100 weighted average across capability coverage scores
+  consistencyIssues Json? // ConsistencyIssue[] — orphaned FKs, broken cross-entity links
+  updatedAt         DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// One row per org per entity type — tracks when each data type was last imported and whether it's stale.
+model ModelFreshness {
+  id             String   @id @default(cuid())
+  organizationId String
+  entityType     String
+  lastImportedAt DateTime
+  recordCount    Int
+  staleDays      Int // days since lastImportedAt (recomputed each check)
+  isStale        Boolean // staleDays > threshold for this entityType
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, entityType])
+  @@index([organizationId])
+}
+
+// ============================================================
+// LOGIC PARAMS
+// ============================================================
+
+enum LogicParamStatus {
+  IMPORTED
+  CONFIRMED
+}
+
+model LogicParam {
+  id             String           @id @default(cuid())
+  organizationId String
+  key            String
+  value          Json
+  sourceColumn   String?
+  status         LogicParamStatus @default(IMPORTED)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+}
+
+// ============================================================
+// FLAGGED COLUMNS
+// ============================================================
+
+// Columns that users flagged as "not in the registry" during import.
+// Platform team reviews these to inform registry additions.
+model FlaggedColumn {
+  id             String   @id @default(cuid())
+  organizationId String
+  entityType     String
+  columnName     String // the original column header from their file
+  sampleValues   Json // array of up to 5 sample values
+  flaggedAt      DateTime @default(now())
+  status         String   @default("pending") // pending | added | rejected
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([entityType, status])
+}
+
+// ── CANONICAL MODEL ─────────────────────────────────────────────
+
+enum ExchangeRateRateType {
+  SPOT
+  AVERAGE
+  BUDGET
+  CLOSING
+}
+
+enum PriceListType {
+  STANDARD
+  CUSTOMER
+  DISTRIBUTOR
+  PROMO
+}
+
+enum PriceListStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ShiftCalendarShift {
+  DAY
+  LATE
+  NIGHT
+}
+
+enum ShiftCalendarStatus {
+  AVAILABLE
+  SHUTDOWN
+  HOLIDAY
+  MAINTENANCE
+}
+
+enum SerialNumberStatus {
+  IN_PRODUCTION
+  IN_STOCK
+  SHIPPED
+  RETURNED
+  SCRAPPED
+}
+
+enum SalesForecastMetric {
+  STARTING_FORECAST
+  SALES_ADJ
+  BACKLOG_CATCHUP
+  FINAL_FORECAST
+}
+
+enum ShipmentStatus {
+  PLANNED
+  IN_TRANSIT
+  DELIVERED
+  RETURNED
+}
+
+enum InvoiceStatus {
+  PENDING
+  PARTIAL
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum ReturnRmaReasonCode {
+  DOA
+  FIRMWARE
+  WEAR
+  DAMAGE
+  OTHER
+}
+
+enum ReturnRmaDisposition {
+  REPLACE
+  REPAIR
+  CREDIT
+  SCRAP
+}
+
+enum NcrType {
+  INCOMING
+  IN_PROCESS
+  FINAL
+  CUSTOMER
+  AUDIT
+}
+
+enum NcrStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+  VOIDED
+}
+
+enum NcrSeverity {
+  MINOR
+  MAJOR
+  CRITICAL
+}
+
+enum CapaType {
+  CORRECTIVE
+  PREVENTIVE
+}
+
+enum CapaSource {
+  NCR
+  AUDIT
+  COMPLAINT
+  MANAGEMENT_REVIEW
+  TREND
+}
+
+enum CapaVerificationResult {
+  PASS
+  FAIL
+  PENDING
+}
+
+enum CapaStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+  CANCELLED
+}
+
+model ExchangeRate {
+  rateId       BigInt               @id @default(autoincrement())
+  fromCurrency String
+  toCurrency   String
+  rateDate     DateTime             @db.Date
+  rate         Decimal
+  rateType     ExchangeRateRateType
+  source       String?
+
+  @@map("exchange_rate")
+}
+
+model PriceList {
+  priceListId String          @id
+  name        String
+  type        PriceListType
+  currency    String
+  validFrom   DateTime        @db.Date
+  validTo     DateTime?       @db.Date
+  status      PriceListStatus
+  notes       String?
+
+  @@map("price_list")
+}
+
+model PriceListLine {
+  priceLineId BigInt    @id @default(autoincrement())
+  priceListId String // TODO: relation to price_list
+  sku         String // TODO: relation to product
+  minQty      Decimal?
+  unitPrice   Decimal
+  discountPct Decimal?
+  validFrom   DateTime? @db.Date
+  validTo     DateTime? @db.Date
+
+  @@map("price_list_line")
+}
+
+model CustomerPriceList {
+  assignmentId BigInt    @id @default(autoincrement())
+  customerId   String // TODO: relation to customer
+  priceListId  String // TODO: relation to price_list
+  validFrom    DateTime  @db.Date
+  validTo      DateTime? @db.Date
+  priority     Int
+
+  @@map("customer_price_list")
+}
+
+model ShiftCalendar {
+  calendarId   BigInt              @id @default(autoincrement())
+  date         DateTime            @db.Date
+  workCentreId String // TODO: relation to work_centre
+  shift        ShiftCalendarShift
+  startTime    String?
+  endTime      String?
+  availableHrs Decimal?
+  status       ShiftCalendarStatus
+  notes        String?
+
+  @@map("shift_calendar")
+}
+
+model SerialNumber {
+  serialNumber   String             @id
+  sku            String // TODO: relation to product
+  lotNumber      String? // TODO: relation to lot
+  workOrderId    String? // TODO: relation to work_order
+  productionDate DateTime?          @db.Date
+  soId           String? // TODO: relation to sales_order
+  customerId     String? // TODO: relation to customer
+  shipDate       DateTime?          @db.Date
+  status         SerialNumberStatus
+  locationId     String? // TODO: relation to location
+  notes          String?
+
+  @@map("serial_number")
+}
+
+model SalesForecast {
+  forecastId BigInt              @id @default(autoincrement())
+  sku        String // TODO: relation to product
+  period     DateTime            @db.Date
+  metric     SalesForecastMetric
+  qty        Decimal
+  version    String?
+  createdBy  String? // TODO: relation to employee
+  createdAt  DateTime?
+
+  @@map("sales_forecast")
+}
+
+model Shipment {
+  shipmentId         String         @id
+  soId               String? // TODO: relation to sales_order
+  customerId         String // TODO: relation to customer
+  shipDate           DateTime?      @db.Date
+  carrier            String?
+  trackingNumber     String?
+  incoterms          String?
+  shipFromLocationId String? // TODO: relation to location
+  shipToCity         String?
+  shipToCountry      String?
+  status             ShipmentStatus
+  totalQty           Decimal?
+  totalValue         Decimal?
+  notes              String?
+
+  @@map("shipment")
+}
+
+model ShipmentLine {
+  shipmentLineId BigInt  @id @default(autoincrement())
+  shipmentId     String // TODO: relation to shipment
+  soId           String? // TODO: relation to sales_order
+  lineNumber     Int
+  sku            String // TODO: relation to product
+  qtyShipped     Decimal
+  lotNumber      String? // TODO: relation to lot
+  serialNumbers  String?
+
+  @@map("shipment_line")
+}
+
+model Invoice {
+  invoiceId   String        @id
+  soId        String? // TODO: relation to sales_order
+  customerId  String // TODO: relation to customer
+  invoiceDate DateTime      @db.Date
+  dueDate     DateTime?     @db.Date
+  currency    String?
+  subtotal    Decimal?
+  taxAmount   Decimal?
+  totalAmount Decimal
+  status      InvoiceStatus
+  paymentDate DateTime?     @db.Date
+  paymentRef  String?
+  notes       String?
+
+  @@map("invoice")
+}
+
+model ReturnRma {
+  rmaId          String                @id
+  soId           String? // TODO: relation to sales_order
+  customerId     String // TODO: relation to customer
+  returnDate     DateTime?             @db.Date
+  sku            String // TODO: relation to product
+  serialNumber   String? // TODO: relation to serial_number
+  qty            Decimal
+  reasonCode     ReturnRmaReasonCode?
+  description    String?
+  disposition    ReturnRmaDisposition?
+  creditNoteRef  String?
+  resolutionDate DateTime?             @db.Date
+  status         String
+
+  @@map("return_rma")
+}
+
+model Ncr {
+  ncrId            String       @id
+  dateRaised       DateTime     @db.Date
+  type             NcrType
+  sku              String? // TODO: relation to product
+  lotNumber        String? // TODO: relation to lot
+  inspectionId     String? // TODO: relation to qc_inspection
+  qtyAffected      Decimal?
+  description      String
+  rootCause        String?
+  disposition      String?
+  correctiveAction String?
+  responsibleId    String? // TODO: relation to employee
+  dueDate          DateTime?    @db.Date
+  closedDate       DateTime?    @db.Date
+  status           NcrStatus
+  severity         NcrSeverity?
+
+  @@map("ncr")
+}
+
+model Capa {
+  capaId                String                  @id
+  type                  CapaType
+  source                CapaSource?
+  sourceReference       String?
+  dateOpened            DateTime                @db.Date
+  title                 String
+  description           String
+  rootCauseCategory     String?
+  rootCauseDetail       String?
+  actionPlan            String?
+  actionOwnerId         String? // TODO: relation to employee
+  targetCloseDate       DateTime?               @db.Date
+  actualCloseDate       DateTime?               @db.Date
+  verificationMethod    String?
+  verificationDate      DateTime?               @db.Date
+  verificationResult    CapaVerificationResult?
+  effectivenessCheckDue DateTime?               @db.Date
+  effectivenessResult   String?
+  status                CapaStatus
+  priority              String?
+  notes                 String?
+
+  @@map("capa")
+}
+
+// ============================================================
+// AI CHAT
+// ============================================================
+
+model Conversation {
+  id           String   @id @default(cuid())
+  orgId        String
+  userId       String
+  title        String
+  messageCount Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  messages ConversationMessage[]
+
+  @@index([orgId, userId])
+}
+
+model ConversationMessage {
+  id             String      @id @default(cuid())
+  conversationId String
+  role           MessageRole
+  content        String
+  toolCalls      Json?
+  tokensUsed     Int?
+  model          String?
+  createdAt      DateTime    @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  TOOL_RESULT
+}
+
+model ChatUsage {
+  id                  String   @id @default(cuid())
+  orgId               String
+  userId              String
+  date                DateTime @db.Date
+  messageCount        Int      @default(0)
+  estimatedTokensUsed Int      @default(0)
+
+  @@unique([orgId, userId, date])
+}
+
+model TokenUsage {
+  id               String   @id @default(cuid())
+  orgId            String
+  userId           String
+  date             DateTime @db.Date
+  feature          String   @default("chat")
+  inputTokens      Int      @default(0)
+  outputTokens     Int      @default(0)
+  cacheReadTokens  Int      @default(0)
+  cacheWriteTokens Int      @default(0)
+  requestCount     Int      @default(0)
+
+  @@unique([orgId, userId, date, feature])
+  @@index([orgId, date])
+  @@index([userId, date])
+}

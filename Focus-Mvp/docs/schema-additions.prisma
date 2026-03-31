@@ -1,0 +1,726 @@
+// ============================================================
+// FOCUS — Manufacturing Canonical Schema v2.0
+// Updated based on real demo files + industry best practices
+// Add these models to your existing schema.prisma
+// Do NOT modify existing models — append only
+// ============================================================
+
+// ── ENUMS ────────────────────────────────────────────────────
+
+enum ProductType {
+  FINISHED_GOOD
+  RAW_MATERIAL
+  COMPONENT
+  SUBASSEMBLY
+  SERVICE
+}
+
+enum MakeBuyType {
+  MAKE
+  BUY
+  OTHER
+}
+
+enum LocationType {
+  WAREHOUSE
+  AREA
+  AISLE
+  BIN
+  EXTERNAL
+}
+
+enum MovementType {
+  RECEIPT
+  ISSUE
+  TRANSFER
+  ADJUSTMENT
+  RETURN
+  SCRAP
+}
+
+enum POStatus {
+  DRAFT
+  SENT
+  CONFIRMED
+  PARTIAL
+  RECEIVED
+  CANCELLED
+}
+
+enum WOStatus {
+  PLANNED
+  RELEASED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum OpStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+  SKIPPED
+}
+
+enum SOStatus {
+  DRAFT
+  CONFIRMED
+  IN_PRODUCTION
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum QCType {
+  INCOMING
+  IN_PROCESS
+  FINAL
+  PERIODIC
+}
+
+enum QCStatus {
+  PENDING
+  PASS
+  FAIL
+  CONDITIONAL_PASS
+}
+
+enum EquipmentStatus {
+  OPERATIONAL
+  MAINTENANCE
+  DOWN
+  RETIRED
+}
+
+enum MaintenanceType {
+  PREVENTIVE
+  CORRECTIVE
+  PREDICTIVE
+  INSPECTION
+}
+
+enum SupplierItemStatus {
+  APPROVED
+  PREFERRED
+  BLOCKED
+}
+
+enum ForecastType {
+  STARTING
+  SALES_ADJ
+  BACKLOG_CATCHUP
+  FINAL
+}
+
+// ── PRODUCT ───────────────────────────────────────────────────
+// NOTE: If Product already exists, merge missing fields only.
+// @@unique([orgId, sku]) and @@index([orgId]) are required.
+
+model Product {
+  id                    String      @id @default(cuid())
+  orgId                 String
+  sku                   String
+  name                  String
+  description           String?
+  type                  ProductType
+  makeBuy               MakeBuyType @default(BUY)
+  category              String?
+  uom                   String
+  unitCost              Decimal?
+  unitPrice             Decimal?
+  leadTimeDays          Int?
+  reorderPoint          Decimal?
+  safetyStock           Decimal?
+  safetyStockConstraint Decimal?    // business-policy constraint (separate from statistical)
+  moq                   Int?        // Minimum Order Quantity
+  orderMultiple         Int?        // round order qty up to nearest multiple
+  isActive              Boolean     @default(true)
+  attributes            Json?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+  deletedAt             DateTime?
+
+  bomHeaders        BOMHeader[]
+  inventory         InventoryItem[]
+  lots              Lot[]
+  workOrders        WorkOrder[]
+  soLines           SOLine[]
+  poLines           POLine[]
+  bomLines          BOMLine[]        @relation("BOMComponent")
+  supplierItems     SupplierItem[]
+  demandForecasts   DemandForecast[]
+  mpsEntries        MPSEntry[]
+  routings          Routing[]
+
+  @@unique([orgId, sku])
+  @@index([orgId])
+}
+
+// ── BOM ───────────────────────────────────────────────────────
+
+model BOMHeader {
+  id            String    @id @default(cuid())
+  orgId         String
+  productId     String
+  version       String
+  isActive      Boolean   @default(false)
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+  yieldPct      Decimal?
+  notes         String?
+  attributes    Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  product    Product     @relation(fields: [productId], references: [id])
+  lines      BOMLine[]
+  workOrders WorkOrder[]
+
+  @@unique([orgId, productId, version])
+  @@index([orgId])
+}
+
+model BOMLine {
+  id                String    @id @default(cuid())
+  bomHeaderId       String
+  componentId       String
+  parentComponentId String?   // for multi-level BOM — which sub-assembly this belongs to
+  qty               Decimal
+  uom               String
+  componentCost     Decimal?  // cost per unit of this component (from BOM file)
+  wasteFactorPct    Decimal?
+  isPhantom         Boolean   @default(false)
+  sequence          Int?
+  notes             String?   // e.g. "Energy Delivery" grouping note
+
+  bomHeader BOMHeader @relation(fields: [bomHeaderId], references: [id])
+  component Product   @relation("BOMComponent", fields: [componentId], references: [id])
+}
+
+// ── LOCATION ──────────────────────────────────────────────────
+
+model Location {
+  id       String       @id @default(cuid())
+  orgId    String
+  code     String
+  name     String
+  type     LocationType
+  parentId String?
+  isActive Boolean      @default(true)
+
+  parent    Location?     @relation("LocationHierarchy", fields: [parentId], references: [id])
+  children  Location[]    @relation("LocationHierarchy")
+  inventory InventoryItem[]
+  equipment Equipment[]
+
+  @@unique([orgId, code])
+  @@index([orgId])
+}
+
+// ── LOT ───────────────────────────────────────────────────────
+
+model Lot {
+  id               String    @id @default(cuid())
+  orgId            String
+  lotNumber        String
+  productId        String
+  expiryDate       DateTime?
+  manufacturedDate DateTime?
+  supplierId       String?
+  attributes       Json?
+  createdAt        DateTime  @default(now())
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([orgId, lotNumber])
+  @@index([orgId])
+}
+
+// ── INVENTORY ITEM ────────────────────────────────────────────
+// Enriched with all planning fields from Inventory_product_demo.csv
+// NOTE: If InventoryItem already exists, merge missing fields only.
+
+model InventoryItem {
+  id              String    @id @default(cuid())
+  orgId           String
+  productId       String
+  locationId      String
+  lotId           String?
+
+  // Stock quantities
+  qtyOnHand       Decimal              // "On-hand goods"
+  qtyOnHold       Decimal  @default(0) // "On-hand – Hold/QA" (quarantine/QA hold)
+  qtyOnHandTotal  Decimal              // = qtyOnHand + qtyOnHold
+  qtyAllocated    Decimal  @default(0) // reserved for open orders
+  qtyAvailable    Decimal              // = qtyOnHand - qtyAllocated
+  qtyOpenPO       Decimal  @default(0) // inbound stock on open POs not yet received
+  qtyOnHandPlusPO Decimal  @default(0) // = qtyOnHandTotal + qtyOpenPO
+
+  uom             String
+
+  // Forward-looking demand (rolling window)
+  demandCurrentMonth Decimal? // current month expected consumption
+  demandNextMonth    Decimal? // next month expected consumption
+  demandMonth3       Decimal? // month after next expected consumption
+  demandPerDay       Decimal? // average daily demand rate
+  daysOfSupply       Decimal? // = qtyOnHand / demandPerDay
+
+  // Replenishment parameters
+  leadTimeDays    Int?      // item-location specific (overrides product default)
+  reorderPoint    Decimal?
+  lastReceiptDate DateTime?
+
+  // Replenishment recommendation (system-generated signals)
+  buyRecommendation Boolean? // Y/N — should we buy now?
+  recommendedQty    Decimal? // how much to buy
+
+  // Ordering constraints
+  moq          Int? // Minimum Order Quantity
+  orderMultiple Int? // round up to nearest multiple
+
+  attributes Json?
+  updatedAt  DateTime @updatedAt
+
+  product  Product  @relation(fields: [productId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@unique([orgId, productId, locationId, lotId])
+  @@index([orgId, productId])
+}
+
+// ── STOCK MOVEMENT ────────────────────────────────────────────
+// Immutable ledger — never update or delete, only append
+
+model StockMovement {
+  id         String       @id @default(cuid())
+  orgId      String
+  productId  String
+  locationId String
+  lotId      String?
+  type       MovementType
+  qty        Decimal
+  refType    String?      // PO | WO | SO | MANUAL
+  refId      String?
+  notes      String?
+  occurredAt DateTime
+  createdBy  String?
+
+  @@index([orgId, productId])
+  @@index([orgId, occurredAt])
+}
+
+// ── SUPPLIER ──────────────────────────────────────────────────
+
+model Supplier {
+  id           String    @id @default(cuid())
+  orgId        String
+  code         String
+  name         String
+  contactName  String?
+  email        String?
+  phone        String?
+  address      String?
+  country      String?
+  currency     String?
+  paymentTerms String?
+  leadTimeDays Int?
+  isActive     Boolean   @default(true)
+  attributes   Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  purchaseOrders PurchaseOrder[]
+  supplierItems  SupplierItem[]
+
+  @@unique([orgId, code])
+  @@index([orgId])
+}
+
+// ── SUPPLIER ITEM ─────────────────────────────────────────────
+// NEW: One component can have multiple approved suppliers,
+// each with their own pricing, lead time, MOQ, and status.
+// From Suppliers_product_demo.csv
+
+model SupplierItem {
+  id                 String             @id @default(cuid())
+  orgId              String
+  supplierId         String
+  productId          String
+  supplierPartNumber String?            // supplier's own part number
+  status             SupplierItemStatus @default(APPROVED)
+  leadTimeDays       Int?
+  moq                Int?
+  orderMultiple      Int?
+  contractUnitCost   Decimal?
+  costValidFrom      DateTime?
+  costValidTo        DateTime?
+  countryOfOrigin    String?
+  approvedSubstitute String?            // SKU of an approved substitute component
+  notes              String?
+  attributes         Json?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  product  Product  @relation(fields: [productId], references: [id])
+
+  @@unique([orgId, supplierId, productId])
+  @@index([orgId, productId])
+}
+
+// ── PURCHASE ORDER ────────────────────────────────────────────
+
+model PurchaseOrder {
+  id           String    @id @default(cuid())
+  orgId        String
+  poNumber     String
+  supplierId   String
+  status       POStatus  @default(DRAFT)
+  currency     String
+  totalAmount  Decimal?
+  orderDate    DateTime?
+  expectedDate DateTime? // requested delivery date
+  confirmedETA DateTime? // supplier's confirmed delivery date
+  receivedDate DateTime?
+  notes        String?
+  attributes   Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  lines    POLine[]
+
+  @@unique([orgId, poNumber])
+  @@index([orgId, status])
+}
+
+model POLine {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  productId       String
+  lineNumber      Int
+  qtyOrdered      Decimal
+  qtyReceived     Decimal       @default(0)
+  qtyOpen         Decimal?      // = qtyOrdered - qtyReceived
+  unitCost        Decimal
+  uom             String
+  expectedDate    DateTime?
+  confirmedETA    DateTime?     // line-level confirmed ETA
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  product       Product       @relation(fields: [productId], references: [id])
+  qcInspections QCInspection[]
+}
+
+// ── ROUTING ───────────────────────────────────────────────────
+// NEW: Bill of Process — manufacturing steps per product revision
+// From Routing_demo_data.csv
+
+model Routing {
+  id        String    @id @default(cuid())
+  orgId     String
+  productId String
+  revision  String    // e.g. "A" — version of the routing
+  isActive  Boolean   @default(true)
+  notes     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  product    Product            @relation(fields: [productId], references: [id])
+  operations RoutingOperation[]
+
+  @@unique([orgId, productId, revision])
+  @@index([orgId])
+}
+
+model RoutingOperation {
+  id                String   @id @default(cuid())
+  routingId         String
+  sequence          Int      // "Op #"
+  name              String   // "Operation Name" e.g. "Sub-assembly build"
+  workCenter        String?  // "Work Center" e.g. "WC-FA"
+  line              String?  // "Line" e.g. "L1"
+  setupMins         Decimal? // one-time setup time in minutes
+  runMinsPerUnit    Decimal? // run time per unit produced
+  effRunMinsPerUnit Decimal? // = runMinsPerUnit / yieldPct (effective run time)
+  yieldPct          Decimal? // expected yield at this step e.g. 0.98 = 98%
+  hasInspection     Boolean  @default(false) // triggers QC inspection at this step
+  lotSize           Int?     // minimum production batch for this operation
+  notes             String?
+
+  routing Routing @relation(fields: [routingId], references: [id])
+}
+
+// ── WORK ORDER ────────────────────────────────────────────────
+
+model WorkOrder {
+  id             String     @id @default(cuid())
+  orgId          String
+  woNumber       String
+  productId      String
+  bomHeaderId    String?
+  salesOrderId   String?
+  status         WOStatus   @default(PLANNED)
+  qtyPlanned     Decimal
+  qtyProduced    Decimal    @default(0)
+  qtyScrapped    Decimal    @default(0)
+  scheduledStart DateTime?
+  scheduledEnd   DateTime?
+  actualStart    DateTime?
+  actualEnd      DateTime?
+  priority       Int?
+  attributes     Json?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  product       Product             @relation(fields: [productId], references: [id])
+  bomHeader     BOMHeader?          @relation(fields: [bomHeaderId], references: [id])
+  salesOrder    SalesOrder?         @relation(fields: [salesOrderId], references: [id])
+  operations    WorkOrderOperation[]
+  batches       ProductionBatch[]
+  qcInspections QCInspection[]
+
+  @@unique([orgId, woNumber])
+  @@index([orgId, status])
+}
+
+model WorkOrderOperation {
+  id          String   @id @default(cuid())
+  workOrderId String
+  sequence    Int
+  name        String
+  workCenter  String?
+  line        String?
+  equipmentId String?
+  setupMins   Decimal?
+  plannedMins Int?
+  actualMins  Int?
+  status      OpStatus @default(PENDING)
+  notes       String?
+
+  workOrder WorkOrder  @relation(fields: [workOrderId], references: [id])
+  equipment Equipment? @relation(fields: [equipmentId], references: [id])
+}
+
+model ProductionBatch {
+  id             String    @id @default(cuid())
+  orgId          String
+  workOrderId    String
+  batchNumber    String
+  outputLotId    String?
+  qtyPlanned     Decimal
+  qtyActual      Decimal?
+  yieldActualPct Decimal?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  attributes     Json?
+
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id])
+
+  @@unique([orgId, batchNumber])
+}
+
+// ── CUSTOMER ──────────────────────────────────────────────────
+
+model Customer {
+  id              String    @id @default(cuid())
+  orgId           String
+  code            String
+  name            String
+  contactName     String?
+  email           String?
+  phone           String?
+  shippingAddress String?
+  billingAddress  String?
+  country         String?
+  currency        String?
+  paymentTerms    String?
+  creditLimit     Decimal?
+  isActive        Boolean   @default(true)
+  attributes      Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  salesOrders SalesOrder[]
+
+  @@unique([orgId, code])
+  @@index([orgId])
+}
+
+// ── SALES ORDER ───────────────────────────────────────────────
+
+model SalesOrder {
+  id              String    @id @default(cuid())
+  orgId           String
+  soNumber        String
+  customerId      String
+  status          SOStatus  @default(DRAFT)
+  currency        String
+  totalAmount     Decimal?
+  requestedDate   DateTime?
+  confirmedDate   DateTime?
+  shippingAddress String?
+  notes           String?
+  attributes      Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  customer   Customer   @relation(fields: [customerId], references: [id])
+  lines      SOLine[]
+  workOrders WorkOrder[]
+
+  @@unique([orgId, soNumber])
+  @@index([orgId, status])
+}
+
+model SOLine {
+  id            String     @id @default(cuid())
+  salesOrderId  String
+  productId     String
+  lineNumber    Int
+  qtyOrdered    Decimal
+  qtyShipped    Decimal    @default(0)
+  unitPrice     Decimal
+  uom           String
+  requestedDate DateTime?
+
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id])
+  product    Product    @relation(fields: [productId], references: [id])
+}
+
+// ── DEMAND FORECAST ───────────────────────────────────────────
+// NEW: Monthly demand forecast per SKU per period
+// From Sales_Forecast.csv — each row type stored as a separate record
+
+model DemandForecast {
+  id          String       @id @default(cuid())
+  orgId       String
+  productId   String
+  periodYear  Int          // e.g. 2026
+  periodMonth Int          // 1–12
+  type        ForecastType // STARTING | SALES_ADJ | BACKLOG_CATCHUP | FINAL
+  qty         Decimal
+  source      String?      // "sales_team" | "import" | "system"
+  notes       String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([orgId, productId, periodYear, periodMonth, type])
+  @@index([orgId, productId])
+  @@index([orgId, periodYear, periodMonth])
+}
+
+// ── MPS ENTRY ─────────────────────────────────────────────────
+// NEW: Master Production Schedule per SKU per period
+// From MPS_demo.csv — all MPS row types stored as columns (one row per SKU/period)
+// This is the "contract" between sales and production
+
+model MPSEntry {
+  id          String @id @default(cuid())
+  orgId       String
+  productId   String
+  periodYear  Int    // e.g. 2026
+  periodMonth Int    // 1–12
+
+  forecastQty           Decimal? // independent demand for this period
+  backlogCatchup        Decimal? // additional qty to recover backlog
+  begFGInventory        Decimal? // projected starting inventory
+  targetEndInventory    Decimal? // target ending inventory (policy-driven)
+  unconstrainedBuild    Decimal? // what we'd build ignoring capacity
+  lotSize               Int?     // production lot size constraint
+  plannedBuild          Decimal? // MPS output — actual planned production
+  endFGInventory        Decimal? // projected ending inventory after build
+
+  isLocked  Boolean  @default(false) // locked periods cannot be auto-replanned
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([orgId, productId, periodYear, periodMonth])
+  @@index([orgId, productId])
+  @@index([orgId, periodYear, periodMonth])
+}
+
+// ── QUALITY ───────────────────────────────────────────────────
+
+model QCInspection {
+  id          String   @id @default(cuid())
+  orgId       String
+  type        QCType
+  status      QCStatus @default(PENDING)
+  productId   String?
+  lotId       String?
+  workOrderId String?
+  poLineId    String?
+  inspectedBy String?
+  inspectedAt DateTime
+  notes       String?
+  attributes  Json?
+
+  workOrder WorkOrder?   @relation(fields: [workOrderId], references: [id])
+  poLine    POLine?      @relation(fields: [poLineId], references: [id])
+  results   QCResult[]
+
+  @@index([orgId, status])
+}
+
+model QCResult {
+  id           String       @id @default(cuid())
+  inspectionId String
+  criterion    String
+  specMin      Decimal?
+  specMax      Decimal?
+  actualValue  String?
+  isPassed     Boolean
+  notes        String?
+
+  inspection QCInspection @relation(fields: [inspectionId], references: [id])
+}
+
+// ── EQUIPMENT & MAINTENANCE ───────────────────────────────────
+
+model Equipment {
+  id                String          @id @default(cuid())
+  orgId             String
+  code              String
+  name              String
+  type              String?
+  locationId        String?
+  status            EquipmentStatus @default(OPERATIONAL)
+  serialNumber      String?
+  manufacturer      String?
+  purchasedAt       DateTime?
+  warrantyExpiry    DateTime?
+  nextMaintenanceAt DateTime?
+  attributes        Json?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  location            Location?            @relation(fields: [locationId], references: [id])
+  logs                MaintenanceLog[]
+  workOrderOperations WorkOrderOperation[]
+
+  @@unique([orgId, code])
+  @@index([orgId])
+}
+
+model MaintenanceLog {
+  id              String          @id @default(cuid())
+  equipmentId     String
+  type            MaintenanceType
+  description     String
+  performedBy     String?
+  performedAt     DateTime
+  durationMins    Int?
+  cost            Decimal?
+  nextScheduledAt DateTime?
+  attributes      Json?
+
+  equipment Equipment @relation(fields: [equipmentId], references: [id])
+}

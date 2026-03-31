@@ -1,0 +1,2739 @@
+{
+  "Master Data": {
+    "subtitle": "Core reference entities shared across all modules",
+    "entities": [
+      {
+        "name": "location",
+        "desc": "Physical sites, warehouses, and production areas",
+        "columns": [
+          {
+            "name": "location_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false,
+            "note": "e.g. LOC-001"
+          },
+          {
+            "name": "name",
+            "type": "VARCHAR(100)",
+            "nullable": false
+          },
+          {
+            "name": "type",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "WAREHOUSE | PRODUCTION | QA_HOLD | DISTRIBUTION"
+          },
+          {
+            "name": "city",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "country_code",
+            "type": "CHAR(2)",
+            "nullable": true,
+            "note": "ISO 3166-1 alpha-2"
+          },
+          {
+            "name": "is_active",
+            "type": "BOOLEAN",
+            "nullable": false
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "customer",
+        "desc": "End customers \u2014 hospitals, distributors, group purchasing organisations",
+        "columns": [
+          {
+            "name": "customer_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "name",
+            "type": "VARCHAR(200)",
+            "nullable": false
+          },
+          {
+            "name": "type",
+            "type": "ENUM",
+            "nullable": true,
+            "note": "HOSPITAL | DISTRIBUTOR | CLINIC | GPO | OTHER"
+          },
+          {
+            "name": "city",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "country_code",
+            "type": "CHAR(2)",
+            "nullable": true
+          },
+          {
+            "name": "currency",
+            "type": "CHAR(3)",
+            "nullable": true,
+            "note": "ISO 4217"
+          },
+          {
+            "name": "payment_terms",
+            "type": "VARCHAR(50)",
+            "nullable": true
+          },
+          {
+            "name": "credit_limit",
+            "type": "DECIMAL(12,2)",
+            "nullable": true
+          },
+          {
+            "name": "account_manager_id",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          },
+          {
+            "name": "vat_number",
+            "type": "VARCHAR(50)",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "ACTIVE | INACTIVE | ON_HOLD"
+          },
+          {
+            "name": "since_date",
+            "type": "DATE",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "supplier",
+        "desc": "External suppliers \u2014 components, services, subcontractors",
+        "columns": [
+          {
+            "name": "supplier_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "name",
+            "type": "VARCHAR(200)",
+            "nullable": false
+          },
+          {
+            "name": "country_code",
+            "type": "CHAR(2)",
+            "nullable": true
+          },
+          {
+            "name": "city",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "payment_terms",
+            "type": "VARCHAR(50)",
+            "nullable": true
+          },
+          {
+            "name": "lead_time_category",
+            "type": "ENUM",
+            "nullable": true,
+            "note": "STD | LONG | CUSTOM"
+          },
+          {
+            "name": "quality_rating",
+            "type": "DECIMAL(3,1)",
+            "nullable": true
+          },
+          {
+            "name": "on_time_pct",
+            "type": "DECIMAL(5,2)",
+            "nullable": true
+          },
+          {
+            "name": "certifications",
+            "type": "VARCHAR(500)",
+            "nullable": true
+          },
+          {
+            "name": "primary_contact",
+            "type": "VARCHAR(200)",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "ACTIVE | INACTIVE | BLOCKED"
+          },
+          {
+            "name": "approved_since",
+            "type": "DATE",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "product",
+        "desc": "All SKUs \u2014 finished goods, subassemblies, components, raw materials",
+        "columns": [
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "name",
+            "type": "VARCHAR(200)",
+            "nullable": false
+          },
+          {
+            "name": "product_type",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "FINISHED_GOOD | SUBASSEMBLY | COMPONENT | RAW_MATERIAL"
+          },
+          {
+            "name": "make_buy",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "MAKE | BUY | OTHER"
+          },
+          {
+            "name": "product_family",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "uom",
+            "type": "VARCHAR(20)",
+            "nullable": false
+          },
+          {
+            "name": "standard_cost",
+            "type": "DECIMAL(12,4)",
+            "nullable": true
+          },
+          {
+            "name": "list_price",
+            "type": "DECIMAL(12,2)",
+            "nullable": true
+          },
+          {
+            "name": "lead_time_days",
+            "type": "INTEGER",
+            "nullable": true
+          },
+          {
+            "name": "min_order_qty",
+            "type": "DECIMAL(12,3)",
+            "nullable": true
+          },
+          {
+            "name": "order_multiple",
+            "type": "DECIMAL(12,3)",
+            "nullable": true
+          },
+          {
+            "name": "shelf_life_days",
+            "type": "INTEGER",
+            "nullable": true
+          },
+          {
+            "name": "drawing_number",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "drawing_revision",
+            "type": "VARCHAR(10)",
+            "nullable": true
+          },
+          {
+            "name": "abc_class",
+            "type": "CHAR(1)",
+            "nullable": true,
+            "note": "A | B | C"
+          },
+          {
+            "name": "product_line",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "regulatory_class",
+            "type": "VARCHAR(50)",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "ACTIVE | INACTIVE | DISCONTINUED"
+          }
+        ]
+      },
+      {
+        "name": "employee",
+        "desc": "Internal staff \u2014 operators, engineers, managers, buyers",
+        "columns": [
+          {
+            "name": "employee_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "name",
+            "type": "VARCHAR(200)",
+            "nullable": false
+          },
+          {
+            "name": "department",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "role",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "work_centre_id",
+            "type": "VARCHAR(20)",
+            "fk": "work_centre.work_centre_id",
+            "nullable": true
+          },
+          {
+            "name": "competency_level",
+            "type": "VARCHAR(10)",
+            "nullable": true
+          },
+          {
+            "name": "skills",
+            "type": "TEXT",
+            "nullable": true
+          },
+          {
+            "name": "start_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "ACTIVE | INACTIVE | ON_LEAVE"
+          }
+        ]
+      }
+    ]
+  },
+  "Finance": {
+    "subtitle": "Currency and pricing reference data",
+    "entities": [
+      {
+        "name": "exchange_rate",
+        "desc": "Daily exchange rates between currency pairs",
+        "columns": [
+          {
+            "name": "rate_id",
+            "type": "BIGINT",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "from_currency",
+            "type": "CHAR(3)",
+            "nullable": false
+          },
+          {
+            "name": "to_currency",
+            "type": "CHAR(3)",
+            "nullable": false
+          },
+          {
+            "name": "rate_date",
+            "type": "DATE",
+            "nullable": false
+          },
+          {
+            "name": "rate",
+            "type": "DECIMAL(18,8)",
+            "nullable": false
+          },
+          {
+            "name": "rate_type",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "SPOT | AVERAGE | BUDGET | CLOSING"
+          },
+          {
+            "name": "source",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "price_list",
+        "desc": "Named price lists \u2014 standard, customer-specific, promotional",
+        "columns": [
+          {
+            "name": "price_list_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "name",
+            "type": "VARCHAR(100)",
+            "nullable": false
+          },
+          {
+            "name": "type",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "STANDARD | CUSTOMER | DISTRIBUTOR | PROMO"
+          },
+          {
+            "name": "currency",
+            "type": "CHAR(3)",
+            "nullable": false
+          },
+          {
+            "name": "valid_from",
+            "type": "DATE",
+            "nullable": false
+          },
+          {
+            "name": "valid_to",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "ACTIVE | INACTIVE"
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "price_list_line",
+        "desc": "SKU-level price within a price list",
+        "columns": [
+          {
+            "name": "price_line_id",
+            "type": "BIGINT",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "price_list_id",
+            "type": "VARCHAR(20)",
+            "fk": "price_list.price_list_id",
+            "nullable": false
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "min_qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": true
+          },
+          {
+            "name": "unit_price",
+            "type": "DECIMAL(12,4)",
+            "nullable": false
+          },
+          {
+            "name": "discount_pct",
+            "type": "DECIMAL(5,2)",
+            "nullable": true
+          },
+          {
+            "name": "valid_from",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "valid_to",
+            "type": "DATE",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "customer_price_list",
+        "desc": "Assignment of a price list to a specific customer",
+        "columns": [
+          {
+            "name": "assignment_id",
+            "type": "BIGINT",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "customer_id",
+            "type": "VARCHAR(20)",
+            "fk": "customer.customer_id",
+            "nullable": false
+          },
+          {
+            "name": "price_list_id",
+            "type": "VARCHAR(20)",
+            "fk": "price_list.price_list_id",
+            "nullable": false
+          },
+          {
+            "name": "valid_from",
+            "type": "DATE",
+            "nullable": false
+          },
+          {
+            "name": "valid_to",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "priority",
+            "type": "INTEGER",
+            "nullable": false
+          }
+        ]
+      }
+    ]
+  },
+  "Engineering": {
+    "subtitle": "Product structure, routings, and production infrastructure",
+    "entities": [
+      {
+        "name": "bom_header",
+        "desc": "Bill of Materials \u2014 one active revision per finished good",
+        "columns": [
+          {
+            "name": "bom_id",
+            "type": "VARCHAR(50)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "revision",
+            "type": "VARCHAR(10)",
+            "nullable": false
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "ACTIVE | SUPERSEDED | DRAFT"
+          },
+          {
+            "name": "effective_from",
+            "type": "DATE",
+            "nullable": false
+          },
+          {
+            "name": "effective_to",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "total_components",
+            "type": "INTEGER",
+            "nullable": true
+          },
+          {
+            "name": "total_bom_cost",
+            "type": "DECIMAL(12,2)",
+            "nullable": true
+          },
+          {
+            "name": "yield_pct",
+            "type": "DECIMAL(5,2)",
+            "nullable": true
+          },
+          {
+            "name": "applicable_standard",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "created_by",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          },
+          {
+            "name": "approved_by",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          },
+          {
+            "name": "approval_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "bom_line",
+        "desc": "Individual components within a BOM revision",
+        "columns": [
+          {
+            "name": "bom_line_id",
+            "type": "BIGINT",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "bom_id",
+            "type": "VARCHAR(50)",
+            "fk": "bom_header.bom_id",
+            "nullable": false
+          },
+          {
+            "name": "line_number",
+            "type": "INTEGER",
+            "nullable": false
+          },
+          {
+            "name": "component_sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "section",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "qty_per",
+            "type": "DECIMAL(12,5)",
+            "nullable": false
+          },
+          {
+            "name": "uom",
+            "type": "VARCHAR(20)",
+            "nullable": false
+          },
+          {
+            "name": "component_cost",
+            "type": "DECIMAL(12,4)",
+            "nullable": true
+          },
+          {
+            "name": "extended_cost",
+            "type": "DECIMAL(12,4)",
+            "nullable": true
+          },
+          {
+            "name": "make_buy",
+            "type": "ENUM",
+            "nullable": true
+          },
+          {
+            "name": "is_critical",
+            "type": "BOOLEAN",
+            "nullable": false
+          },
+          {
+            "name": "approved_sub_sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": true
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "routing_header",
+        "desc": "Routing revision metadata per finished good",
+        "columns": [
+          {
+            "name": "routing_id",
+            "type": "VARCHAR(50)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "revision",
+            "type": "VARCHAR(10)",
+            "nullable": false
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false
+          },
+          {
+            "name": "effective_from",
+            "type": "DATE",
+            "nullable": false
+          },
+          {
+            "name": "effective_to",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "approved_by",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          },
+          {
+            "name": "approval_date",
+            "type": "DATE",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "routing_operation",
+        "desc": "Individual operations in a routing",
+        "columns": [
+          {
+            "name": "routing_op_id",
+            "type": "BIGINT",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "routing_id",
+            "type": "VARCHAR(50)",
+            "fk": "routing_header.routing_id",
+            "nullable": false
+          },
+          {
+            "name": "op_number",
+            "type": "INTEGER",
+            "nullable": false
+          },
+          {
+            "name": "operation_name",
+            "type": "VARCHAR(200)",
+            "nullable": false
+          },
+          {
+            "name": "work_centre_id",
+            "type": "VARCHAR(20)",
+            "fk": "work_centre.work_centre_id",
+            "nullable": false
+          },
+          {
+            "name": "production_line",
+            "type": "VARCHAR(20)",
+            "nullable": true
+          },
+          {
+            "name": "setup_min",
+            "type": "DECIMAL(8,2)",
+            "nullable": true
+          },
+          {
+            "name": "run_min_per_unit",
+            "type": "DECIMAL(8,4)",
+            "nullable": true
+          },
+          {
+            "name": "yield_pct",
+            "type": "DECIMAL(5,2)",
+            "nullable": true
+          },
+          {
+            "name": "eff_run_min",
+            "type": "DECIMAL(8,4)",
+            "nullable": true
+          },
+          {
+            "name": "lot_size",
+            "type": "INTEGER",
+            "nullable": true
+          },
+          {
+            "name": "inspection_required",
+            "type": "BOOLEAN",
+            "nullable": false
+          },
+          {
+            "name": "required_skill",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "cert_operator_required",
+            "type": "BOOLEAN",
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "name": "work_centre",
+        "desc": "Production work centres and quality stations",
+        "columns": [
+          {
+            "name": "work_centre_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "name",
+            "type": "VARCHAR(100)",
+            "nullable": false
+          },
+          {
+            "name": "department",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "capacity_hrs_day",
+            "type": "DECIMAL(5,2)",
+            "nullable": true
+          },
+          {
+            "name": "operators_per_shift",
+            "type": "INTEGER",
+            "nullable": true
+          },
+          {
+            "name": "shifts_per_day",
+            "type": "INTEGER",
+            "nullable": true
+          },
+          {
+            "name": "available_days_week",
+            "type": "INTEGER",
+            "nullable": true
+          },
+          {
+            "name": "oee_target_pct",
+            "type": "DECIMAL(5,2)",
+            "nullable": true
+          },
+          {
+            "name": "oee_current_pct",
+            "type": "DECIMAL(5,2)",
+            "nullable": true
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "shift_calendar",
+        "desc": "Planned capacity per work centre per shift per day",
+        "columns": [
+          {
+            "name": "calendar_id",
+            "type": "BIGINT",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "date",
+            "type": "DATE",
+            "nullable": false
+          },
+          {
+            "name": "work_centre_id",
+            "type": "VARCHAR(20)",
+            "fk": "work_centre.work_centre_id",
+            "nullable": false
+          },
+          {
+            "name": "shift",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "DAY | LATE | NIGHT"
+          },
+          {
+            "name": "start_time",
+            "type": "TIME",
+            "nullable": true
+          },
+          {
+            "name": "end_time",
+            "type": "TIME",
+            "nullable": true
+          },
+          {
+            "name": "available_hrs",
+            "type": "DECIMAL(4,2)",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "AVAILABLE | SHUTDOWN | HOLIDAY | MAINTENANCE"
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "equipment",
+        "desc": "Production equipment, test rigs, and quality instruments",
+        "columns": [
+          {
+            "name": "equipment_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "name",
+            "type": "VARCHAR(200)",
+            "nullable": false
+          },
+          {
+            "name": "work_centre_id",
+            "type": "VARCHAR(20)",
+            "fk": "work_centre.work_centre_id",
+            "nullable": true
+          },
+          {
+            "name": "type",
+            "type": "ENUM",
+            "nullable": true,
+            "note": "PRODUCTION | TEST | QUALITY | UTILITY"
+          },
+          {
+            "name": "serial_number",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "manufacturer",
+            "type": "VARCHAR(200)",
+            "nullable": true
+          },
+          {
+            "name": "installation_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "maintenance_interval_days",
+            "type": "INTEGER",
+            "nullable": true
+          },
+          {
+            "name": "last_pm_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "next_pm_due",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "calibration_due",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "OPERATIONAL | UNDER_MAINTENANCE | DECOMMISSIONED"
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "maintenance_log",
+        "desc": "Equipment maintenance and calibration activity records",
+        "columns": [
+          {
+            "name": "log_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "equipment_id",
+            "type": "VARCHAR(20)",
+            "fk": "equipment.equipment_id",
+            "nullable": false
+          },
+          {
+            "name": "date",
+            "type": "DATE",
+            "nullable": false
+          },
+          {
+            "name": "type",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "PREVENTIVE | CORRECTIVE | CALIBRATION"
+          },
+          {
+            "name": "performed_by",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          },
+          {
+            "name": "performed_by_external",
+            "type": "VARCHAR(200)",
+            "nullable": true
+          },
+          {
+            "name": "duration_hrs",
+            "type": "DECIMAL(6,2)",
+            "nullable": true
+          },
+          {
+            "name": "parts_used",
+            "type": "TEXT",
+            "nullable": true
+          },
+          {
+            "name": "cost",
+            "type": "DECIMAL(10,2)",
+            "nullable": true
+          },
+          {
+            "name": "result",
+            "type": "ENUM",
+            "nullable": true,
+            "note": "PASS | FAIL | CONDITIONAL"
+          },
+          {
+            "name": "next_due",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      }
+    ]
+  },
+  "Inventory": {
+    "subtitle": "Stock balances, lot traceability, serial numbers, and movements",
+    "entities": [
+      {
+        "name": "inventory_balance",
+        "desc": "Current stock level per SKU per location",
+        "columns": [
+          {
+            "name": "balance_id",
+            "type": "BIGINT",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "location_id",
+            "type": "VARCHAR(20)",
+            "fk": "location.location_id",
+            "nullable": false
+          },
+          {
+            "name": "qty_on_hand",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "qty_on_hold",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "qty_open_po",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "safety_stock",
+            "type": "DECIMAL(14,3)",
+            "nullable": true
+          },
+          {
+            "name": "reorder_point",
+            "type": "DECIMAL(14,3)",
+            "nullable": true
+          },
+          {
+            "name": "demand_per_day",
+            "type": "DECIMAL(10,4)",
+            "nullable": true
+          },
+          {
+            "name": "days_of_supply",
+            "type": "DECIMAL(8,1)",
+            "nullable": true
+          },
+          {
+            "name": "buy_recommendation",
+            "type": "BOOLEAN",
+            "nullable": true
+          },
+          {
+            "name": "recommended_qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": true
+          },
+          {
+            "name": "unit_cost",
+            "type": "DECIMAL(12,4)",
+            "nullable": true
+          },
+          {
+            "name": "total_value",
+            "type": "DECIMAL(16,2)",
+            "nullable": true
+          },
+          {
+            "name": "last_receipt_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "updated_at",
+            "type": "TIMESTAMP",
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "name": "lot",
+        "desc": "Lot/batch master \u2014 every traceable quantity of material",
+        "columns": [
+          {
+            "name": "lot_number",
+            "type": "VARCHAR(100)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "lot_type",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "COMPONENT | FINISHED_GOOD | RAW_MATERIAL"
+          },
+          {
+            "name": "origin_type",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "PO | WO | TRANSFER | OPENING"
+          },
+          {
+            "name": "origin_reference",
+            "type": "VARCHAR(50)",
+            "nullable": true
+          },
+          {
+            "name": "qty_created",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "qty_on_hand",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "qty_consumed",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "qty_scrapped",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "created_date",
+            "type": "DATE",
+            "nullable": false
+          },
+          {
+            "name": "expiry_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "location_id",
+            "type": "VARCHAR(20)",
+            "fk": "location.location_id",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "ACTIVE | QUARANTINE | CONSUMED | EXPIRED | SCRAPPED"
+          },
+          {
+            "name": "released_by",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "serial_number",
+        "desc": "Individual unit traceability for finished goods",
+        "columns": [
+          {
+            "name": "serial_number",
+            "type": "VARCHAR(100)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "lot_number",
+            "type": "VARCHAR(100)",
+            "fk": "lot.lot_number",
+            "nullable": true
+          },
+          {
+            "name": "work_order_id",
+            "type": "VARCHAR(20)",
+            "fk": "work_order.work_order_id",
+            "nullable": true
+          },
+          {
+            "name": "production_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "so_id",
+            "type": "VARCHAR(20)",
+            "fk": "sales_order.so_id",
+            "nullable": true
+          },
+          {
+            "name": "customer_id",
+            "type": "VARCHAR(20)",
+            "fk": "customer.customer_id",
+            "nullable": true
+          },
+          {
+            "name": "ship_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "IN_PRODUCTION | IN_STOCK | SHIPPED | RETURNED | SCRAPPED"
+          },
+          {
+            "name": "location_id",
+            "type": "VARCHAR(20)",
+            "fk": "location.location_id",
+            "nullable": true
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "stock_movement",
+        "desc": "Immutable ledger of every stock transaction",
+        "columns": [
+          {
+            "name": "movement_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "date",
+            "type": "TIMESTAMP",
+            "nullable": false
+          },
+          {
+            "name": "movement_type",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "RECEIPT | WO_ISSUE | WO_RECEIPT | SHIPMENT | TRANSFER | QA_HOLD | QA_RELEASE | ADJUSTMENT | SCRAP"
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "from_location_id",
+            "type": "VARCHAR(20)",
+            "fk": "location.location_id",
+            "nullable": true
+          },
+          {
+            "name": "to_location_id",
+            "type": "VARCHAR(20)",
+            "fk": "location.location_id",
+            "nullable": true
+          },
+          {
+            "name": "qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "uom",
+            "type": "VARCHAR(20)",
+            "nullable": false
+          },
+          {
+            "name": "lot_number",
+            "type": "VARCHAR(100)",
+            "fk": "lot.lot_number",
+            "nullable": true
+          },
+          {
+            "name": "reference_type",
+            "type": "ENUM",
+            "nullable": true
+          },
+          {
+            "name": "reference_id",
+            "type": "VARCHAR(50)",
+            "nullable": true
+          },
+          {
+            "name": "operator_id",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      }
+    ]
+  },
+  "Procurement": {
+    "subtitle": "Supplier pricing, purchase orders, and receipts",
+    "entities": [
+      {
+        "name": "supplier_item",
+        "desc": "Price, lead time, and terms per supplier\u2013SKU combination",
+        "columns": [
+          {
+            "name": "supplier_item_id",
+            "type": "BIGINT",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "supplier_id",
+            "type": "VARCHAR(20)",
+            "fk": "supplier.supplier_id",
+            "nullable": false
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "supplier_part_number",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "PREFERRED | APPROVED | BLOCKED"
+          },
+          {
+            "name": "lead_time_days",
+            "type": "INTEGER",
+            "nullable": true
+          },
+          {
+            "name": "moq",
+            "type": "DECIMAL(12,3)",
+            "nullable": true
+          },
+          {
+            "name": "order_multiple",
+            "type": "DECIMAL(12,3)",
+            "nullable": true
+          },
+          {
+            "name": "unit_cost",
+            "type": "DECIMAL(12,4)",
+            "nullable": true
+          },
+          {
+            "name": "currency",
+            "type": "CHAR(3)",
+            "nullable": true
+          },
+          {
+            "name": "valid_from",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "valid_to",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "country_of_origin",
+            "type": "CHAR(2)",
+            "nullable": true
+          },
+          {
+            "name": "approved_sub_sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "purchase_order",
+        "desc": "PO header \u2014 one order placed to one supplier on one date",
+        "columns": [
+          {
+            "name": "po_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "supplier_id",
+            "type": "VARCHAR(20)",
+            "fk": "supplier.supplier_id",
+            "nullable": false
+          },
+          {
+            "name": "order_date",
+            "type": "DATE",
+            "nullable": false
+          },
+          {
+            "name": "requested_delivery_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "confirmed_eta",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "total_lines",
+            "type": "INTEGER",
+            "nullable": true
+          },
+          {
+            "name": "total_value",
+            "type": "DECIMAL(14,2)",
+            "nullable": true
+          },
+          {
+            "name": "currency",
+            "type": "CHAR(3)",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "OPEN | PARTIAL | CLOSED | CANCELLED"
+          },
+          {
+            "name": "buyer_id",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          },
+          {
+            "name": "approved_by",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          },
+          {
+            "name": "po_type",
+            "type": "ENUM",
+            "nullable": true,
+            "note": "STANDARD | BLANKET | CONSIGNMENT"
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "purchase_order_line",
+        "desc": "Individual line items on a purchase order",
+        "columns": [
+          {
+            "name": "po_line_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "po_id",
+            "type": "VARCHAR(20)",
+            "fk": "purchase_order.po_id",
+            "nullable": false
+          },
+          {
+            "name": "line_number",
+            "type": "INTEGER",
+            "nullable": false
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "ordered_qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "received_qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "open_qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "requested_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "confirmed_eta",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "unit_price",
+            "type": "DECIMAL(12,4)",
+            "nullable": true
+          },
+          {
+            "name": "line_value",
+            "type": "DECIMAL(14,2)",
+            "nullable": true
+          },
+          {
+            "name": "uom",
+            "type": "VARCHAR(20)",
+            "nullable": false
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      }
+    ]
+  },
+  "Planning": {
+    "subtitle": "Demand forecasting and master production scheduling",
+    "entities": [
+      {
+        "name": "sales_forecast",
+        "desc": "Monthly demand forecast per SKU",
+        "columns": [
+          {
+            "name": "forecast_id",
+            "type": "BIGINT",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "period",
+            "type": "DATE",
+            "nullable": false,
+            "note": "First day of month"
+          },
+          {
+            "name": "metric",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "STARTING_FORECAST | SALES_ADJ | BACKLOG_CATCHUP | FINAL_FORECAST"
+          },
+          {
+            "name": "qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "version",
+            "type": "VARCHAR(50)",
+            "nullable": true
+          },
+          {
+            "name": "created_by",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "mps_entry",
+        "desc": "Master Production Schedule \u2014 planned build quantities per SKU per period",
+        "columns": [
+          {
+            "name": "mps_id",
+            "type": "BIGINT",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "period",
+            "type": "DATE",
+            "nullable": false
+          },
+          {
+            "name": "metric",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "FORECAST_QTY | BACKLOG_CATCHUP | BEG_INV | TARGET_END_INV | UNCONSTRAINED_BUILD | LOT_SIZE | PLANNED_BUILD | END_INV"
+          },
+          {
+            "name": "qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "version",
+            "type": "VARCHAR(50)",
+            "nullable": true
+          },
+          {
+            "name": "frozen",
+            "type": "BOOLEAN",
+            "nullable": false
+          },
+          {
+            "name": "created_by",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          },
+          {
+            "name": "updated_at",
+            "type": "TIMESTAMP",
+            "nullable": true
+          }
+        ]
+      }
+    ]
+  },
+  "Production": {
+    "subtitle": "Work orders and step-level operation actuals",
+    "entities": [
+      {
+        "name": "work_order",
+        "desc": "Production order to build a quantity of a finished good",
+        "columns": [
+          {
+            "name": "work_order_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "bom_id",
+            "type": "VARCHAR(50)",
+            "fk": "bom_header.bom_id",
+            "nullable": true
+          },
+          {
+            "name": "routing_id",
+            "type": "VARCHAR(50)",
+            "fk": "routing_header.routing_id",
+            "nullable": true
+          },
+          {
+            "name": "work_centre_id",
+            "type": "VARCHAR(20)",
+            "fk": "work_centre.work_centre_id",
+            "nullable": true
+          },
+          {
+            "name": "production_line",
+            "type": "VARCHAR(20)",
+            "nullable": true
+          },
+          {
+            "name": "planned_qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "completed_qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "scrap_qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "yield_pct",
+            "type": "DECIMAL(5,2)",
+            "nullable": true
+          },
+          {
+            "name": "planned_start",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "planned_end",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "actual_start",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "actual_end",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "PLANNED | RELEASED | IN_PROGRESS | CLOSED | CANCELLED"
+          },
+          {
+            "name": "lot_number",
+            "type": "VARCHAR(100)",
+            "fk": "lot.lot_number",
+            "nullable": true
+          },
+          {
+            "name": "so_id",
+            "type": "VARCHAR(20)",
+            "fk": "sales_order.so_id",
+            "nullable": true
+          },
+          {
+            "name": "priority",
+            "type": "ENUM",
+            "nullable": true
+          },
+          {
+            "name": "operator_lead_id",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "work_order_operation",
+        "desc": "Step-level actuals per routing operation \u2014 source of OEE, yield loss, and labour efficiency data",
+        "columns": [
+          {
+            "name": "wo_op_id",
+            "type": "BIGINT",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "work_order_id",
+            "type": "VARCHAR(20)",
+            "fk": "work_order.work_order_id",
+            "nullable": false
+          },
+          {
+            "name": "routing_op_id",
+            "type": "BIGINT",
+            "fk": "routing_operation.routing_op_id",
+            "nullable": true
+          },
+          {
+            "name": "op_number",
+            "type": "INTEGER",
+            "nullable": false
+          },
+          {
+            "name": "operation_name",
+            "type": "VARCHAR(200)",
+            "nullable": false
+          },
+          {
+            "name": "work_centre_id",
+            "type": "VARCHAR(20)",
+            "fk": "work_centre.work_centre_id",
+            "nullable": false
+          },
+          {
+            "name": "operator_id",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          },
+          {
+            "name": "planned_qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": true
+          },
+          {
+            "name": "actual_qty_good",
+            "type": "DECIMAL(14,3)",
+            "nullable": true
+          },
+          {
+            "name": "actual_qty_scrap",
+            "type": "DECIMAL(14,3)",
+            "nullable": true
+          },
+          {
+            "name": "actual_qty_rework",
+            "type": "DECIMAL(14,3)",
+            "nullable": true
+          },
+          {
+            "name": "planned_setup_min",
+            "type": "DECIMAL(8,2)",
+            "nullable": true
+          },
+          {
+            "name": "actual_setup_min",
+            "type": "DECIMAL(8,2)",
+            "nullable": true
+          },
+          {
+            "name": "planned_run_min",
+            "type": "DECIMAL(8,2)",
+            "nullable": true
+          },
+          {
+            "name": "actual_run_min",
+            "type": "DECIMAL(8,2)",
+            "nullable": true
+          },
+          {
+            "name": "planned_start",
+            "type": "TIMESTAMP",
+            "nullable": true
+          },
+          {
+            "name": "actual_start",
+            "type": "TIMESTAMP",
+            "nullable": true
+          },
+          {
+            "name": "actual_end",
+            "type": "TIMESTAMP",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "PENDING | IN_PROGRESS | COMPLETED | SKIPPED"
+          },
+          {
+            "name": "yield_pct",
+            "type": "DECIMAL(5,2)",
+            "nullable": true
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      }
+    ]
+  },
+  "Sales & Fulfilment": {
+    "subtitle": "Customer orders, shipments, invoicing, and returns",
+    "entities": [
+      {
+        "name": "sales_order",
+        "desc": "Customer order header",
+        "columns": [
+          {
+            "name": "so_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "customer_id",
+            "type": "VARCHAR(20)",
+            "fk": "customer.customer_id",
+            "nullable": false
+          },
+          {
+            "name": "order_date",
+            "type": "DATE",
+            "nullable": false
+          },
+          {
+            "name": "requested_delivery_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "confirmed_ship_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "actual_ship_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "OPEN | PARTIAL | CLOSED | CONFIRMED | CANCELLED"
+          },
+          {
+            "name": "currency",
+            "type": "CHAR(3)",
+            "nullable": true
+          },
+          {
+            "name": "total_order_value",
+            "type": "DECIMAL(14,2)",
+            "nullable": true
+          },
+          {
+            "name": "payment_terms",
+            "type": "VARCHAR(50)",
+            "nullable": true
+          },
+          {
+            "name": "sales_rep_id",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          },
+          {
+            "name": "incoterms",
+            "type": "VARCHAR(10)",
+            "nullable": true
+          },
+          {
+            "name": "ship_to_location_id",
+            "type": "VARCHAR(20)",
+            "fk": "location.location_id",
+            "nullable": true
+          },
+          {
+            "name": "customer_po_ref",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "sales_order_line",
+        "desc": "Individual line items on a sales order",
+        "columns": [
+          {
+            "name": "so_line_id",
+            "type": "BIGINT",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "so_id",
+            "type": "VARCHAR(20)",
+            "fk": "sales_order.so_id",
+            "nullable": false
+          },
+          {
+            "name": "line_number",
+            "type": "INTEGER",
+            "nullable": false
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "ordered_qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "shipped_qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "open_qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "unit_price",
+            "type": "DECIMAL(12,2)",
+            "nullable": true
+          },
+          {
+            "name": "line_value",
+            "type": "DECIMAL(14,2)",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false
+          },
+          {
+            "name": "requested_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "confirmed_date",
+            "type": "DATE",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "shipment",
+        "desc": "Physical dispatch event",
+        "columns": [
+          {
+            "name": "shipment_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "so_id",
+            "type": "VARCHAR(20)",
+            "fk": "sales_order.so_id",
+            "nullable": true
+          },
+          {
+            "name": "customer_id",
+            "type": "VARCHAR(20)",
+            "fk": "customer.customer_id",
+            "nullable": false
+          },
+          {
+            "name": "ship_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "carrier",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "tracking_number",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "incoterms",
+            "type": "VARCHAR(10)",
+            "nullable": true
+          },
+          {
+            "name": "ship_from_location_id",
+            "type": "VARCHAR(20)",
+            "fk": "location.location_id",
+            "nullable": true
+          },
+          {
+            "name": "ship_to_city",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "ship_to_country",
+            "type": "CHAR(2)",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "PLANNED | IN_TRANSIT | DELIVERED | RETURNED"
+          },
+          {
+            "name": "total_qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": true
+          },
+          {
+            "name": "total_value",
+            "type": "DECIMAL(14,2)",
+            "nullable": true
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "shipment_line",
+        "desc": "Line-level detail of what was physically shipped",
+        "columns": [
+          {
+            "name": "shipment_line_id",
+            "type": "BIGINT",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "shipment_id",
+            "type": "VARCHAR(20)",
+            "fk": "shipment.shipment_id",
+            "nullable": false
+          },
+          {
+            "name": "so_id",
+            "type": "VARCHAR(20)",
+            "fk": "sales_order.so_id",
+            "nullable": true
+          },
+          {
+            "name": "line_number",
+            "type": "INTEGER",
+            "nullable": false
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "qty_shipped",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "lot_number",
+            "type": "VARCHAR(100)",
+            "fk": "lot.lot_number",
+            "nullable": true
+          },
+          {
+            "name": "serial_numbers",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "invoice",
+        "desc": "Customer invoice",
+        "columns": [
+          {
+            "name": "invoice_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "so_id",
+            "type": "VARCHAR(20)",
+            "fk": "sales_order.so_id",
+            "nullable": true
+          },
+          {
+            "name": "customer_id",
+            "type": "VARCHAR(20)",
+            "fk": "customer.customer_id",
+            "nullable": false
+          },
+          {
+            "name": "invoice_date",
+            "type": "DATE",
+            "nullable": false
+          },
+          {
+            "name": "due_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "currency",
+            "type": "CHAR(3)",
+            "nullable": true
+          },
+          {
+            "name": "subtotal",
+            "type": "DECIMAL(14,2)",
+            "nullable": true
+          },
+          {
+            "name": "tax_amount",
+            "type": "DECIMAL(12,2)",
+            "nullable": true
+          },
+          {
+            "name": "total_amount",
+            "type": "DECIMAL(14,2)",
+            "nullable": false
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "PENDING | PARTIAL | PAID | OVERDUE | CANCELLED"
+          },
+          {
+            "name": "payment_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "payment_ref",
+            "type": "VARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "return_rma",
+        "desc": "Customer returns and RMA records",
+        "columns": [
+          {
+            "name": "rma_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "so_id",
+            "type": "VARCHAR(20)",
+            "fk": "sales_order.so_id",
+            "nullable": true
+          },
+          {
+            "name": "customer_id",
+            "type": "VARCHAR(20)",
+            "fk": "customer.customer_id",
+            "nullable": false
+          },
+          {
+            "name": "return_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "serial_number",
+            "type": "VARCHAR(100)",
+            "fk": "serial_number.serial_number",
+            "nullable": true
+          },
+          {
+            "name": "qty",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "reason_code",
+            "type": "ENUM",
+            "nullable": true,
+            "note": "DOA | FIRMWARE | WEAR | DAMAGE | OTHER"
+          },
+          {
+            "name": "description",
+            "type": "TEXT",
+            "nullable": true
+          },
+          {
+            "name": "disposition",
+            "type": "ENUM",
+            "nullable": true,
+            "note": "REPLACE | REPAIR | CREDIT | SCRAP"
+          },
+          {
+            "name": "credit_note_ref",
+            "type": "VARCHAR(50)",
+            "nullable": true
+          },
+          {
+            "name": "resolution_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false
+          }
+        ]
+      }
+    ]
+  },
+  "Quality": {
+    "subtitle": "Inspections, non-conformances, and corrective actions",
+    "entities": [
+      {
+        "name": "qc_inspection",
+        "desc": "Quality inspection events \u2014 incoming, in-process, and final",
+        "columns": [
+          {
+            "name": "inspection_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "date",
+            "type": "DATE",
+            "nullable": false
+          },
+          {
+            "name": "type",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "INCOMING | IN_PROCESS | FINAL"
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": false
+          },
+          {
+            "name": "lot_number",
+            "type": "VARCHAR(100)",
+            "fk": "lot.lot_number",
+            "nullable": true
+          },
+          {
+            "name": "work_order_id",
+            "type": "VARCHAR(20)",
+            "fk": "work_order.work_order_id",
+            "nullable": true
+          },
+          {
+            "name": "po_line_id",
+            "type": "VARCHAR(20)",
+            "fk": "purchase_order_line.po_line_id",
+            "nullable": true
+          },
+          {
+            "name": "qty_inspected",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "qty_passed",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "qty_failed",
+            "type": "DECIMAL(14,3)",
+            "nullable": false
+          },
+          {
+            "name": "yield_pct",
+            "type": "DECIMAL(5,2)",
+            "nullable": true
+          },
+          {
+            "name": "inspector_id",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          },
+          {
+            "name": "result",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "PASS | FAIL | CONDITIONAL"
+          },
+          {
+            "name": "disposition",
+            "type": "ENUM",
+            "nullable": true,
+            "note": "ACCEPTED | REJECTED | REWORK | CONDITIONAL_ACCEPT"
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      },
+      {
+        "name": "ncr",
+        "desc": "Non-Conformance Report",
+        "columns": [
+          {
+            "name": "ncr_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "date_raised",
+            "type": "DATE",
+            "nullable": false
+          },
+          {
+            "name": "type",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "INCOMING | IN_PROCESS | FINAL | CUSTOMER | AUDIT"
+          },
+          {
+            "name": "sku",
+            "type": "VARCHAR(50)",
+            "fk": "product.sku",
+            "nullable": true
+          },
+          {
+            "name": "lot_number",
+            "type": "VARCHAR(100)",
+            "fk": "lot.lot_number",
+            "nullable": true
+          },
+          {
+            "name": "inspection_id",
+            "type": "VARCHAR(20)",
+            "fk": "qc_inspection.inspection_id",
+            "nullable": true
+          },
+          {
+            "name": "qty_affected",
+            "type": "DECIMAL(14,3)",
+            "nullable": true
+          },
+          {
+            "name": "description",
+            "type": "TEXT",
+            "nullable": false
+          },
+          {
+            "name": "root_cause",
+            "type": "TEXT",
+            "nullable": true
+          },
+          {
+            "name": "disposition",
+            "type": "ENUM",
+            "nullable": true
+          },
+          {
+            "name": "corrective_action",
+            "type": "TEXT",
+            "nullable": true
+          },
+          {
+            "name": "responsible_id",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          },
+          {
+            "name": "due_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "closed_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "OPEN | IN_PROGRESS | CLOSED | VOIDED"
+          },
+          {
+            "name": "severity",
+            "type": "ENUM",
+            "nullable": true,
+            "note": "MINOR | MAJOR | CRITICAL"
+          }
+        ]
+      },
+      {
+        "name": "capa",
+        "desc": "Corrective & Preventive Action \u2014 full lifecycle",
+        "columns": [
+          {
+            "name": "capa_id",
+            "type": "VARCHAR(20)",
+            "pk": true,
+            "nullable": false
+          },
+          {
+            "name": "type",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "CORRECTIVE | PREVENTIVE"
+          },
+          {
+            "name": "source",
+            "type": "ENUM",
+            "nullable": true,
+            "note": "NCR | AUDIT | COMPLAINT | MANAGEMENT_REVIEW | TREND"
+          },
+          {
+            "name": "source_reference",
+            "type": "VARCHAR(50)",
+            "nullable": true
+          },
+          {
+            "name": "date_opened",
+            "type": "DATE",
+            "nullable": false
+          },
+          {
+            "name": "title",
+            "type": "VARCHAR(300)",
+            "nullable": false
+          },
+          {
+            "name": "description",
+            "type": "TEXT",
+            "nullable": false
+          },
+          {
+            "name": "root_cause_category",
+            "type": "ENUM",
+            "nullable": true
+          },
+          {
+            "name": "root_cause_detail",
+            "type": "TEXT",
+            "nullable": true
+          },
+          {
+            "name": "action_plan",
+            "type": "TEXT",
+            "nullable": true
+          },
+          {
+            "name": "action_owner_id",
+            "type": "VARCHAR(20)",
+            "fk": "employee.employee_id",
+            "nullable": true
+          },
+          {
+            "name": "target_close_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "actual_close_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "verification_method",
+            "type": "TEXT",
+            "nullable": true
+          },
+          {
+            "name": "verification_date",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "verification_result",
+            "type": "ENUM",
+            "nullable": true,
+            "note": "PASS | FAIL | PENDING"
+          },
+          {
+            "name": "effectiveness_check_due",
+            "type": "DATE",
+            "nullable": true
+          },
+          {
+            "name": "effectiveness_result",
+            "type": "TEXT",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "ENUM",
+            "nullable": false,
+            "note": "OPEN | IN_PROGRESS | CLOSED | CANCELLED"
+          },
+          {
+            "name": "priority",
+            "type": "ENUM",
+            "nullable": true
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true
+          }
+        ]
+      }
+    ]
+  }
+}
