@@ -1,33 +1,60 @@
 "use client";
 
 import { useState } from "react";
-import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
 import Image from "next/image";
+
+const STATIC_ERRORS: Record<string, string> = {
+  email_not_verified:
+    "Please verify your email first. Check your inbox for a verification link.",
+  invalid_token: "The verification link is invalid or expired. Please sign in to request a new one.",
+};
 
 export default function LoginPage() {
   const router = useRouter();
+  const params = useSearchParams();
+  const justVerified = params.get("verified") === "1";
+  const errorParam = params.get("error");
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(errorParam ? (STATIC_ERRORS[errorParam] ?? "") : "");
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
-    const res = await signIn("credentials", { email, password, redirect: false });
-    setLoading(false);
-    if (res?.error) {
-      setError("Invalid email or password");
-    } else {
-      router.push("/dashboard");
-      router.refresh();
+
+    try {
+      const res = await fetch("/api/auth/otp/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.error === "email_not_verified") {
+          setError(STATIC_ERRORS.email_not_verified);
+        } else {
+          setError("Invalid email or password.");
+        }
+        return;
+      }
+
+      // Credentials valid + OTP sent — move to verification step
+      router.push(`/verify-otp?p=${data.pendingId}`);
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -37,14 +64,18 @@ export default function LoginPage() {
       <div
         className="hidden lg:flex lg:w-[45%] flex-col justify-between p-12 relative overflow-hidden"
         style={{
-          background: "linear-gradient(135deg, hsl(214 89% 52%) 0%, hsl(214 80% 42%) 50%, hsl(214 70% 32%) 100%)",
+          background:
+            "linear-gradient(135deg, hsl(214 89% 52%) 0%, hsl(214 80% 42%) 50%, hsl(214 70% 32%) 100%)",
         }}
       >
-        {/* Subtle decorative elements */}
-        <div className="absolute inset-0 opacity-[0.07]" style={{
-          backgroundImage: "radial-gradient(circle at 25% 25%, white 1px, transparent 1px), radial-gradient(circle at 75% 75%, white 1px, transparent 1px)",
-          backgroundSize: "40px 40px",
-        }} />
+        <div
+          className="absolute inset-0 opacity-[0.07]"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle at 25% 25%, white 1px, transparent 1px), radial-gradient(circle at 75% 75%, white 1px, transparent 1px)",
+            backgroundSize: "40px 40px",
+          }}
+        />
         <div className="absolute top-[20%] right-[-10%] w-[400px] h-[400px] rounded-full bg-white/[0.06] blur-3xl" />
         <div className="absolute bottom-[10%] left-[-5%] w-[300px] h-[300px] rounded-full bg-white/[0.04] blur-3xl" />
 
@@ -86,7 +117,6 @@ export default function LoginPage() {
       {/* Right panel — form */}
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-sm">
-          {/* Mobile logo */}
           <Link href="/" className="flex items-center gap-2 mb-10 lg:hidden">
             <Image src="/logo.svg" alt="Focus" width={32} height={32} />
             <span className="font-bold text-[17px] text-foreground">Focus</span>
@@ -98,6 +128,13 @@ export default function LoginPage() {
               Welcome back to your workspace
             </p>
           </div>
+
+          {justVerified && (
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 mb-4">
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+              Email verified! You can now sign in.
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
@@ -138,9 +175,11 @@ export default function LoginPage() {
               {loading ? (
                 <span className="flex items-center gap-2">
                   <span className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  Signing in…
+                  Sending code…
                 </span>
-              ) : "Sign in"}
+              ) : (
+                "Continue"
+              )}
             </Button>
           </form>
 

@@ -80,6 +80,7 @@ model User {
   memberships OrgMember[]
   accounts    Account[]
   sessions    Session[]
+  otpCodes    OtpCode[]
 }
 
 model OrgMember {
@@ -137,6 +138,19 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+model OtpCode {
+  id        String   @id @default(cuid())
+  userId    String
+  code      String
+  attempts  Int      @default(0)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // ============================================================

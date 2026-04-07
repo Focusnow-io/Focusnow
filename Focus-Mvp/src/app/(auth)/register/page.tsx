@@ -33,7 +33,7 @@ export default function RegisterPage() {
       if (!res.ok) {
         setError(data.error || "Something went wrong");
       } else {
-        router.push("/login?registered=1");
+        router.push("/check-email");
       }
     } catch {
       setError("Something went wrong. Please try again.");
