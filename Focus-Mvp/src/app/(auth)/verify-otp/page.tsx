@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertCircle } from "lucide-react";
 
-export default function VerifyOtpPage() {
+function VerifyOtpForm() {
   const router = useRouter();
   const params = useSearchParams();
   const pendingId = params.get("p") ?? "";
@@ -228,5 +228,13 @@ export default function VerifyOtpPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function VerifyOtpPage() {
+  return (
+    <Suspense>
+      <VerifyOtpForm />
+    </Suspense>
   );
 }
