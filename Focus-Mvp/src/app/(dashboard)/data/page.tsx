@@ -3,10 +3,11 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Upload, Database, FileText, ArrowRight } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { DeleteSourceButton } from "@/components/delete-source-button";
+import { resolvePermissions } from "@/lib/permissions";
 
 export default async function DataSourcesPage() {
   const session = await auth();
@@ -15,6 +16,11 @@ export default async function DataSourcesPage() {
     include: { organization: true },
   });
   const orgId = member!.organization.id;
+
+  const permissions = resolvePermissions(
+    member?.role ?? "VIEWER",
+    member?.permissions as Record<string, unknown> | null,
+  );
 
   const [sources, activeRuleCount] = await Promise.all([
     prisma.dataSource.findMany({
@@ -27,7 +33,7 @@ export default async function DataSourcesPage() {
   ]);
 
   const hasCompletedImport = sources.some((s) => s.status === "COMPLETED");
-  const showCreateRuleNudge = hasCompletedImport && activeRuleCount === 0;
+  const showCreateRuleNudge = hasCompletedImport && activeRuleCount === 0 && permissions.brain && permissions.import;
 
   return (
     <div className="space-y-6 w-full">
@@ -38,11 +44,13 @@ export default async function DataSourcesPage() {
             Ingested files and their import status
           </p>
         </div>
-        <Button asChild>
-          <Link href="/data/import">
-            <Upload className="w-4 h-4 mr-2" /> Import data
-          </Link>
-        </Button>
+        {permissions.import && (
+          <Button asChild>
+            <Link href="/data/import">
+              <Upload className="w-4 h-4 mr-2" /> Import data
+            </Link>
+          </Button>
+        )}
       </div>
 
       {/* Step 1c: Post-import nudge to create first rule */}
@@ -76,12 +84,15 @@ export default async function DataSourcesPage() {
           <Database className="w-10 h-10 text-gray-300 mx-auto mb-3" />
           <h3 className="font-semibold text-gray-600 mb-1">No data here yet.</h3>
           <p className="text-sm text-gray-400 mb-4 max-w-sm mx-auto">
-            Import a CSV to populate this table. Inventory, suppliers, orders,
-            or products — start with whatever you have.
+            {permissions.import
+              ? "Import a CSV to populate this table. Inventory, suppliers, orders, or products — start with whatever you have."
+              : "Your workspace has no data imported yet. Contact your admin to import data."}
           </p>
-          <Button asChild>
-            <Link href="/data/import">Import data</Link>
-          </Button>
+          {permissions.import && (
+            <Button asChild>
+              <Link href="/data/import">Import data</Link>
+            </Button>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
@@ -119,7 +130,7 @@ export default async function DataSourcesPage() {
                     >
                       {source.status.toLowerCase()}
                     </Badge>
-                    {source.status === "MAPPING" || source.status === "PENDING" ? (
+                    {permissions.import && (source.status === "MAPPING" || source.status === "PENDING") ? (
                       <Link
                         href={`/data/import?resume=${source.id}`}
                         className="text-xs text-blue-600 hover:underline"
@@ -127,7 +138,7 @@ export default async function DataSourcesPage() {
                         Continue →
                       </Link>
                     ) : null}
-                    <DeleteSourceButton id={source.id} />
+                    {permissions.import && <DeleteSourceButton id={source.id} />}
                   </div>
                 </div>
                 {source.errorMessage && (

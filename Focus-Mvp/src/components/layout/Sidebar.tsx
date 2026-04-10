@@ -21,54 +21,23 @@ import {
   Sparkles,
   ChevronRight,
   Search,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UsageBar } from "./UsageBar";
+import type { UserPermissions } from "@/lib/permissions";
 
 interface SidebarProps {
   userName?: string | null;
   orgName?: string | null;
+  userRole?: string | null;
+  permissions?: UserPermissions;
 }
 
-const navItems = [
-  { href: "/dashboard", icon: Home, label: "Home" },
-];
+const isAdmin = (role: string | null | undefined) =>
+  role === "OWNER" || role === "ADMIN";
 
-const navSections = [
-  {
-    id: "brain",
-    label: "Brain",
-    items: [
-      { href: "/brain", icon: Brain, label: "Rules" },
-    ],
-  },
-  {
-    id: "apps",
-    label: "Apps",
-    items: [
-      { href: "/apps", icon: LayoutGrid, label: "App Gallery" },
-      { href: "/apps/chat", icon: MessageSquare, label: "Data Chat" },
-    ],
-  },
-];
-
-const dataSection = {
-  id: "data",
-  label: "Data",
-  items: [
-    { href: "/data", icon: Database, label: "Sources" },
-    { href: "/data/import", icon: Upload, label: "Import" },
-    { href: "/data/explore", icon: TableProperties, label: "Explorer" },
-  ],
-};
-
-const bottomLinks = [
-  { href: "/settings", icon: Settings, label: "Settings" },
-  { href: "#", icon: HelpCircle, label: "Help & Support" },
-  { href: "/settings#billing", icon: Sparkles, label: "Upgrade Plan" },
-];
-
-export function Sidebar({ userName, orgName }: SidebarProps) {
+export function Sidebar({ userName, orgName, userRole, permissions }: SidebarProps) {
   const pathname = usePathname();
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     data: true,
@@ -180,47 +149,56 @@ export function Sidebar({ userName, orgName }: SidebarProps) {
 
       {/* Main nav */}
       <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-px">
-        {navItems.map((item) => (
-          <NavItem key={item.href} href={item.href} icon={item.icon} label={item.label} />
-        ))}
+        {/* Dashboard — always visible */}
+        <NavItem href="/dashboard" icon={Home} label="Home" />
 
-        {navSections.map((section) => (
-          <div key={section.id}>
-            <NavItem
-              icon={section.id === "brain" ? Brain : LayoutGrid}
-              label={section.label}
-              expandable
-              sectionId={section.id}
-            />
-            {expandedSections[section.id] && (
+        {/* Brain — permission controlled */}
+        {permissions?.brain && (
+          <div>
+            <NavItem icon={Brain} label="Brain" expandable sectionId="brain" />
+            {expandedSections.brain && (
               <div className="pl-4 space-y-px">
-                {section.items.map((item) => (
-                  <NavItem key={item.href} href={item.href} icon={item.icon} label={item.label} />
-                ))}
+                <NavItem href="/brain" icon={Brain} label="Rules" />
               </div>
             )}
           </div>
-        ))}
+        )}
+
+        {/* Apps — permission controlled */}
+        {(permissions?.apps || permissions?.chat) && (
+          <div>
+            <NavItem icon={LayoutGrid} label="Apps" expandable sectionId="apps" />
+            {expandedSections.apps && (
+              <div className="pl-4 space-y-px">
+                {permissions?.apps  && <NavItem href="/apps"      icon={LayoutGrid}    label="App Gallery" />}
+                {permissions?.chat  && <NavItem href="/apps/chat"  icon={MessageSquare} label="Data Chat" />}
+              </div>
+            )}
+          </div>
+        )}
       </nav>
 
       {/* Data + bottom utility */}
       <div className="px-2 py-2 space-y-px" style={{ borderTop: "1px solid hsl(var(--surface-nav-border))" }}>
-        <NavItem
-          icon={Database}
-          label={dataSection.label}
-          expandable
-          sectionId={dataSection.id}
-        />
-        {expandedSections[dataSection.id] && (
-          <div className="pl-4 space-y-px">
-            {dataSection.items.map((item) => (
-              <NavItem key={item.href} href={item.href} icon={item.icon} label={item.label} />
-            ))}
-          </div>
+        {(permissions?.sources || permissions?.import || permissions?.explorer) && (
+          <>
+            <NavItem icon={Database} label="Data" expandable sectionId="data" />
+            {expandedSections.data && (
+              <div className="pl-4 space-y-px">
+                {permissions?.sources  && <NavItem href="/data"         icon={Database}        label="Sources" />}
+                {permissions?.import   && <NavItem href="/data/import"  icon={Upload}          label="Import" />}
+                {permissions?.explorer && <NavItem href="/data/explore" icon={TableProperties} label="Explorer" />}
+              </div>
+            )}
+          </>
         )}
-        {bottomLinks.map((link) => (
-          <NavItem key={link.label} href={link.href} icon={link.icon} label={link.label} />
-        ))}
+
+        {/* Admin — only for OWNER / ADMIN role */}
+        {isAdmin(userRole) && <NavItem href="/admin"           icon={ShieldCheck} label="Admin" />}
+
+        <NavItem href="/settings"         icon={Settings}   label="Settings" />
+        <NavItem href="/help"             icon={HelpCircle} label="Help & Support" />
+        <NavItem href="/settings#billing" icon={Sparkles}   label="Upgrade Plan" />
       </div>
 
       {/* Token usage bar */}

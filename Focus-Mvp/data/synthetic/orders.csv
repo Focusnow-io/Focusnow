@@ -1,0 +1,86 @@
+orderId,orderType,orderDate,expectedDate,deliveryDate,status,supplierId,customerName,sku,quantity,unitPrice,totalValue,currency,notes
+PO-2026-0001,PO,2026-01-05,2026-01-19,2026-01-18,received,SUP-001,Meridian Steel Co.,RM-STEEL-4140,2000,4.85,9700,USD,Q1 steel replenishment
+PO-2026-0002,PO,2026-01-08,2026-01-22,2026-01-23,received,SUP-002,Pacific Aluminum Works,RM-ALUM-6061,500,7.40,3700,USD,Standard restock
+PO-2026-0003,PO,2026-01-10,2026-02-07,,received,SUP-005,ElastoSeal Technologies,RM-NBRL-90A,100,22.50,2250,USD,Seal material bulk order
+PO-2026-0004,PO,2026-01-15,2026-01-29,2026-01-30,received,SUP-001,Meridian Steel Co.,RM-STEEL-1018,3000,3.20,9600,USD,
+PO-2026-0005,PO,2026-01-20,2026-02-17,2026-02-18,received,SUP-005,ElastoSeal Technologies,RM-VITON-75A,50,48.00,2400,USD,Critical material - expedited
+PO-2026-0006,PO,2026-01-22,2026-02-05,2026-02-06,received,SUP-004,Midwest Foundry Inc.,RM-CAST-IRON,1500,2.90,4350,USD,Foundry stock
+PO-2026-0007,PO,2026-02-01,2026-02-15,2026-02-14,received,SUP-003,Great Lakes Brass,RM-BRASS-360,600,9.15,5490,USD,
+PO-2026-0008,PO,2026-02-03,2026-03-03,2026-03-04,received,SUP-005,ElastoSeal Technologies,RM-PTFE-ROD,80,18.75,1500,USD,
+PO-2026-0009,PO,2026-02-10,2026-02-24,2026-02-25,received,SUP-012,ElectroDrive Solutions,FG-MOTOR-7.5,10,480.00,4800,USD,Motor purchase for power packs
+PO-2026-0010,PO,2026-02-14,2026-02-28,2026-02-27,received,SUP-007,AccuPressure Systems,FG-ACCUM-10,20,520.00,10400,USD,
+PO-2026-0011,PO,2026-02-18,2026-03-18,2026-03-20,received,SUP-006,ChemSurface Ltd.,RM-CHROME,30,65.00,1950,USD,Chrome plating batch
+PO-2026-0012,PO,2026-02-20,2026-03-06,2026-03-07,received,SUP-008,FilterPro Industrial,FG-HF-10,60,95.00,5700,USD,
+PO-2026-0013,PO,2026-02-25,2026-03-11,2026-03-10,received,SUP-009,HoseTech International,FG-HOSE-1-1M,100,42.00,4200,USD,Hose assembly batch
+PO-2026-0014,PO,2026-03-01,2026-03-15,2026-03-16,received,SUP-010,FastFit Hydraulics,FG-COUPLING-F,200,22.00,4400,USD,
+PO-2026-0015,PO,2026-03-01,2026-03-15,2026-03-15,received,SUP-010,FastFit Hydraulics,FG-COUPLING-M,200,18.00,3600,USD,
+PO-2026-0016,PO,2026-03-05,2026-03-19,2026-03-21,received,SUP-011,Precision Instruments GmbH,FG-GAUGE-100,80,35.00,2800,USD,Gauge restock late delivery
+PO-2026-0017,PO,2026-03-08,2026-03-22,2026-03-22,received,SUP-001,Meridian Steel Co.,RM-STEEL-4140,1500,4.85,7275,USD,Urgent mid-quarter refill
+PO-2026-0018,PO,2026-03-10,2026-03-24,2026-03-25,received,SUP-002,Pacific Aluminum Works,RM-ALUM-7075,200,12.60,2520,USD,Aerospace-grade order
+PO-2026-0019,PO,2026-03-12,2026-04-09,,open,SUP-005,ElastoSeal Technologies,RM-NBRL-90A,80,22.50,1800,USD,Q2 seal material
+PO-2026-0020,PO,2026-03-15,2026-04-02,,open,SUP-004,Midwest Foundry Inc.,RM-CAST-IRON,1000,2.90,2900,USD,
+PO-2026-0021,PO,2026-03-18,2026-04-15,,open,SUP-006,ChemSurface Ltd.,RM-CHROME,25,65.00,1625,USD,
+PO-2026-0022,PO,2026-03-20,2026-04-03,,open,SUP-012,ElectroDrive Solutions,FG-MOTOR-15,5,780.00,3900,USD,Motor restock
+PO-2026-0023,PO,2026-03-22,2026-04-06,,open,SUP-007,AccuPressure Systems,FG-ACCUM-20,10,780.00,7800,USD,
+PO-2026-0024,PO,2026-03-25,2026-04-08,,open,SUP-009,HoseTech International,FG-HOSE-1-2M,60,68.00,4080,USD,
+PO-2026-0025,PO,2026-03-28,2026-04-11,,open,SUP-010,FastFit Hydraulics,FG-FITTING-90,300,8.50,2550,USD,
+PO-2026-0026,PO,2026-03-30,2026-04-27,,open,SUP-005,ElastoSeal Technologies,RM-VITON-75A,40,48.00,1920,USD,Long lead specialty material
+PO-2026-0027,PO,2026-04-01,2026-04-15,,open,SUP-001,Meridian Steel Co.,RM-STEEL-1018,2000,3.20,6400,USD,Q2 opening order
+PO-2026-0028,PO,2026-04-02,2026-04-16,,open,SUP-011,Precision Instruments GmbH,FG-PRESS-TRANS,20,120.00,2400,USD,Transducer order
+PO-2026-0029,PO,2026-04-03,2026-04-24,,open,SUP-013,SteelCraft Forgings,RM-STEEL-4140,500,4.85,2425,USD,Forge blank stock
+PO-2026-0030,PO,2026-04-03,2026-04-17,,open,SUP-008,FilterPro Industrial,FG-HF-25,80,75.00,6000,USD,Return line filter restock
+SO-2026-0001,SO,2026-01-06,,2026-01-14,shipped,,Apex Construction Ltd.,FG-HV-2000,10,1650.00,16500,USD,Framework contract Q1
+SO-2026-0002,SO,2026-01-08,,2026-01-16,shipped,,Great Plains Mining Co.,FG-HV-3500,5,2450.00,12250,USD,Heavy equipment application
+SO-2026-0003,SO,2026-01-10,,2026-01-18,shipped,,Thornton Agricultural,FG-GP-50,12,820.00,9840,USD,Farm equipment pumps
+SO-2026-0004,SO,2026-01-12,,2026-01-20,shipped,,Pacific Marine Systems,FG-DCV-3P,20,580.00,11600,USD,Marine valve order
+SO-2026-0005,SO,2026-01-15,,2026-01-23,shipped,,UrbanBuild Partners,FG-PRV-250,15,345.00,5175,USD,
+SO-2026-0006,SO,2026-01-18,,2026-01-26,shipped,,Keystone Energy Corp,FG-MTPM-100,2,4950.00,9900,USD,Power unit installation
+SO-2026-0007,SO,2026-01-20,,2026-01-28,shipped,,Ironclad Fabricators,FG-HV-2000,8,1650.00,13200,USD,
+SO-2026-0008,SO,2026-01-22,,2026-01-30,shipped,,Delta Hydraulics Service,FG-SEAL-KIT-HV2,50,58.00,2900,USD,Aftermarket seals
+SO-2026-0009,SO,2026-01-25,,2026-02-02,shipped,,Western Mining Corp.,FG-HV-5000,3,3500.00,10500,USD,High-pressure mining app
+SO-2026-0010,SO,2026-01-28,,2026-02-05,shipped,,Apex Construction Ltd.,FG-HOSE-1-1M,40,55.00,2200,USD,Hose replacement order
+SO-2026-0011,SO,2026-02-02,,2026-02-10,shipped,,Rigmore Offshore,FG-HV-3500,4,2450.00,9800,USD,Offshore crane system
+SO-2026-0012,SO,2026-02-05,,2026-02-13,shipped,,Green Valley Agriculture,FG-GP-100,8,1100.00,8800,USD,
+SO-2026-0013,SO,2026-02-08,,2026-02-16,shipped,,Metro Transit Authority,FG-DCV-2P,30,405.00,12150,USD,Transit door system
+SO-2026-0014,SO,2026-02-10,,2026-02-18,shipped,,Thornton Agricultural,FG-FCR-10,25,162.00,4050,USD,
+SO-2026-0015,SO,2026-02-12,,2026-02-20,shipped,,Pacific Marine Systems,FG-ACCUM-10,8,680.00,5440,USD,
+SO-2026-0016,SO,2026-02-15,,2026-02-23,shipped,,Keystone Energy Corp,FG-HV-2000,6,1650.00,9900,USD,Recurring contract
+SO-2026-0017,SO,2026-02-18,,2026-02-26,shipped,,Steel Valley Industries,FG-VP-100,5,1270.00,6350,USD,
+SO-2026-0018,SO,2026-02-20,,2026-02-28,shipped,,Ironclad Fabricators,FG-PRV-100,20,240.00,4800,USD,
+SO-2026-0019,SO,2026-02-22,,2026-03-02,shipped,,UrbanBuild Partners,FG-MTPM-200,1,6700.00,6700,USD,Large power unit
+SO-2026-0020,SO,2026-02-25,,2026-03-05,shipped,,Delta Hydraulics Service,FG-SEAL-KIT-VP1,40,49.00,1960,USD,
+SO-2026-0021,SO,2026-03-01,,2026-03-09,shipped,,Great Plains Mining Co.,FG-HV-5000,2,3500.00,7000,USD,
+SO-2026-0022,SO,2026-03-03,,2026-03-11,shipped,,Western Mining Corp.,FG-HV-3500,6,2450.00,14700,USD,
+SO-2026-0023,SO,2026-03-05,,2026-03-13,shipped,,Apex Construction Ltd.,FG-HV-2000,12,1650.00,19800,USD,Large Q1 close order
+SO-2026-0024,SO,2026-03-08,,2026-03-16,shipped,,Pacific Marine Systems,FG-DCV-3P,15,580.00,8700,USD,
+SO-2026-0025,SO,2026-03-10,,2026-03-18,shipped,,Rigmore Offshore,FG-GAUGE-400,10,62.00,620,USD,Gauge replacement
+SO-2026-0026,SO,2026-03-12,,2026-03-20,shipped,,Steel Valley Industries,FG-VP-200,3,2000.00,6000,USD,
+SO-2026-0027,SO,2026-03-15,,2026-03-23,shipped,,Keystone Energy Corp,FG-ACCUM-20,5,1015.00,5075,USD,
+SO-2026-0028,SO,2026-03-18,,2026-03-26,shipped,,Green Valley Agriculture,FG-FCR-30,18,228.00,4104,USD,
+SO-2026-0029,SO,2026-03-20,,2026-03-28,shipped,,Metro Transit Authority,FG-DCV-2P,25,405.00,10125,USD,
+SO-2026-0030,SO,2026-03-22,,2026-03-30,shipped,,Ironclad Fabricators,FG-HF-10,20,124.00,2480,USD,
+SO-2026-0031,SO,2026-03-25,,,,confirmed,,Apex Construction Ltd.,FG-HV-2000,15,1650.00,24750,USD,Q2 blanket order tranche 1
+SO-2026-0032,SO,2026-03-26,,,,confirmed,,Great Plains Mining Co.,FG-HV-3500,8,2450.00,19600,USD,Mining expansion project
+SO-2026-0033,SO,2026-03-28,,,,confirmed,,Western Mining Corp.,FG-HV-5000,4,3500.00,14000,USD,
+SO-2026-0034,SO,2026-03-30,,,,confirmed,,Pacific Marine Systems,FG-VP-100,6,1270.00,7620,USD,New vessel build
+SO-2026-0035,SO,2026-04-01,,,,confirmed,,Delta Hydraulics Service,FG-SEAL-KIT-HV2,80,58.00,4640,USD,Stocking order
+SO-2026-0036,SO,2026-04-01,,,,confirmed,,UrbanBuild Partners,FG-HV-2000,6,1650.00,9900,USD,
+SO-2026-0037,SO,2026-04-02,,,,confirmed,,Thornton Agricultural,FG-GP-50,10,820.00,8200,USD,Spring season order
+SO-2026-0038,SO,2026-04-02,,,,confirmed,,Rigmore Offshore,FG-MTPM-200,2,6700.00,13400,USD,Platform upgrade
+SO-2026-0039,SO,2026-04-03,,,,pending,,Steel Valley Industries,FG-VP-200,5,2000.00,10000,USD,Awaiting credit approval
+SO-2026-0040,SO,2026-04-03,,,,pending,,Keystone Energy Corp,FG-HV-3500,3,2450.00,7350,USD,
+SO-2026-0041,SO,2026-01-11,,2026-01-19,shipped,,Cascade Timber Corp,FG-GP-50,8,820.00,6560,USD,Logging equipment
+SO-2026-0042,SO,2026-01-24,,2026-02-01,shipped,,Arctic Exploration Ltd.,FG-HV-5000,2,3500.00,7000,USD,Cold weather spec
+SO-2026-0043,SO,2026-02-03,,2026-02-11,shipped,,Rio Grande Ag,FG-FCR-30,12,228.00,2736,USD,
+SO-2026-0044,SO,2026-02-07,,2026-02-15,shipped,,Summit Crane Systems,FG-HV-3500,7,2450.00,17150,USD,
+SO-2026-0045,SO,2026-02-17,,2026-02-25,shipped,,Lakefront Municipal,FG-DCV-3P,10,580.00,5800,USD,Water treatment facility
+SO-2026-0046,SO,2026-02-24,,2026-03-04,shipped,,Northern Rail,FG-DCV-2P,18,405.00,7290,USD,Rail car maintenance
+SO-2026-0047,SO,2026-03-04,,2026-03-12,shipped,,Cascade Timber Corp,FG-HOSE-1-2M,30,88.00,2640,USD,
+SO-2026-0048,SO,2026-03-09,,2026-03-17,shipped,,Summit Crane Systems,FG-ACCUM-10,6,680.00,4080,USD,
+SO-2026-0049,SO,2026-03-14,,2026-03-22,shipped,,Arctic Exploration Ltd.,FG-HV-2000,4,1650.00,6600,USD,
+SO-2026-0050,SO,2026-03-19,,2026-03-27,shipped,,Rio Grande Ag,FG-GP-100,5,1100.00,5500,USD,
+SO-2026-0051,SO,2026-03-24,,,,confirmed,,Northern Rail,FG-SEAL-KIT-GP5,35,36.00,1260,USD,Preventive maintenance order
+SO-2026-0052,SO,2026-03-27,,,,confirmed,,Lakefront Municipal,FG-PRV-100,12,240.00,2880,USD,
+SO-2026-0053,SO,2026-04-01,,,,confirmed,,Cascade Timber Corp,FG-HV-2000,5,1650.00,8250,USD,
+SO-2026-0054,SO,2026-04-02,,,,pending,,Summit Crane Systems,FG-HV-5000,2,3500.00,7000,USD,
+SO-2026-0055,SO,2026-04-03,,,,pending,,Arctic Exploration Ltd.,FG-HV-3500,3,2450.00,7350,USD,

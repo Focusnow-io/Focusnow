@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSessionOrg, unauthorized } from "@/lib/api-helpers";
+import { getSessionOrg, unauthorized, forbidden } from "@/lib/api-helpers";
+import { resolvePermissions } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { parseCSVBuffer } from "@/lib/ingestion/csv-parser";
@@ -72,6 +73,8 @@ function deriveDetectedEntities(
 export async function POST(req: Request) {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
+  const perms = resolvePermissions(ctx.member.role, ctx.member.permissions as Record<string, unknown> | null);
+  if (!perms.import) return forbidden();
 
   const formData = await req.formData();
   const file = formData.get("file") as File | null;

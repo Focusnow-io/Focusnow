@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getSessionOrg, unauthorized } from "@/lib/api-helpers";
+import { getSessionOrg, unauthorized, forbidden, hasRole } from "@/lib/api-helpers";
 import { prisma } from "@/lib/prisma";
 
 const UpdateConnectorSchema = z.object({
@@ -45,6 +45,8 @@ export async function PUT(
 ) {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
+  if (!hasRole(ctx.member.role, "ADMIN")) return forbidden();
+  console.log("[API][connector/update]", { userId: ctx.session.user.id, orgId: ctx.org.id });
 
   const { id } = await params;
   const connector = await prisma.connector.findFirst({
@@ -87,6 +89,8 @@ export async function DELETE(
 ) {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
+  if (!hasRole(ctx.member.role, "ADMIN")) return forbidden();
+  console.log("[API][connector/delete]", { userId: ctx.session.user.id, orgId: ctx.org.id });
 
   const { id } = await params;
   const connector = await prisma.connector.findFirst({

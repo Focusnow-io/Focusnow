@@ -41,6 +41,7 @@ import {
   ChevronRight,
   AlertCircle,
   AlertTriangle,
+  ArrowLeft,
   Layers,
   Save,
   ChevronDown,
@@ -291,6 +292,80 @@ const SUPPLY_CHAIN_STAGES: ChainStage[] = [
   },
 ];
 
+// ─── Essentials (top-10 entities to upload first) ────────────────────────────
+
+interface EssentialEntity {
+  type: EntityType;
+  category: string;
+  blurb: string;
+}
+
+const ESSENTIAL_ENTITIES: EssentialEntity[] = [
+  { type: "Product", category: "Master Data", blurb: "" },
+  { type: "Supplier", category: "Master Data", blurb: "" },
+  { type: "InventoryItem", category: "Inventory", blurb: "" },
+  { type: "PurchaseOrder", category: "Procurement", blurb: "Open POs" },
+  { type: "POLine", category: "Procurement", blurb: "Line items per PO" },
+  { type: "SupplierItem", category: "Procurement", blurb: "Who supplies what" },
+  { type: "Location", category: "Master Data", blurb: "Warehouses & sites" },
+  { type: "StockMovement", category: "Inventory", blurb: "Consumption history" },
+  { type: "ForecastEntry", category: "Planning", blurb: "Future demand signal" },
+  { type: "PriceListLine", category: "Finance", blurb: "Unit costs per supplier" },
+];
+
+const ESSENTIAL_TYPES = new Set<EntityType>(ESSENTIAL_ENTITIES.map((e) => e.type));
+
+const ENTITY_CATEGORY: Record<EntityType, string> = (() => {
+  const map = {} as Record<EntityType, string>;
+  for (const stage of SUPPLY_CHAIN_STAGES) {
+    for (const e of stage.entities) map[e.type] = stage.label;
+  }
+  return map;
+})();
+
+const ENTITY_UNIT: Record<EntityType, string> = {
+  Product: "items",
+  Supplier: "suppliers",
+  Customer: "customers",
+  Location: "locations",
+  Employee: "employees",
+  ExchangeRate: "rates",
+  PriceList: "price lists",
+  PriceListLine: "lines",
+  CustomerPriceList: "price lists",
+  BOMHeader: "BOMs",
+  BOM: "lines",
+  BOMLine: "lines",
+  RoutingHeader: "routings",
+  Routing: "operations",
+  RoutingOperation: "operations",
+  WorkCenter: "work centers",
+  ShiftCalendar: "calendars",
+  Equipment: "items",
+  MaintenanceLog: "logs",
+  InventoryItem: "records",
+  Lot: "lots",
+  SerialNumber: "serials",
+  StockMovement: "movements",
+  SupplierItem: "items",
+  PurchaseOrder: "POs",
+  POLine: "lines",
+  ForecastEntry: "entries",
+  MpsEntry: "entries",
+  WorkOrder: "orders",
+  WorkOrderOperation: "operations",
+  SalesOrder: "orders",
+  SalesOrderLine: "lines",
+  Shipment: "shipments",
+  ShipmentLine: "lines",
+  Invoice: "invoices",
+  ReturnRma: "returns",
+  Order: "orders",
+  QcInspection: "inspections",
+  Ncr: "NCRs",
+  Capa: "CAPAs",
+};
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /** All wizard steps. "select" is the supply chain hub shown before upload. */
@@ -425,6 +500,7 @@ export default function ImportPage() {
 
   // ── UI toggles ────────────────────────────────────────────────────────────
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAllFiles, setShowAllFiles] = useState(false);
 
   // ── Snapshot preview state ───────────────────────────────────────────────
   const [snapshotPreview, setSnapshotPreview] = useState<{
@@ -998,14 +1074,14 @@ export default function ImportPage() {
 
   return (
     <div className={cn("space-y-6 mx-auto w-full", step === "select" ? "max-w-5xl" : step === "map" ? "max-w-4xl" : step === "entity-split" ? "max-w-3xl" : "max-w-2xl")}>
-      <div>
-        <h1 className="text-xl font-bold text-gray-900">Import Data</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          {step === "select"
-            ? "Select where your data fits in the supply chain — we'll guide the rest."
-            : "Upload a CSV or Excel file — we'll handle the rest."}
-        </p>
-      </div>
+      {step !== "select" && (
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">Import Data</h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Upload a CSV or Excel file — we&apos;ll handle the rest.
+          </p>
+        </div>
+      )}
 
       {/* ── Step indicator — hidden on supply chain hub ─────────────────── */}
       {step !== "select" && (
@@ -1045,217 +1121,204 @@ export default function ImportPage() {
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* STEP: Select (supply chain hub)                                    */}
       {/* ────────────────────────────────────────────────────────────────── */}
-      {step === "select" && (
-        <div className="space-y-5">
-          {/* Coverage summary */}
-          {!freshnessLoading && (() => {
-            const stagesWithData = SUPPLY_CHAIN_STAGES.filter((stage) =>
-              stage.entities.some((e) => (coverageMap[e.type]?.importedRows ?? 0) > 0)
-            ).length;
-            const pct = Math.round((stagesWithData / SUPPLY_CHAIN_STAGES.length) * 100);
-            return (
-              <div className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 bg-gray-50">
-                <div className="flex-1 space-y-1.5">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium text-gray-700">Supply chain coverage</span>
-                    <span className="text-gray-500">
-                      {stagesWithData} of {SUPPLY_CHAIN_STAGES.length} stages have data
-                    </span>
-                  </div>
-                  <Progress value={pct} className="h-2" />
+      {step === "select" && (() => {
+        const renderCard = (type: EntityType, blurb: string, category: string, isEssential: boolean) => {
+          const entry = coverageMap[type];
+          const hasData = (entry?.importedRows ?? 0) > 0;
+          const unit = ENTITY_UNIT[type] ?? "records";
+          const meta = hasData
+            ? `${entry!.importedRows.toLocaleString()} ${unit} · ${category}`
+            : `${blurb || category}${blurb ? ` · ${category}` : ""}`;
+          return (
+            <div
+              key={type}
+              className={cn(
+                "flex items-center justify-between gap-3 rounded-2xl border px-5 py-4 transition-shadow",
+                hasData
+                  ? "border-emerald-200 bg-emerald-50/60"
+                  : "border-gray-200 bg-white hover:shadow-sm"
+              )}
+            >
+              <div className="flex items-start gap-3 min-w-0">
+                <span
+                  className={cn(
+                    "mt-1.5 w-2.5 h-2.5 rounded-full shrink-0",
+                    hasData ? "bg-emerald-500" : "bg-gray-300"
+                  )}
+                />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 leading-tight">
+                    {ENTITY_LABELS[type]}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5 truncate">{meta}</p>
                 </div>
-                <span className={cn(
-                  "text-lg font-bold tabular-nums",
-                  pct >= 70 ? "text-emerald-600" : pct >= 40 ? "text-amber-600" : "text-gray-400"
-                )}>
-                  {pct}%
-                </span>
               </div>
-            );
-          })()}
+              <button
+                onClick={() => { setEntity(type); setStep("upload"); }}
+                className="shrink-0 text-xs font-medium px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50 transition-colors"
+              >
+                {hasData ? "Re-upload" : "Upload"}
+              </button>
+            </div>
+          );
+        };
 
-          {/* Stage grid — 3 rows of 3 (desktop), single column on mobile */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {SUPPLY_CHAIN_STAGES.map((stage, stageIdx) => {
-              // Compute how many entities in this stage have data
-              const coveredCount = stage.entities.filter(
-                (e) => (coverageMap[e.type]?.importedRows ?? 0) > 0
-              ).length;
+        const uploadedEssentials = ESSENTIAL_ENTITIES.filter(
+          (e) => (coverageMap[e.type]?.importedRows ?? 0) > 0
+        ).length;
+        const pct = Math.round((uploadedEssentials / ESSENTIAL_ENTITIES.length) * 100);
 
-              return (
-                <div key={stage.id} className="flex items-stretch gap-0">
-                  <Card className="flex-1 transition-shadow hover:shadow-md">
-                    <CardContent className="p-4 space-y-3">
-                      {/* Stage header */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-semibold text-gray-900 leading-tight">
-                            {stage.label}
-                          </p>
-                          <p className="text-xs text-gray-400 mt-0.5 leading-tight">
-                            {stage.description}
-                          </p>
-                        </div>
-                        {coveredCount > 0 && (
-                          <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
-                            {coveredCount}/{stage.entities.length}
-                          </span>
-                        )}
-                      </div>
+        const additionalEntities = (Object.keys(ENTITY_LABELS) as EntityType[])
+          .filter((t) => !ESSENTIAL_TYPES.has(t));
 
-                      {/* Entity list */}
-                      <div className="space-y-1.5">
-                        {stage.entities.map((e) => {
-                          const entry = coverageMap[e.type];
-                          const hasData = (entry?.importedRows ?? 0) > 0;
+        return (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Connect your operational data</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Upload the files Focus needs to answer inventory and procurement questions. Start with the essentials.
+              </p>
+            </div>
 
-                          return (
-                            <div
-                              key={e.type}
-                              className="flex items-center justify-between gap-2"
-                            >
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                {/* Status dot */}
-                                {hasData ? (
-                                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                                ) : (
-                                  <span className="w-2 h-2 rounded-full bg-gray-200 shrink-0" />
-                                )}
-                                <span className={cn(
-                                  "text-xs truncate",
-                                  hasData ? "text-gray-700 font-medium" : "text-gray-400"
-                                )}>
-                                  {ENTITY_LABELS[e.type]}
-                                </span>
-                                {hasData && entry && (
-                                  <span className="text-[10px] text-gray-400 shrink-0">
-                                    {entry.importedRows.toLocaleString()}
-                                  </span>
-                                )}
-                              </div>
-                              <button
-                                onClick={() => {
-                                  setEntity(e.type);
-                                  setStep("upload");
-                                }}
-                                className={cn(
-                                  "shrink-0 text-[10px] font-medium px-2 py-0.5 rounded border transition-colors",
-                                  hasData
-                                    ? "border-gray-200 text-gray-500 hover:border-gray-400 hover:text-gray-700"
-                                    : "border-gray-200 text-gray-500 hover:border-gray-400 hover:text-gray-700"
-                                )}
-                              >
-                                {hasData ? "Re-upload" : "Upload"}
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </CardContent>
-                  </Card>
-                  {/* Connector arrow between stages (hidden on last in row) */}
-                  {stageIdx < SUPPLY_CHAIN_STAGES.length - 1 && stageIdx % 3 !== 2 && (
-                    <div className="hidden lg:flex items-center px-0.5 text-gray-200">
-                      <ChevronRight className="w-4 h-4" />
-                    </div>
+            {/* Progress */}
+            <div className="space-y-2">
+              <p className="text-sm text-gray-700">
+                {uploadedEssentials} of {ESSENTIAL_ENTITIES.length} essential files uploaded
+              </p>
+              <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 transition-all"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Essentials */}
+            <div className="space-y-3">
+              <p className="text-[11px] font-semibold tracking-wider text-gray-400 uppercase">
+                Essential — upload these first
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {ESSENTIAL_ENTITIES.map((e) => renderCard(e.type, e.blurb, e.category, true))}
+              </div>
+            </div>
+
+            {/* Hint banner */}
+            <div className="flex items-start gap-3 p-4 rounded-xl bg-blue-50 border border-blue-100">
+              <Sparkles className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+              <p className="text-sm text-blue-900">
+                You can start asking questions after uploading{" "}
+                <span className="font-semibold">Products, Suppliers, Inventory, and Purchase Orders</span>.
+                The rest will improve answer depth.
+              </p>
+            </div>
+
+            {/* Additional data */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px bg-gray-200" />
+                <p className="text-xs text-gray-400">Additional data — add when ready</p>
+                <div className="flex-1 h-px bg-gray-200" />
+              </div>
+              <button
+                onClick={() => setShowAllFiles((v) => !v)}
+                className="w-full text-sm font-medium text-gray-700 px-4 py-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
+              >
+                {showAllFiles ? "Hide" : "Show"} {additionalEntities.length} more files
+                {showAllFiles ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+              {showAllFiles && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                  {additionalEntities.map((t) =>
+                    renderCard(t, "", ENTITY_CATEGORY[t] ?? "", false)
                   )}
                 </div>
-              );
-            })}
-          </div>
-
-          {/* Fallback: if user knows what they have, allow direct entity select */}
-          <details className="group">
-            <summary className="cursor-pointer text-xs text-gray-400 hover:text-gray-600 select-none list-none flex items-center gap-1">
-              <ChevronRight className="w-3 h-3 group-open:rotate-90 transition-transform" />
-              Upload a specific data type directly
-            </summary>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {ENTITY_OPTIONS.map(([e, label]) => (
-                <button
-                  key={e}
-                  onClick={() => { setEntity(e); setStep("upload"); }}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:border-gray-400 hover:text-gray-800 transition-colors"
-                >
-                  {label}
-                </button>
-              ))}
+              )}
             </div>
-          </details>
-        </div>
-      )}
+          </div>
+        );
+      })()}
 
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* STEP: Upload                                                       */}
       {/* ────────────────────────────────────────────────────────────────── */}
       {step === "upload" && (
-        <Card>
-          <CardContent className="p-6 space-y-4">
-            {/* Breadcrumb: back to supply chain hub */}
-            <div className="flex items-center gap-1.5 text-sm -mb-1">
-              <button
-                onClick={() => { setFile(null); setUploadError(null); setStep("select"); }}
-                className="text-gray-400 hover:text-gray-700 transition-colors flex items-center gap-1"
-              >
-                Supply chain
-              </button>
-              <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
-              <span className="font-medium text-gray-900">{ENTITY_LABELS[entity]}</span>
-            </div>
+        <div className="space-y-4">
+          {/* Back button — outside the card */}
+          <button
+            onClick={() => { setFile(null); setUploadError(null); setStep("select"); }}
+            className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 rounded-lg px-3 py-2 transition-colors shadow-sm"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Import
+          </button>
 
-            <div
-              className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer hover:border-slate-400 transition-colors"
-              onClick={() => fileRef.current?.click()}
-            >
-              {file ? (
-                <div className="flex items-center justify-center gap-3">
-                  <FileText className="w-8 h-8 text-slate-600" />
-                  <div className="text-left">
-                    <p className="font-medium text-sm">{file.name}</p>
-                    <p className="text-xs text-gray-400">
-                      {(file.size / 1024).toFixed(1)} KB
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <Upload className="w-10 h-10 text-gray-300 mx-auto mb-2" />
-                  <p className="text-sm font-medium text-gray-600">
-                    Click to select a CSV or Excel file
-                  </p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    CSV or .xlsx · Max 50 MB
-                  </p>
-                </>
-              )}
-            </div>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              className="hidden"
-              onChange={(e) => {
-                setFile(e.target.files?.[0] ?? null);
-                setUploadError(null);
-              }}
-            />
-
-            {uploadError && (
-              <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 rounded-lg p-3">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                {uploadError}
+          <Card>
+            <CardContent className="p-8 space-y-6">
+              {/* Header */}
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">{ENTITY_LABELS[entity]}</h2>
+                <p className="text-sm text-gray-500 mt-0.5">Upload a CSV or Excel file — we'll map your columns automatically.</p>
               </div>
-            )}
 
-            <Button
-              onClick={() => handleUpload()}
-              disabled={!file || uploading}
-              className="w-full"
-            >
-              {uploading ? "Analysing your file…" : "Upload & auto-detect fields"}
-            </Button>
-          </CardContent>
-        </Card>
+              {/* Drop zone */}
+              <div
+                className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${
+                  file ? "border-emerald-300 bg-emerald-50/40" : "border-gray-200 hover:border-slate-400 hover:bg-gray-50"
+                }`}
+                onClick={() => fileRef.current?.click()}
+              >
+                {file ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <FileText className="w-6 h-6 text-emerald-600" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-sm text-gray-900">{file.name}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{(file.size / 1024).toFixed(1)} KB · Click to change</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
+                      <Upload className="w-6 h-6 text-gray-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-700">Click to select your file</p>
+                      <p className="text-xs text-gray-400 mt-0.5">CSV or .xlsx · Max 50 MB</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="hidden"
+                onChange={(e) => {
+                  setFile(e.target.files?.[0] ?? null);
+                  setUploadError(null);
+                }}
+              />
+
+              {uploadError && (
+                <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 rounded-lg p-3">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  {uploadError}
+                </div>
+              )}
+
+              <Button
+                onClick={() => handleUpload()}
+                disabled={!file || uploading}
+                className="w-full h-11 text-sm font-semibold"
+              >
+                {uploading ? "Analysing your file…" : "Upload & auto-detect fields"}
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* ────────────────────────────────────────────────────────────────── */}

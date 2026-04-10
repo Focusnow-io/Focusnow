@@ -54,7 +54,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
         filters: {
           type: "object",
           description:
-            'Prisma-style where clause. Supports operators: { status: { in: ["OPEN","CLOSED"] } }, { qtyOnHand: { gt: 0 } }, { name: { contains: "steel" } }, { createdAt: { gte: "2025-01-01" } }, { daysOfSupply: { lte: 10 } }. Simple equality: { status: "OPEN" }. NOTE: Prisma filters can only compare against literal values, not other columns. For cross-column comparisons use rawWhere.',
+            'Prisma-style where clause. Supports operators: { status: { in: ["OPEN","CLOSED"] } }, { quantity: { gt: 0 } }, { name: { contains: "steel" } }, { createdAt: { gte: "2025-01-01" } }, { daysOfSupply: { lte: 10 } }. Simple equality: { status: "OPEN" }. For inventory use "quantity" (not "qtyOnHand"). For work orders use "plannedQty" and "actualQty" (not "qtyPlanned"/"qtyProduced"). NOTE: Prisma filters can only compare against literal values, not other columns. For cross-column comparisons use rawWhere.',
           additionalProperties: true,
         },
         rawWhere: {
@@ -456,8 +456,8 @@ async function executeTraceability(
       workOrders: workOrders.map((wo) => ({
         orderNumber: wo.woNumber ?? wo.orderNumber,
         status: wo.status,
-        qtyPlanned: Number(wo.plannedQty),
-        qtyProduced: Number(wo.actualQty),
+        plannedQty: Number(wo.plannedQty),
+        actualQty: Number(wo.actualQty),
       })),
       bomComponents: bomItems.map((b) => ({
         sku: b.child.sku,

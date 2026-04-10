@@ -122,19 +122,19 @@ export async function computeDataQualityScore(
     // Required field scores — one count per field
     Promise.all(
       config.requiredFields.map((field) =>
-        model.count({ where: { ...where, NOT: [{ [field]: null }] } }) as Promise<number>,
+        model.count({ where: { ...where, [field]: { not: null } } }) as Promise<number>,
       ),
     ),
     // Optional field scores — one count per field
     Promise.all(
       config.optionalFields.map((field) =>
-        model.count({ where: { ...where, NOT: [{ [field]: null }] } }) as Promise<number>,
+        model.count({ where: { ...where, [field]: { not: null } } }) as Promise<number>,
       ),
     ),
     // FK resolution scores — one count per FK field
     Promise.all(
       config.fkFields.map((field) =>
-        model.count({ where: { ...where, NOT: [{ [field]: null }] } }) as Promise<number>,
+        model.count({ where: { ...where, [field]: { not: null } } }) as Promise<number>,
       ),
     ),
   ]);
