@@ -19,6 +19,7 @@ export default function LoginPage() {
   const router = useRouter();
   const params = useSearchParams();
   const justVerified = params.get("verified") === "1";
+  const justReset = params.get("reset") === "1";
   const errorParam = params.get("error");
 
   const [email, setEmail] = useState("");
@@ -136,6 +137,13 @@ export default function LoginPage() {
             </div>
           )}
 
+          {justReset && (
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 mb-4">
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+              Password reset! Sign in with your new password.
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="email" className="text-xs font-semibold text-foreground">
@@ -162,6 +170,11 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
               />
+              <div className="flex justify-end">
+                <Link href="/forgot-password" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+                  Forgot password?
+                </Link>
+              </div>
             </div>
 
             {error && (

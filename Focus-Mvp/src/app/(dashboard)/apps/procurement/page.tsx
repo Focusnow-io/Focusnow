@@ -92,6 +92,17 @@ export default function ProcurementHubPage() {
   const [sourceRisk, setSourceRisk] = useState<SourceRisk | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCustomize, setShowCustomize] = useState(false);
+  const [instanceId, setInstanceId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    fetch("/api/apps/instances")
+      .then((r) => r.json())
+      .then((d: { instances?: { id: string; template: string }[] }) => {
+        const inst = d.instances?.find((i) => i.template === "PROCUREMENT_HUB");
+        if (inst) setInstanceId(inst.id);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch("/api/apps/procurement")
@@ -470,6 +481,7 @@ export default function ProcurementHubPage() {
         onClose={() => setShowCustomize(false)}
         appName="Procurement Hub"
         template="PROCUREMENT_HUB"
+        instanceId={instanceId}
       />
     </div>
   );

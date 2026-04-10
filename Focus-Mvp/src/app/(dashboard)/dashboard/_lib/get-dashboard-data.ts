@@ -106,10 +106,13 @@ export async function getDashboardData(
 
   const dataSources = deduplicateDataSources(rawDataSources).slice(0, 5) as DashboardData["dataSources"];
 
+  // DATA_CHAT is a utility app — only count operational dashboard apps for journey state
+  const operationalAppCount = apps.filter((a) => a.template !== "DATA_CHAT").length;
+
   const journeyState = detectJourneyState({
     hasData,
-    hasRules: activeRuleCount > 0,
-    hasApps: activeAppCount > 0,
+    hasRules: activeRuleCount > 0 || draftRuleCount > 0,
+    hasApps: operationalAppCount > 0,
   });
 
   // Compute operational KPIs for ACTIVE users

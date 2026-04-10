@@ -5,9 +5,11 @@ import {
   MessageSquare,
 } from "lucide-react";
 import type { DashboardData } from "../_lib/types";
+import type { UserPermissions } from "@/lib/permissions";
 
 interface ZoneBIntelligenceProps {
   data: DashboardData;
+  permissions: UserPermissions;
 }
 
 /** Accent color per state. */
@@ -30,7 +32,7 @@ const STATE_ACCENT = {
   },
 } as const;
 
-export function ZoneBIntelligence({ data }: ZoneBIntelligenceProps) {
+export function ZoneBIntelligence({ data, permissions }: ZoneBIntelligenceProps) {
   const accent = STATE_ACCENT[data.journeyState];
 
   return (
@@ -43,17 +45,17 @@ export function ZoneBIntelligence({ data }: ZoneBIntelligenceProps) {
         style={{ borderLeft: `3px solid ${accent.stripe}` }}
       >
         <div className="space-y-3">
-          <StateContent data={data} />
+          <StateContent data={data} permissions={permissions} />
         </div>
       </div>
     </div>
   );
 }
 
-function StateContent({ data }: { data: DashboardData }) {
+function StateContent({ data, permissions }: { data: DashboardData; permissions: UserPermissions }) {
   switch (data.journeyState) {
     case "NEW":
-      return (
+      return permissions.import ? (
         <>
           <div>
             <h2 className="text-base font-semibold text-foreground leading-snug">
@@ -70,10 +72,21 @@ function StateContent({ data }: { data: DashboardData }) {
             </Link>
           </Button>
         </>
+      ) : (
+        <>
+          <div>
+            <h2 className="text-base font-semibold text-foreground leading-snug">
+              No data loaded yet.
+            </h2>
+            <p className="text-[15px] text-muted-foreground mt-1.5 leading-relaxed max-w-xl">
+              Contact your workspace admin to import operational data.
+            </p>
+          </div>
+        </>
       );
 
     case "DATA_ONLY":
-      return (
+      return permissions.brain ? (
         <>
           <div>
             <h2 className="text-base font-semibold text-foreground leading-snug">
@@ -92,72 +105,152 @@ function StateContent({ data }: { data: DashboardData }) {
             </Link>
           </Button>
         </>
+      ) : (
+        <>
+          <div>
+            <h2 className="text-base font-semibold text-foreground leading-snug">
+              Your data is in.
+            </h2>
+            <p className="text-[15px] text-muted-foreground mt-1.5 leading-relaxed max-w-xl">
+              {formatDataSummary(data)} loaded. Ask a question using Data Chat, or contact your admin to enable rules access.
+            </p>
+          </div>
+          {permissions.chat && (
+            <Button size="sm" asChild>
+              <Link href="/apps/chat">
+                Open Data Chat
+                <ArrowRight className="w-3 h-3" />
+              </Link>
+            </Button>
+          )}
+        </>
       );
 
-    case "DATA_AND_BRAIN":
+    case "DATA_AND_BRAIN": {
+      const totalRules = data.activeRuleCount + data.draftRuleCount;
+      const draftNote = data.activeRuleCount === 0 && data.draftRuleCount > 0
+        ? " (all in draft — activate them to use in AI answers)"
+        : data.draftRuleCount > 0
+        ? ` (${data.draftRuleCount} in draft)`
+        : "";
+
+      if (!permissions.brain) {
+        // User can see data but not brain — show data-only message
+        return (
+          <>
+            <div>
+              <h2 className="text-base font-semibold text-foreground leading-snug">
+                Your data is ready.
+              </h2>
+              <p className="text-[15px] text-muted-foreground mt-1.5 leading-relaxed max-w-xl">
+                {data.activeRuleCount > 0
+                  ? "Ask a question and Focus will give you a grounded answer based on your operational data."
+                  : "Ask a question about your data in plain English."}
+              </p>
+            </div>
+            {permissions.chat && (
+              <Button size="sm" asChild>
+                <Link href="/apps/chat">
+                  Ask Focus
+                  <ArrowRight className="w-3 h-3" />
+                </Link>
+              </Button>
+            )}
+          </>
+        );
+      }
+
       return (
         <>
           <div>
             <h2 className="text-base font-semibold text-foreground leading-snug">
-              Your Brain has {data.activeRuleCount} rule
-              {data.activeRuleCount !== 1 ? "s" : ""}. Try asking something it covers.
+              Your Brain has {totalRules} rule{totalRules !== 1 ? "s" : ""}{draftNote}.
             </h2>
             <p className="text-[15px] text-muted-foreground mt-1.5 leading-relaxed max-w-xl">
               {data.ruleDomains.length > 0
                 ? `Your rules cover ${data.ruleDomains.join(" and ")}. `
                 : ""}
-              Head to AI Chat and ask a question. Focus will use your rules as
-              context to give you a specific, grounded answer — not a generic one.
+              {data.activeRuleCount > 0
+                ? "Head to AI Chat and ask a question. Focus will use your active rules as context to give you a specific, grounded answer."
+                : "Activate your draft rules so Focus can apply them when answering questions."}
             </p>
           </div>
-          <Button size="sm" asChild>
-            <Link href="/apps/chat">
-              Ask Focus
-              <ArrowRight className="w-3 h-3" />
-            </Link>
-          </Button>
+          {data.activeRuleCount > 0 ? (
+            permissions.chat && (
+              <Button size="sm" asChild>
+                <Link href="/apps/chat">
+                  Ask Focus
+                  <ArrowRight className="w-3 h-3" />
+                </Link>
+              </Button>
+            )
+          ) : (
+            <Button size="sm" asChild>
+              <Link href="/brain">
+                Review your rules
+                <ArrowRight className="w-3 h-3" />
+              </Link>
+            </Button>
+          )}
         </>
       );
+    }
 
-    case "ACTIVE":
+    case "ACTIVE": {
+      const activeStats: { label: string; value: string }[] = [];
+      if (permissions.brain) activeStats.push({ label: data.activeRuleCount === 1 ? "rule" : "rules", value: String(data.activeRuleCount) });
+      if (permissions.apps) activeStats.push({ label: data.activeAppCount === 1 ? "app" : "apps", value: String(data.activeAppCount) });
+      if (permissions.sources) {
+        activeStats.push({ label: "products", value: data.productCount.toLocaleString() });
+        activeStats.push({ label: "suppliers", value: data.supplierCount.toLocaleString() });
+      }
       return (
         <>
           <div>
             <h2 className="text-base font-semibold text-foreground leading-snug">
               Everything is running smoothly
             </h2>
-            <div className="flex items-center gap-5 mt-2.5 text-[15px] text-muted-foreground">
-              <span className="text-[15px]"><strong className="text-foreground font-semibold text-base">{data.activeRuleCount}</strong> {data.activeRuleCount === 1 ? "rule" : "rules"}</span>
-              <span className="text-border">·</span>
-              <span className="text-[15px]"><strong className="text-foreground font-semibold text-base">{data.activeAppCount}</strong> {data.activeAppCount === 1 ? "app" : "apps"}</span>
-              <span className="text-border">·</span>
-              <span className="text-[15px]"><strong className="text-foreground font-semibold text-base">{data.productCount.toLocaleString()}</strong> products</span>
-              <span className="text-border">·</span>
-              <span className="text-[15px]"><strong className="text-foreground font-semibold text-base">{data.supplierCount.toLocaleString()}</strong> suppliers</span>
-            </div>
+            {activeStats.length > 0 && (
+              <div className="flex items-center gap-5 mt-2.5 text-[15px] text-muted-foreground flex-wrap">
+                {activeStats.map((s, i) => (
+                  <span key={s.label} className="flex items-center gap-5">
+                    <span className="text-[15px]">
+                      <strong className="text-foreground font-semibold text-base">{s.value}</strong> {s.label}
+                    </span>
+                    {i < activeStats.length - 1 && <span className="text-border">·</span>}
+                  </span>
+                ))}
+              </div>
+            )}
             <p className="text-sm text-muted-foreground mt-3">
-              Tip: {getActiveTip(data)}
+              Tip: {getActiveTip(data, permissions)}
             </p>
           </div>
-          <Button size="sm" variant="outline" asChild>
-            <Link href="/apps/chat">
-              <MessageSquare className="w-3 h-3" />
-              Ask Focus anything
-            </Link>
-          </Button>
+          {permissions.chat && (
+            <Button size="sm" variant="outline" asChild>
+              <Link href="/apps/chat">
+                <MessageSquare className="w-3 h-3" />
+                Ask Focus anything
+              </Link>
+            </Button>
+          )}
         </>
       );
+    }
   }
 }
 
-function getActiveTip(data: DashboardData): string {
-  if (data.activeRuleCount < 3) {
+function getActiveTip(data: DashboardData, permissions: UserPermissions): string {
+  if (permissions.brain && data.activeRuleCount < 3) {
     return "Add more rules to strengthen your operational brain. The more logic you capture, the smarter your apps become.";
   }
-  if (data.activeAppCount < 2) {
+  if (permissions.apps && data.activeAppCount < 2) {
     return "Try building a custom dashboard with AI — describe what you need and Focus will generate it from your data.";
   }
-  return "Use Data Chat to ask questions about your operations in plain English. It knows your rules and data.";
+  if (permissions.chat) {
+    return "Use Data Chat to ask questions about your operations in plain English. It knows your rules and data.";
+  }
+  return "Your workspace is running smoothly.";
 }
 
 function formatDataSummary(data: DashboardData): string {

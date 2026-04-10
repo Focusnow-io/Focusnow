@@ -69,7 +69,12 @@ export async function sendLoginOtp(
   });
 
   console.log(
-    `[OTP][login] Code sent to ${user.email} — expires in ${OTP_EXPIRY_MINUTES}min | pendingId: ${otp.id}`
+    `\n[OTP][login] ─────────────────────────────────\n` +
+    `  Email:   ${user.email}\n` +
+    `  Code:    ${code}\n` +
+    `  Expires: ${OTP_EXPIRY_MINUTES} min\n` +
+    `  ID:      ${otp.id}\n` +
+    `──────────────────────────────────────────────\n`
   );
 
   return { pendingId: otp.id };
@@ -96,6 +101,13 @@ export async function verifyLoginOtp(
     return { ok: false, error: "expired" };
   }
 
+  // Check expiry before lockout — gives cleaner UX (expired > locked)
+  if (new Date() > otp.expiresAt) {
+    console.warn("[OTP][verify] OTP expired", { userId: otp.userId });
+    await prisma.otpCode.delete({ where: { id: pendingId } });
+    return { ok: false, error: "expired" };
+  }
+
   if (otp.attempts >= OTP_MAX_ATTEMPTS) {
     console.error("[OTP][verify] Account locked — too many attempts", {
       userId: otp.userId,
@@ -103,12 +115,6 @@ export async function verifyLoginOtp(
     });
     await prisma.otpCode.delete({ where: { id: pendingId } });
     return { ok: false, error: "locked" };
-  }
-
-  if (new Date() > otp.expiresAt) {
-    console.warn("[OTP][verify] OTP expired", { userId: otp.userId });
-    await prisma.otpCode.delete({ where: { id: pendingId } });
-    return { ok: false, error: "expired" };
   }
 
   if (otp.code !== submittedCode.trim()) {
@@ -168,14 +174,16 @@ export async function consumeSignInToken(
     return null;
   }
 
-  await prisma.verificationToken.delete({ where: { token } });
-
+  // Check expiry BEFORE deleting so the token isn't silently consumed on first use
   if (new Date() > record.expires) {
     console.warn("[OTP][signin] Sign-in token expired", {
       identifier: record.identifier,
     });
+    await prisma.verificationToken.delete({ where: { token } });
     return null;
   }
+
+  await prisma.verificationToken.delete({ where: { token } });
 
   const userId = record.identifier.replace("signin:", "");
   const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -195,6 +203,12 @@ export async function consumeSignInToken(
 export async function resendLoginOtp(pendingId: string): Promise<{ ok: boolean }> {
   const existing = await prisma.otpCode.findUnique({ where: { id: pendingId } });
   if (!existing) return { ok: false };
+
+  // Do not allow resend for locked-out records — prevents lockout bypass
+  if (existing.attempts >= OTP_MAX_ATTEMPTS) {
+    console.warn("[OTP][resend] Resend blocked — record already locked", { pendingId });
+    return { ok: false };
+  }
 
   const user = await prisma.user.findUnique({ where: { id: existing.userId } });
   if (!user) return { ok: false };

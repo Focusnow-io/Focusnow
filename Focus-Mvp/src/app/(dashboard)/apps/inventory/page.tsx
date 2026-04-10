@@ -70,6 +70,17 @@ export default function InventoryCommandCenterPage() {
   const [filter, setFilter] = useState<"all" | "low" | "critical" | "buy">("all");
   const [search, setSearch] = useState("");
   const [showCustomize, setShowCustomize] = useState(false);
+  const [instanceId, setInstanceId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    fetch("/api/apps/instances")
+      .then((r) => r.json())
+      .then((d: { instances?: { id: string; template: string }[] }) => {
+        const inst = d.instances?.find((i) => i.template === "INVENTORY_COMMAND_CENTER");
+        if (inst) setInstanceId(inst.id);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch("/api/apps/inventory")
@@ -538,6 +549,7 @@ export default function InventoryCommandCenterPage() {
         onClose={() => setShowCustomize(false)}
         appName="Inventory Command Center"
         template="INVENTORY_COMMAND_CENTER"
+        instanceId={instanceId}
       />
     </div>
   );

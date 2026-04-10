@@ -6,17 +6,20 @@ import { prisma } from "@/lib/prisma";
 export async function POST(req: Request) {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
+  console.log("[API][chat/conversation/create]", { userId: ctx.session.user.id, orgId: ctx.org.id });
 
   const body = await req.json().catch(() => ({}));
   const title = typeof body.title === "string" && body.title.trim()
     ? body.title.trim()
     : "New conversation";
+  const projectId = typeof body.projectId === "string" ? body.projectId : null;
 
   const conversation = await prisma.conversation.create({
     data: {
       orgId: ctx.org.id,
       userId: ctx.session.user!.id!,
       title,
+      ...(projectId ? { projectId } : {}),
     },
   });
 
@@ -36,6 +39,7 @@ export async function GET() {
       id: true,
       title: true,
       messageCount: true,
+      projectId: true,
       createdAt: true,
       updatedAt: true,
       messages: {
@@ -54,6 +58,7 @@ export async function GET() {
       id: c.id,
       title: c.title,
       messageCount: c.messageCount,
+      projectId: c.projectId ?? null,
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
       lastMessage: c.messages[0]?.content?.slice(0, 100) ?? null,

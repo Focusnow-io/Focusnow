@@ -6,7 +6,7 @@
  *  2. Add your domain (focusnow.io) under Domains and verify the DNS records
  *  3. Create an API key and add it to .env:
  *       RESEND_API_KEY=re_xxxxxxxxxxxx
- *       EMAIL_FROM=Focus <focus@focusnow.io>
+ *       EMAIL_FROM=Focus <no-reply@support.focusnow.io>
  *
  * While the domain is NOT yet verified you can still test by using
  * "onboarding@resend.dev" as the from address — Resend will deliver
@@ -21,7 +21,7 @@ function getResend(): Resend {
   return new Resend(key);
 }
 
-const FROM = process.env.EMAIL_FROM ?? "Focus <onboarding@resend.dev>";
+const FROM = process.env.EMAIL_FROM ?? "Focus <no-reply@support.focusnow.io>";
 
 interface SendEmailOptions {
   to: string;

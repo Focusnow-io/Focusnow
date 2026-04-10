@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { getSessionOrg, unauthorized, badRequest } from "@/lib/api-helpers";
+import { getSessionOrg, unauthorized, forbidden, badRequest, hasRole } from "@/lib/api-helpers";
 
 const updateWorkspaceSchema = z.object({
   name: z.string().min(1).max(100),
@@ -26,6 +26,8 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
+  if (!hasRole(ctx.member.role, "ADMIN")) return forbidden();
+  console.log("[API][settings/workspace/update]", { userId: ctx.session.user.id, orgId: ctx.org.id });
 
   const body = await req.json();
   const parsed = updateWorkspaceSchema.safeParse(body);

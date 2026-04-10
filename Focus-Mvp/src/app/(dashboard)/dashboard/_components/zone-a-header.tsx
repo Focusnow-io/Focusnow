@@ -2,41 +2,65 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
 import type { DashboardJourneyState } from "../_lib/types";
+import type { UserPermissions } from "@/lib/permissions";
 
 interface ZoneAHeaderProps {
   journeyState: DashboardJourneyState;
   userName?: string | null;
   orgName?: string | null;
+  permissions: UserPermissions;
 }
 
-const CTA_CONFIG: Record<
-  DashboardJourneyState,
-  { label: string; href: string; variant: "default" | "outline" }
-> = {
-  NEW: { label: "Import your data", href: "/data/import", variant: "default" },
-  DATA_ONLY: {
-    label: "Capture your first rule",
-    href: "/brain/new",
-    variant: "default",
-  },
-  DATA_AND_BRAIN: {
-    label: "Ask Focus a question",
-    href: "/apps/chat",
-    variant: "default",
-  },
-  ACTIVE: {
-    label: "Ask Focus anything",
-    href: "/apps/chat",
-    variant: "outline",
-  },
-};
+function getCta(
+  journeyState: DashboardJourneyState,
+  permissions: UserPermissions,
+): { label: string; href: string; variant: "default" | "outline" } {
+  switch (journeyState) {
+    case "NEW":
+      if (permissions.import) {
+        return { label: "Import your data", href: "/data/import", variant: "default" };
+      }
+      if (permissions.sources) {
+        return { label: "View data", href: "/data", variant: "outline" };
+      }
+      if (permissions.chat) {
+        return { label: "Ask Focus a question", href: "/apps/chat", variant: "outline" };
+      }
+      return { label: "View dashboard", href: "/dashboard", variant: "outline" };
+    case "DATA_ONLY":
+      if (permissions.brain) {
+        return { label: "Capture your first rule", href: "/brain/new", variant: "default" };
+      }
+      if (permissions.chat) {
+        return { label: "Ask Focus a question", href: "/apps/chat", variant: "default" };
+      }
+      return { label: "View your data", href: "/data", variant: "outline" };
+    case "DATA_AND_BRAIN":
+      if (permissions.chat) {
+        return { label: "Ask Focus a question", href: "/apps/chat", variant: "default" };
+      }
+      if (permissions.apps) {
+        return { label: "Browse apps", href: "/apps", variant: "outline" };
+      }
+      return { label: "View your data", href: "/data", variant: "outline" };
+    case "ACTIVE":
+      if (permissions.chat) {
+        return { label: "Ask Focus anything", href: "/apps/chat", variant: "outline" };
+      }
+      if (permissions.apps) {
+        return { label: "Browse apps", href: "/apps", variant: "outline" };
+      }
+      return { label: "View your data", href: "/data", variant: "outline" };
+  }
+}
 
 export function ZoneAHeader({
   journeyState,
   userName,
   orgName,
+  permissions,
 }: ZoneAHeaderProps) {
-  const cta = CTA_CONFIG[journeyState];
+  const cta = getCta(journeyState, permissions);
   const firstName = userName?.split(" ")[0];
 
   return (

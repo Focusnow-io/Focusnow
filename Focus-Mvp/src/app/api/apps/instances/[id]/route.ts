@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSessionOrg, unauthorized, notFound } from "@/lib/api-helpers";
+import { getSessionOrg, unauthorized, forbidden, notFound } from "@/lib/api-helpers";
+import { resolvePermissions } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(
@@ -20,6 +21,9 @@ export async function PATCH(
 ) {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
+  const perms = resolvePermissions(ctx.member.role, ctx.member.permissions as Record<string, unknown> | null);
+  if (!perms.apps) return forbidden();
+  console.log("[API][app/update]", { userId: ctx.session.user.id, orgId: ctx.org.id });
   const { id } = await params;
 
   const existing = await prisma.appInstance.findFirst({ where: { id, organizationId: ctx.org.id } });
@@ -52,6 +56,9 @@ export async function DELETE(
 ) {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
+  const perms = resolvePermissions(ctx.member.role, ctx.member.permissions as Record<string, unknown> | null);
+  if (!perms.apps) return forbidden();
+  console.log("[API][app/delete]", { userId: ctx.session.user.id, orgId: ctx.org.id });
   const { id } = await params;
   const existing = await prisma.appInstance.findFirst({ where: { id, organizationId: ctx.org.id } });
   if (!existing) return notFound();

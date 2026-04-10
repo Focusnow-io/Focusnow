@@ -39,7 +39,7 @@ export default function BrainPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/brain/rules")
+    fetch("/api/brain/rules", { cache: "no-cache" })
       .then((r) => r.json())
       .then((d) => {
         setRules(d.rules ?? []);

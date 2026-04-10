@@ -6,9 +6,11 @@ import remarkGfm from "remark-gfm";
 import {
   AlertTriangle,
   ArrowUp,
+  Check,
   ChevronDown,
   ChevronRight,
   Database,
+  FolderOpen,
   Loader2,
   MessageSquare,
   Plus,
@@ -23,10 +25,30 @@ interface Conversation {
   id: string;
   title: string;
   messageCount: number;
+  projectId: string | null;
   createdAt: string;
   updatedAt: string;
   lastMessage: string | null;
   lastMessageRole: string | null;
+}
+
+interface ConversationSummary {
+  id: string;
+  title: string;
+  messageCount: number;
+  projectId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastMessage: string | null;
+  lastMessageRole: string | null;
+}
+
+interface Project {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  conversations: ConversationSummary[];
 }
 
 interface ToolCallEvent {
@@ -70,6 +92,11 @@ export default function ChatPage() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [sidebarSearch, setSidebarSearch] = useState("");
 
+  // Projects
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+
   // Messages
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -78,6 +105,11 @@ export default function ChatPage() {
 
   // Tool calls in progress
   const [activeToolCalls, setActiveToolCalls] = useState<Map<string, ToolCallEvent>>(new Map());
+
+  // New Project inline input
+  const [showProjectInput, setShowProjectInput] = useState(false);
+  const [projectName, setProjectName] = useState("");
+  const [projectNameError, setProjectNameError] = useState(false);
 
   // Onboarding — seeded questions from user's rules
   const { data: onboardingData, stage: onboardingStage } = useOnboardingStage();
@@ -136,6 +168,15 @@ export default function ChatPage() {
     }
   }, []);
 
+  const loadProjects = useCallback(async () => {
+    try {
+      const res = await fetch("/api/chat/projects");
+      if (!res.ok) return;
+      const data = await res.json();
+      setProjects(data.projects ?? []);
+    } catch { /* silent */ }
+  }, []);
+
   const loadMessages = useCallback(async (conversationId: string) => {
     try {
       const res = await fetch(`/api/chat/conversations/${conversationId}/messages`);
@@ -157,7 +198,8 @@ export default function ChatPage() {
 
   useEffect(() => {
     loadConversations();
-  }, [loadConversations]);
+    loadProjects();
+  }, [loadConversations, loadProjects]);
 
   useEffect(() => {
     if (activeConversationId && !isLoading) {
@@ -186,13 +228,13 @@ export default function ChatPage() {
 
   // ── Conversation management ──────────────────────────────────────────────
 
-  async function createConversation(): Promise<string | null> {
+  async function createConversation(projectId?: string | null): Promise<string | null> {
     setIsCreating(true);
     try {
       const res = await fetch("/api/chat/conversations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify(projectId ? { projectId } : {}),
       });
       if (!res.ok) return null;
       const data = await res.json();
@@ -206,10 +248,56 @@ export default function ChatPage() {
   }
 
   async function handleNewConversation() {
+    setActiveProjectId(null);
     const id = await createConversation();
     if (id) {
       setActiveConversationId(id);
       setMessages([]);
+    }
+  }
+
+  async function createProject() {
+    const name = projectName.trim();
+    if (!name) {
+      setProjectNameError(true);
+      return;
+    }
+    setIsCreating(true);
+    setShowProjectInput(false);
+    setProjectName("");
+    setProjectNameError(false);
+    try {
+      const res = await fetch("/api/chat/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      await loadProjects();
+      const newProjectId: string = data.project.id;
+      setExpandedProjects((prev) => new Set([...prev, newProjectId]));
+      setActiveProjectId(newProjectId);
+    } catch { /* silent */ } finally {
+      setIsCreating(false);
+    }
+  }
+
+  async function createNewConversationInProject(projectId: string) {
+    setIsCreating(true);
+    try {
+      const res = await fetch("/api/chat/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "New conversation", projectId }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      await loadConversations();
+      await loadProjects();
+      setActiveConversationId(data.id);
+    } catch { /* silent */ } finally {
+      setIsCreating(false);
     }
   }
 
@@ -228,7 +316,7 @@ export default function ChatPage() {
 
     // Auto-create conversation if none selected
     if (!conversationId) {
-      conversationId = await createConversation();
+      conversationId = await createConversation(activeProjectId);
       if (!conversationId) return;
       setActiveConversationId(conversationId);
     }
@@ -313,8 +401,9 @@ export default function ChatPage() {
         });
       }
 
-      // Refresh conversation list to update titles/timestamps
+      // Refresh conversation list and projects to update titles/timestamps
       loadConversations();
+      loadProjects();
     } catch (err) {
       const msg =
         err instanceof DOMException && err.name === "AbortError"
@@ -436,6 +525,17 @@ export default function ChatPage() {
       )
     : conversations;
 
+  // All conversations (including those nested in projects) for header title lookup
+  const allProjectConversations: ConversationSummary[] = projects.flatMap((p) => p.conversations);
+
+  function getActiveConversationTitle(): string {
+    if (!activeConversationId) return "AI Chat";
+    const fromList = conversations.find((c) => c.id === activeConversationId);
+    if (fromList) return fromList.title;
+    const fromProject = allProjectConversations.find((c) => c.id === activeConversationId);
+    return fromProject?.title ?? "Chat";
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -449,14 +549,59 @@ export default function ChatPage() {
         <div className="p-3 space-y-2" style={{ borderBottom: "1px solid #e8e8e8" }}>
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-gray-900">AI Chat</h2>
-            <button
-              onClick={handleNewConversation}
-              disabled={isCreating}
-              className="w-7 h-7 rounded-md flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors disabled:opacity-40"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleNewConversation}
+                disabled={isCreating}
+                title="New Chat"
+                className="w-7 h-7 rounded-md flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors disabled:opacity-40"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => {
+                  setShowProjectInput((prev) => !prev);
+                  setProjectName("");
+                  setProjectNameError(false);
+                }}
+                disabled={isCreating}
+                title="New Project"
+                className="w-7 h-7 rounded-md flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors disabled:opacity-40"
+              >
+                <FolderOpen className="w-4 h-4" />
+              </button>
+            </div>
           </div>
+
+          {showProjectInput && (
+            <div className="flex items-center gap-1">
+              <input
+                autoFocus
+                type="text"
+                placeholder="Project name..."
+                value={projectName}
+                onChange={(e) => {
+                  setProjectName(e.target.value);
+                  if (projectNameError && e.target.value.trim()) setProjectNameError(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); createProject(); }
+                  if (e.key === "Escape") { setShowProjectInput(false); setProjectName(""); setProjectNameError(false); }
+                }}
+                className={`flex-1 px-2.5 py-1.5 text-xs bg-gray-50 border rounded-md focus:outline-none text-gray-700 placeholder:text-gray-400 ${
+                  projectNameError ? "border-red-400 focus:border-red-500" : "border-gray-200 focus:border-gray-300"
+                }`}
+              />
+              <button
+                onClick={createProject}
+                disabled={isCreating}
+                className="w-7 h-7 rounded-md flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-green-600 transition-colors disabled:opacity-40"
+              >
+                <Check className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           <div className="relative">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -471,42 +616,130 @@ export default function ChatPage() {
 
         {/* Conversation list */}
         <div className="flex-1 overflow-y-auto">
-          {filteredConversations.length === 0 ? (
+          {projects.length === 0 && filteredConversations.filter((c) => !c.projectId).length === 0 ? (
             <div className="p-4 text-center">
               <MessageSquare className="w-8 h-8 mx-auto text-gray-300 mb-2" />
               <p className="text-xs text-gray-400">
-                {conversations.length === 0
+                {conversations.length === 0 && projects.length === 0
                   ? "No conversations yet"
                   : "No matching conversations"}
               </p>
             </div>
           ) : (
             <div className="py-1">
-              {filteredConversations.map((conv) => (
-                <button
-                  key={conv.id}
-                  onClick={() => selectConversation(conv.id)}
-                  className={`w-full text-left px-3 py-2.5 transition-colors ${
-                    conv.id === activeConversationId
-                      ? "bg-gray-100"
-                      : "hover:bg-gray-50"
-                  }`}
-                >
-                  <p className="text-[13px] font-medium text-gray-900 truncate">
-                    {conv.title}
-                  </p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-[11px] text-gray-400">
-                      {new Date(conv.updatedAt).toLocaleDateString()}
-                    </span>
-                    {conv.lastMessage && (
-                      <span className="text-[11px] text-gray-400 truncate flex-1">
-                        {conv.lastMessage.slice(0, 50)}
+              {/* Section 1 — Projects */}
+              {projects
+                .filter((p) =>
+                  !sidebarSearch ||
+                  p.name.toLowerCase().includes(sidebarSearch.toLowerCase()) ||
+                  p.conversations.some((c) =>
+                    c.title.toLowerCase().includes(sidebarSearch.toLowerCase())
+                  )
+                )
+                .map((project) => {
+                  const isExpanded = expandedProjects.has(project.id);
+                  return (
+                    <div key={project.id}>
+                      {/* Project header row */}
+                      <button
+                        onClick={() =>
+                          setExpandedProjects((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(project.id)) {
+                              next.delete(project.id);
+                            } else {
+                              next.add(project.id);
+                            }
+                            return next;
+                          })
+                        }
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
+                      >
+                        <FolderOpen className="w-3.5 h-3.5 shrink-0" />
+                        <span className="flex-1 truncate text-left">{project.name}</span>
+                        <ChevronRight
+                          className={`w-3 h-3 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                        />
+                      </button>
+
+                      {/* Expanded: conversations + add button */}
+                      {isExpanded && (
+                        <div className="pl-4 space-y-px">
+                          {project.conversations
+                            .filter(
+                              (c) =>
+                                !sidebarSearch ||
+                                c.title.toLowerCase().includes(sidebarSearch.toLowerCase())
+                            )
+                            .map((conv) => (
+                              <button
+                                key={conv.id}
+                                onClick={() => selectConversation(conv.id)}
+                                className={`w-full text-left px-2 py-2 transition-colors rounded-md ${
+                                  conv.id === activeConversationId
+                                    ? "bg-gray-100"
+                                    : "hover:bg-gray-50"
+                                }`}
+                              >
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <MessageSquare className="w-3 h-3 shrink-0 text-gray-400" />
+                                  <p className="text-[12px] font-medium text-gray-800 truncate">
+                                    {conv.title}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2 mt-0.5 pl-4">
+                                  <span className="text-[10px] text-gray-400">
+                                    {new Date(conv.updatedAt).toLocaleDateString()}
+                                  </span>
+                                </div>
+                              </button>
+                            ))}
+                          {/* Add conversation to this project */}
+                          <button
+                            onClick={() => createNewConversationInProject(project.id)}
+                            disabled={isCreating}
+                            className="flex items-center gap-1.5 w-full px-2 py-1 text-xs text-gray-400 hover:text-gray-600 rounded transition-colors disabled:opacity-40"
+                          >
+                            <Plus className="w-3 h-3" />
+                            New conversation
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+              {/* Section 2 — Standalone conversations (no project) */}
+              {filteredConversations
+                .filter((c) => !c.projectId)
+                .map((conv) => (
+                  <button
+                    key={conv.id}
+                    onClick={() => selectConversation(conv.id)}
+                    className={`w-full text-left px-3 py-2.5 transition-colors ${
+                      conv.id === activeConversationId
+                        ? "bg-gray-100"
+                        : "hover:bg-gray-50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <MessageSquare className="w-3.5 h-3.5 shrink-0 text-gray-400" />
+                      <p className="text-[13px] font-medium text-gray-900 truncate">
+                        {conv.title}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5 pl-5">
+                      <span className="text-[11px] text-gray-400">
+                        {new Date(conv.updatedAt).toLocaleDateString()}
                       </span>
-                    )}
-                  </div>
-                </button>
-              ))}
+                      {conv.lastMessage && (
+                        <span className="text-[11px] text-gray-400 truncate flex-1">
+                          {conv.lastMessage.slice(0, 50)}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
             </div>
           )}
         </div>
@@ -521,9 +754,7 @@ export default function ChatPage() {
         >
           <MessageSquare className="w-4 h-4 text-gray-400" />
           <span className="text-sm font-medium text-gray-700 truncate">
-            {activeConversationId
-              ? conversations.find((c) => c.id === activeConversationId)?.title ?? "Chat"
-              : "AI Chat"}
+            {getActiveConversationTitle()}
           </span>
         </div>
 
@@ -593,8 +824,8 @@ export default function ChatPage() {
                         {/* Tool calls */}
                         {message.toolCalls && message.toolCalls.length > 0 && (
                           <div className="mb-3 space-y-1.5">
-                            {message.toolCalls.map((tc) => (
-                              <ToolCallBlock key={tc.id} toolCall={tc} />
+                            {message.toolCalls.map((tc, i) => (
+                              <ToolCallBlock key={tc.id ?? i} toolCall={tc} />
                             ))}
                           </div>
                         )}

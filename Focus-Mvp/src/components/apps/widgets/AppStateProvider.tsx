@@ -61,7 +61,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setSimParams = useCallback((widgetId: string, params: Record<string, unknown>) => {
-    setSimParamsState((prev) => ({ ...prev, [widgetId]: params }));
+    setSimParamsState((prev) => {
+      const next: Record<string, Record<string, unknown>> = { ...prev };
+      next[widgetId] = params;
+      return next;
+    });
   }, []);
 
   const getSimParamsFor = useCallback((listenTo: string[]): Record<string, unknown> => {

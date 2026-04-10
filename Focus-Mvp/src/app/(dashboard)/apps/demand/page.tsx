@@ -112,6 +112,17 @@ export default function DemandFulfillmentPage() {
   const [coverageDist, setCoverageDist] = useState<CoverageDist | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCustomize, setShowCustomize] = useState(false);
+  const [instanceId, setInstanceId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    fetch("/api/apps/instances")
+      .then((r) => r.json())
+      .then((d: { instances?: { id: string; template: string }[] }) => {
+        const inst = d.instances?.find((i) => i.template === "DEMAND_FULFILLMENT");
+        if (inst) setInstanceId(inst.id);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch("/api/apps/demand")
@@ -566,6 +577,7 @@ export default function DemandFulfillmentPage() {
         onClose={() => setShowCustomize(false)}
         appName="Demand & Fulfillment"
         template="DEMAND_FULFILLMENT"
+        instanceId={instanceId}
       />
     </div>
   );

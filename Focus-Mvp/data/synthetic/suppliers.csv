@@ -1,0 +1,16 @@
+supplierId,name,country,city,contactEmail,contactPhone,paymentTermsDays,qualityRating,leadTimeDays,activeStatus,category,annualSpend
+SUP-001,Meridian Steel Co.,USA,Pittsburgh,orders@meridiansteel.com,+1-412-555-0192,30,4.8,14,active,Steel,285000
+SUP-002,Pacific Aluminum Works,USA,Los Angeles,supply@pacalum.com,+1-213-555-0334,30,4.6,10,active,Aluminum,142000
+SUP-003,Great Lakes Brass,USA,Cleveland,purchasing@glbrass.com,+1-216-555-0471,45,4.5,12,active,Brass,68000
+SUP-004,Midwest Foundry Inc.,USA,Gary,sales@midwestfoundry.com,+1-219-555-0087,30,4.3,18,active,Cast Iron,95000
+SUP-005,ElastoSeal Technologies,Germany,Stuttgart,exports@elastoseal.de,+49-711-555-0292,60,4.9,21,active,Elastomers & Polymers,188000
+SUP-006,ChemSurface Ltd.,UK,Birmingham,orders@chemsurface.co.uk,+44-121-555-0183,45,4.1,28,active,Chemicals,52000
+SUP-007,AccuPressure Systems,Italy,Milan,info@accupressure.it,+39-02-555-0649,60,4.7,6,active,Accumulators,76000
+SUP-008,FilterPro Industrial,Japan,Osaka,export@filterpro.jp,+81-6-555-0312,60,4.8,5,active,Filtration,44000
+SUP-009,HoseTech International,China,Hangzhou,sales@hosetech.cn,+86-571-555-0218,45,4.0,4,active,Hoses & Assemblies,112000
+SUP-010,FastFit Hydraulics,Taiwan,Taichung,orders@fastfit.tw,+886-4-555-0765,45,4.4,5,active,Fittings & Couplings,89000
+SUP-011,Precision Instruments GmbH,Germany,Frankfurt,export@pi-gmbh.de,+49-69-555-0441,60,4.9,10,active,Instrumentation,67000
+SUP-012,ElectroDrive Solutions,USA,Cincinnati,supply@electrodrive.com,+1-513-555-0288,30,4.6,21,active,Electric Motors,156000
+SUP-013,SteelCraft Forgings,Canada,Hamilton,orders@steelcraft.ca,+1-905-555-0394,30,4.5,20,active,Forgings,98000
+SUP-014,GlobalSeal Partners,Mexico,Monterrey,ventas@globalseal.mx,+52-81-555-0572,45,3.9,16,active,Seals & Gaskets,35000
+SUP-015,Nordic Hydraulics AB,Sweden,Gothenburg,order@nordichydraulics.se,+46-31-555-0138,60,4.7,25,on_hold,Hydraulic Components,0

@@ -1,0 +1,52 @@
+sku,name,category,subcategory,unit,unitCost,reorderPoint,leadTimeDays,supplierId,description
+RM-STEEL-4140,Steel Bar 4140 Alloy,Raw Material,Steel,kg,4.85,500,14,SUP-001,Chromium-molybdenum alloy steel bar for high-stress components
+RM-STEEL-1018,Steel Bar 1018 CRS,Raw Material,Steel,kg,3.20,800,14,SUP-001,Cold-rolled steel bar for general machining
+RM-ALUM-6061,Aluminum Bar 6061-T6,Raw Material,Aluminum,kg,7.40,300,10,SUP-002,Heat-treated aluminum alloy bar
+RM-ALUM-7075,Aluminum Bar 7075-T6,Raw Material,Aluminum,kg,12.60,150,10,SUP-002,High-strength aluminum for aerospace-grade parts
+RM-BRASS-360,Brass Rod 360,Raw Material,Brass,kg,9.15,200,12,SUP-003,Free-machining brass rod for fittings
+RM-CAST-IRON,Cast Iron Billet,Raw Material,Iron,kg,2.90,400,18,SUP-004,Grey cast iron for pump housings
+RM-NBRL-90A,Nitrile Rubber Sheet 90A,Raw Material,Elastomer,m2,22.50,50,21,SUP-005,Oil-resistant rubber for seal fabrication
+RM-VITON-75A,Viton Rubber Sheet 75A,Raw Material,Elastomer,m2,48.00,30,21,SUP-005,High-temp fluoroelastomer for critical seals
+RM-PTFE-ROD,PTFE Rod 50mm,Raw Material,Polymer,m,18.75,40,14,SUP-005,Polytetrafluoroethylene rod for bearing inserts
+RM-CHROME,Chrome Plating Liquid,Raw Material,Chemical,L,65.00,20,28,SUP-006,Hexavalent chrome bath solution for hardened surfaces
+WIP-PISTON-01,Piston Sub-Assembly HV2000,WIP,Hydraulic,ea,145.00,20,3,,,Semi-finished piston for HV-2000 cylinder assembly
+WIP-VALVE-BODY,Valve Body Rough Machined,WIP,Valve,ea,87.50,15,2,,,Rough-machined valve body awaiting finish grinding
+WIP-SPOOL-STD,Spool Valve Blank,WIP,Valve,ea,62.00,25,2,,,Turned spool blank before lapping
+WIP-HOUSING-P,Pump Housing Casting,WIP,Pump,ea,210.00,10,5,,,Cast and rough-bored pump housing
+WIP-ROD-EXT,Cylinder Rod Rough,WIP,Cylinder,ea,95.00,20,3,,,Rough-turned cylinder rod before chrome plating
+FG-HV-2000,Hydraulic Cylinder HV-2000,Finished Good,Cylinder,ea,1250.00,5,7,,,2000 PSI hydraulic cylinder 50mm bore x 300mm stroke
+FG-HV-3500,Hydraulic Cylinder HV-3500,Finished Good,Cylinder,ea,1890.00,3,7,,,3500 PSI hydraulic cylinder 80mm bore x 400mm stroke
+FG-HV-5000,Hydraulic Cylinder HV-5000,Finished Good,Cylinder,ea,2750.00,2,10,,,5000 PSI heavy-duty hydraulic cylinder
+FG-VP-100,Vane Pump VP-100,Finished Good,Pump,ea,980.00,4,8,,,100 cc/rev variable displacement vane pump
+FG-VP-200,Vane Pump VP-200,Finished Good,Pump,ea,1540.00,3,8,,,200 cc/rev variable displacement vane pump
+FG-GP-50,Gear Pump GP-50,Finished Good,Pump,ea,620.00,6,6,,,50 cc/rev fixed displacement gear pump
+FG-GP-100,Gear Pump GP-100,Finished Good,Pump,ea,850.00,4,6,,,100 cc/rev fixed displacement gear pump
+FG-DCV-3P,Directional Control Valve 3-Position,Finished Good,Valve,ea,445.00,8,5,,,NG6 3-position 4-way directional control valve
+FG-DCV-2P,Directional Control Valve 2-Position,Finished Good,Valve,ea,310.00,10,5,,,NG6 2-position 4-way directional control valve
+FG-PRV-100,Pressure Relief Valve 100 bar,Finished Good,Valve,ea,185.00,15,4,,,Pilot-operated pressure relief valve 100 bar
+FG-PRV-250,Pressure Relief Valve 250 bar,Finished Good,Valve,ea,265.00,10,4,,,Pilot-operated pressure relief valve 250 bar
+FG-FCR-10,Flow Control Valve 10 L/min,Finished Good,Valve,ea,125.00,20,4,,,Needle-type flow control valve with check
+FG-FCR-30,Flow Control Valve 30 L/min,Finished Good,Valve,ea,175.00,15,4,,,Adjustable flow control 30 L/min with bypass check
+FG-SEAL-KIT-HV2,Seal Kit HV-2000,Finished Good,Spare Part,ea,45.00,30,3,SUP-005,Complete seal kit for HV-2000 cylinder
+FG-SEAL-KIT-VP1,Seal Kit VP-100,Finished Good,Spare Part,ea,38.00,25,3,SUP-005,Complete seal kit for VP-100 pump
+FG-SEAL-KIT-GP5,Seal Kit GP-50,Finished Good,Spare Part,ea,28.00,30,3,SUP-005,Complete seal kit for GP-50 pump
+FG-MTPM-100,Hydraulic Power Pack 100L,Finished Good,Power Unit,ea,3850.00,1,14,,,100L reservoir power unit with VP-100 pump
+FG-MTPM-200,Hydraulic Power Pack 200L,Finished Good,Power Unit,ea,5200.00,1,14,,,200L reservoir power unit with VP-200 pump
+FG-ACCUM-10,Bladder Accumulator 10L,Finished Good,Accumulator,ea,520.00,5,6,SUP-007,10L nitrogen-charged bladder accumulator
+FG-ACCUM-20,Bladder Accumulator 20L,Finished Good,Accumulator,ea,780.00,3,6,SUP-007,20L nitrogen-charged bladder accumulator
+FG-HF-10,Hydraulic Filter 10 micron,Finished Good,Filter,ea,95.00,20,5,SUP-008,High-pressure inline filter 10 micron
+FG-HF-25,Hydraulic Filter 25 micron,Finished Good,Filter,ea,75.00,25,5,SUP-008,Return line filter 25 micron
+FG-HOSE-1-1M,Hydraulic Hose 1" x 1m,Finished Good,Hose,ea,42.00,40,4,SUP-009,SAE 100R2AT 1 inch x 1 meter assembly
+FG-HOSE-1-2M,Hydraulic Hose 1" x 2m,Finished Good,Hose,ea,68.00,30,4,SUP-009,SAE 100R2AT 1 inch x 2 meter assembly
+FG-HOSE-1.5-1M,Hydraulic Hose 1.5" x 1m,Finished Good,Hose,ea,62.00,25,4,SUP-009,SAE 100R2AT 1.5 inch x 1 meter assembly
+FG-COUPLING-F,Quick Coupling Female 1/2",Finished Good,Fitting,ea,22.00,50,5,SUP-010,ISO A flat-face quick coupling female half
+FG-COUPLING-M,Quick Coupling Male 1/2",Finished Good,Fitting,ea,18.00,50,5,SUP-010,ISO A flat-face quick coupling male half
+FG-FITTING-90,Elbow Fitting 90° 1/2" BSP,Finished Good,Fitting,ea,8.50,100,5,SUP-010,High-pressure 90-degree elbow fitting
+FG-FITTING-T,Tee Fitting 1/2" BSP,Finished Good,Fitting,ea,11.00,80,5,SUP-010,High-pressure tee fitting
+FG-GAUGE-100,Pressure Gauge 100 bar,Finished Good,Instrument,ea,35.00,30,7,SUP-011,Glycerin-filled pressure gauge 100 bar 63mm
+FG-GAUGE-400,Pressure Gauge 400 bar,Finished Good,Instrument,ea,48.00,20,7,SUP-011,Glycerin-filled pressure gauge 400 bar 63mm
+FG-TEMP-SENS,Temperature Sensor PT100,Finished Good,Instrument,ea,65.00,15,10,SUP-011,PT100 RTD temperature sensor for hydraulic oil
+FG-PRESS-TRANS,Pressure Transducer 0-400 bar,Finished Good,Instrument,ea,120.00,10,10,SUP-011,4-20mA pressure transducer
+FG-LEVEL-IND,Oil Level Indicator with Thermometer,Finished Good,Instrument,ea,28.00,25,7,SUP-011,Sight glass with integrated thermometer
+FG-MOTOR-7.5,Electric Motor 7.5 kW,Finished Good,Motor,ea,480.00,3,21,SUP-012,7.5 kW 4-pole TEFC induction motor
+FG-MOTOR-15,Electric Motor 15 kW,Finished Good,Motor,ea,780.00,2,21,SUP-012,15 kW 4-pole TEFC induction motor

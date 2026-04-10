@@ -1,0 +1,61 @@
+workOrderId,sku,productName,workCenter,status,plannedQty,actualQty,startDate,dueDate,completedDate,assignedTo,notes
+WO-2026-0001,FG-HV-2000,Hydraulic Cylinder HV-2000,MACHINING,completed,20,20,2026-01-05,2026-01-12,2026-01-11,Team Alpha,Q1 opening batch - on time
+WO-2026-0002,FG-GP-50,Gear Pump GP-50,ASSEMBLY,completed,15,15,2026-01-06,2026-01-14,2026-01-14,Team Beta,
+WO-2026-0003,FG-DCV-3P,Directional Control Valve 3-Position,ASSEMBLY,completed,25,24,2026-01-08,2026-01-16,2026-01-15,Team Beta,1 unit failed QC - scrapped
+WO-2026-0004,FG-PRV-100,Pressure Relief Valve 100 bar,MACHINING,completed,30,30,2026-01-10,2026-01-18,2026-01-17,Team Alpha,
+WO-2026-0005,FG-HV-3500,Hydraulic Cylinder HV-3500,MACHINING,completed,10,10,2026-01-12,2026-01-22,2026-01-22,Team Gamma,
+WO-2026-0006,FG-VP-100,Vane Pump VP-100,ASSEMBLY,completed,12,11,2026-01-15,2026-01-23,2026-01-23,Team Alpha,1 unit rework - customer return inspection
+WO-2026-0007,WIP-PISTON-01,Piston Sub-Assembly HV2000,MACHINING,completed,40,40,2026-01-18,2026-01-25,2026-01-24,Team Alpha,Piston blanks for HV-2000 assembly
+WO-2026-0008,FG-GP-100,Gear Pump GP-100,ASSEMBLY,completed,10,10,2026-01-20,2026-01-28,2026-01-28,Team Beta,
+WO-2026-0009,FG-HV-5000,Hydraulic Cylinder HV-5000,MACHINING,completed,5,5,2026-01-22,2026-02-03,2026-02-02,Team Gamma,High-pressure spec - additional QC time
+WO-2026-0010,FG-DCV-2P,Directional Control Valve 2-Position,ASSEMBLY,completed,35,35,2026-01-25,2026-02-02,2026-02-01,Team Beta,
+WO-2026-0011,FG-MTPM-100,Hydraulic Power Pack 100L,ASSEMBLY,completed,4,4,2026-01-28,2026-02-11,2026-02-11,Team Gamma,Full system build and test
+WO-2026-0012,FG-HV-2000,Hydraulic Cylinder HV-2000,MACHINING,completed,25,25,2026-02-02,2026-02-10,2026-02-09,Team Alpha,
+WO-2026-0013,WIP-VALVE-BODY,Valve Body Rough Machined,MACHINING,completed,30,30,2026-02-03,2026-02-08,2026-02-08,Team Alpha,Rough machining batch for DCV line
+WO-2026-0014,FG-VP-200,Vane Pump VP-200,ASSEMBLY,completed,6,6,2026-02-05,2026-02-17,2026-02-17,Team Alpha,
+WO-2026-0015,FG-PRV-250,Pressure Relief Valve 250 bar,MACHINING,completed,20,19,2026-02-08,2026-02-16,2026-02-16,Team Gamma,1 unit dimensional reject
+WO-2026-0016,FG-GP-50,Gear Pump GP-50,ASSEMBLY,completed,20,20,2026-02-10,2026-02-18,2026-02-18,Team Beta,
+WO-2026-0017,WIP-ROD-EXT,Cylinder Rod Rough,CHROME_PLATING,completed,50,50,2026-02-12,2026-02-19,2026-02-20,Team Delta,Chrome plating batch - 1 day delay
+WO-2026-0018,FG-HV-3500,Hydraulic Cylinder HV-3500,MACHINING,completed,8,8,2026-02-14,2026-02-24,2026-02-24,Team Gamma,
+WO-2026-0019,FG-FCR-10,Flow Control Valve 10 L/min,ASSEMBLY,completed,30,30,2026-02-15,2026-02-21,2026-02-21,Team Beta,
+WO-2026-0020,FG-FCR-30,Flow Control Valve 30 L/min,ASSEMBLY,completed,25,25,2026-02-18,2026-02-24,2026-02-24,Team Beta,
+WO-2026-0021,FG-HV-2000,Hydraulic Cylinder HV-2000,MACHINING,completed,18,18,2026-02-20,2026-02-28,2026-02-27,Team Alpha,
+WO-2026-0022,WIP-SPOOL-STD,Spool Valve Blank,MACHINING,completed,45,43,2026-02-22,2026-02-28,2026-02-28,Team Gamma,2 units failed lapping tolerance
+WO-2026-0023,FG-MTPM-200,Hydraulic Power Pack 200L,ASSEMBLY,completed,2,2,2026-02-25,2026-03-11,2026-03-10,Team Gamma,Large power unit build
+WO-2026-0024,FG-HV-5000,Hydraulic Cylinder HV-5000,MACHINING,completed,4,4,2026-02-28,2026-03-10,2026-03-10,Team Gamma,
+WO-2026-0025,FG-DCV-3P,Directional Control Valve 3-Position,ASSEMBLY,completed,20,20,2026-03-02,2026-03-10,2026-03-09,Team Beta,
+WO-2026-0026,FG-VP-100,Vane Pump VP-100,ASSEMBLY,completed,10,10,2026-03-04,2026-03-12,2026-03-12,Team Alpha,
+WO-2026-0027,WIP-HOUSING-P,Pump Housing Casting,MACHINING,completed,15,14,2026-03-05,2026-03-12,2026-03-12,Team Delta,1 casting void - scrapped
+WO-2026-0028,FG-HV-2000,Hydraulic Cylinder HV-2000,MACHINING,completed,22,22,2026-03-08,2026-03-16,2026-03-16,Team Alpha,
+WO-2026-0029,FG-GP-100,Gear Pump GP-100,ASSEMBLY,completed,8,8,2026-03-10,2026-03-18,2026-03-18,Team Beta,
+WO-2026-0030,FG-PRV-100,Pressure Relief Valve 100 bar,MACHINING,completed,25,25,2026-03-12,2026-03-20,2026-03-19,Team Alpha,
+WO-2026-0031,FG-HV-2000,Hydraulic Cylinder HV-2000,MACHINING,in_progress,30,12,2026-03-28,2026-04-08,,Team Alpha,Large Q2 batch - 12 units machined
+WO-2026-0032,FG-HV-3500,Hydraulic Cylinder HV-3500,MACHINING,in_progress,15,6,2026-03-30,2026-04-10,,Team Gamma,Mining project batch
+WO-2026-0033,FG-VP-200,Vane Pump VP-200,ASSEMBLY,in_progress,8,3,2026-04-01,2026-04-12,,Team Alpha,Awaiting chrome rods from WO-035
+WO-2026-0034,FG-DCV-3P,Directional Control Valve 3-Position,ASSEMBLY,in_progress,25,10,2026-04-01,2026-04-09,,Team Beta,
+WO-2026-0035,WIP-ROD-EXT,Cylinder Rod Rough,CHROME_PLATING,in_progress,60,0,2026-04-02,2026-04-07,,Team Delta,Chrome bath replenishment caused delay
+WO-2026-0036,FG-GP-50,Gear Pump GP-50,ASSEMBLY,in_progress,18,8,2026-04-02,2026-04-10,,Team Beta,
+WO-2026-0037,WIP-PISTON-01,Piston Sub-Assembly HV2000,MACHINING,in_progress,50,22,2026-04-03,2026-04-11,,Team Alpha,
+WO-2026-0038,FG-HV-5000,Hydraulic Cylinder HV-5000,MACHINING,open,6,0,2026-04-07,2026-04-17,,Team Gamma,Scheduled next week
+WO-2026-0039,FG-MTPM-100,Hydraulic Power Pack 100L,ASSEMBLY,open,3,0,2026-04-08,2026-04-22,,Team Gamma,Awaiting WO-031 cylinders
+WO-2026-0040,FG-PRV-250,Pressure Relief Valve 250 bar,MACHINING,open,15,0,2026-04-09,2026-04-17,,Team Alpha,
+WO-2026-0041,FG-FCR-30,Flow Control Valve 30 L/min,ASSEMBLY,open,20,0,2026-04-10,2026-04-18,,Team Beta,
+WO-2026-0042,FG-VP-100,Vane Pump VP-100,ASSEMBLY,open,12,0,2026-04-10,2026-04-20,,Team Alpha,
+WO-2026-0043,FG-GP-100,Gear Pump GP-100,ASSEMBLY,open,10,0,2026-04-12,2026-04-22,,Team Beta,
+WO-2026-0044,FG-DCV-2P,Directional Control Valve 2-Position,ASSEMBLY,open,30,0,2026-04-14,2026-04-22,,Team Beta,
+WO-2026-0045,FG-MTPM-200,Hydraulic Power Pack 200L,ASSEMBLY,open,2,0,2026-04-15,2026-04-29,,Team Gamma,Rigmore offshore order
+WO-2026-0046,FG-HV-2000,Hydraulic Cylinder HV-2000,MACHINING,overdue,20,8,2026-03-15,2026-03-25,,Team Alpha,Chrome plating supplier delay - WO-017 related
+WO-2026-0047,WIP-VALVE-BODY,Valve Body Rough Machined,MACHINING,overdue,25,25,2026-03-18,2026-03-26,2026-03-26,Team Gamma,Completed but not closed in system - admin fix needed
+WO-2026-0048,FG-HV-3500,Hydraulic Cylinder HV-3500,MACHINING,overdue,10,4,2026-03-20,2026-03-30,,Team Gamma,Material shortage RM-STEEL-4140 ran low
+WO-2026-0049,FG-GP-50,Gear Pump GP-50,ASSEMBLY,overdue,12,0,2026-03-22,2026-04-01,,Team Beta,Team reassigned to priority WO-031
+WO-2026-0050,FG-PRV-100,Pressure Relief Valve 100 bar,MACHINING,overdue,20,15,2026-03-25,2026-04-02,,Team Alpha,Tooling failure on CNC-3 caused 5-day delay
+WO-2026-0051,WIP-SPOOL-STD,Spool Valve Blank,MACHINING,overdue,40,32,2026-03-26,2026-04-02,,Team Gamma,Lapping machine scheduled maintenance overran
+WO-2026-0052,FG-DCV-2P,Directional Control Valve 2-Position,ASSEMBLY,overdue,15,0,2026-03-28,2026-04-03,,Team Beta,Waiting on WO-051 spools
+WO-2026-0053,FG-FCR-10,Flow Control Valve 10 L/min,ASSEMBLY,overdue,25,18,2026-03-29,2026-04-04,,Team Beta,Quality rework on 7 units
+WO-2026-0054,FG-ACCUM-10,Bladder Accumulator 10L,ASSEMBLY,overdue,8,0,2026-03-30,2026-04-03,,Team Gamma,Bladder membrane supplier backordered
+WO-2026-0055,FG-VP-100,Vane Pump VP-100,ASSEMBLY,overdue,8,5,2026-03-31,2026-04-05,,Team Alpha,Vane tolerances out — grinding rework required
+WO-2026-0056,WIP-HOUSING-P,Pump Housing Casting,MACHINING,overdue,12,0,2026-04-01,2026-04-04,,Team Delta,Casting batch from SUP-004 delayed
+WO-2026-0057,FG-HV-2000,Hydraulic Cylinder HV-2000,MACHINING,overdue,15,0,2026-04-01,2026-04-04,,Team Alpha,Blocked waiting for chrome rods (WO-035)
+WO-2026-0058,FG-MTPM-100,Hydraulic Power Pack 100L,ASSEMBLY,overdue,2,0,2026-03-25,2026-04-01,,Team Gamma,Integration test failure - control panel wiring
+WO-2026-0059,FG-HV-5000,Hydraulic Cylinder HV-5000,MACHINING,overdue,3,1,2026-03-24,2026-04-02,,Team Gamma,High-pressure seal source issue
+WO-2026-0060,FG-DCV-3P,Directional Control Valve 3-Position,ASSEMBLY,overdue,18,14,2026-03-26,2026-04-01,,Team Beta,Final 4 units pending spool availability

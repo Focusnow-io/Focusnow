@@ -44,6 +44,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
+  console.log("[API][product/create]", { userId: ctx.session.user.id, orgId: ctx.org.id });
 
   const body = await req.json();
   const product = await prisma.product.create({

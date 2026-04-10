@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSessionOrg, unauthorized, notFound } from "@/lib/api-helpers";
+import { getSessionOrg, unauthorized, forbidden, notFound } from "@/lib/api-helpers";
+import { resolvePermissions } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 
 export async function PUT(
@@ -8,6 +9,9 @@ export async function PUT(
 ) {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
+  const perms = resolvePermissions(ctx.member.role, ctx.member.permissions as Record<string, unknown> | null);
+  if (!perms.import) return forbidden();
+  console.log("[API][datasource/map]", { userId: ctx.session.user.id, orgId: ctx.org.id });
   const { id } = await params;
 
   const source = await prisma.dataSource.findFirst({

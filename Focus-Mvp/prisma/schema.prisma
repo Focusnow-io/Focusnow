@@ -88,6 +88,7 @@ model OrgMember {
   organizationId String
   userId         String
   role           OrgRole  @default(MEMBER)
+  permissions    Json?    // custom per-user feature flags; null = use role defaults
   createdAt      DateTime @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -644,7 +645,6 @@ model BrainRule {
   organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   versions     BrainRuleVersion[]
 
-  @@unique([organizationId, name])
   @@index([organizationId])
 }
 
@@ -1974,7 +1974,24 @@ model Conversation {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  projectId String?
+  project   ChatProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
   messages ConversationMessage[]
+
+  @@index([orgId, userId])
+  @@index([projectId])
+}
+
+model ChatProject {
+  id        String   @id @default(cuid())
+  orgId     String
+  userId    String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  conversations Conversation[]
 
   @@index([orgId, userId])
 }

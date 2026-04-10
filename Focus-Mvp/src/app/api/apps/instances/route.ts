@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSessionOrg, unauthorized } from "@/lib/api-helpers";
+import { getSessionOrg, unauthorized, forbidden } from "@/lib/api-helpers";
+import { resolvePermissions } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
@@ -25,6 +26,9 @@ export async function GET(_req: Request) {
 export async function POST(req: Request) {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
+  const perms = resolvePermissions(ctx.member.role, ctx.member.permissions as Record<string, unknown> | null);
+  if (!perms.apps) return forbidden();
+  console.log("[API][app/create]", { userId: ctx.session.user.id, orgId: ctx.org.id });
 
   const body = await req.json();
   const parsed = createSchema.safeParse(body);

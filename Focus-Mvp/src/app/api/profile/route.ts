@@ -42,6 +42,7 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return unauthorized();
+  console.log("[API][profile/update]", { userId: session.user.id });
 
   const body = await req.json();
   const parsed = updateProfileSchema.safeParse(body);

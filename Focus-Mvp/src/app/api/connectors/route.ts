@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getSessionOrg, unauthorized } from "@/lib/api-helpers";
+import { getSessionOrg, unauthorized, forbidden, hasRole } from "@/lib/api-helpers";
 import { prisma } from "@/lib/prisma";
 
 const CreateConnectorSchema = z.object({
@@ -38,6 +38,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
+  if (!hasRole(ctx.member.role, "ADMIN")) return forbidden();
+  console.log("[API][connector/create]", { userId: ctx.session.user.id, orgId: ctx.org.id });
 
   let body: unknown;
   try {
@@ -76,6 +78,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ connector }, { status: 201 });
   } catch (err: unknown) {
+    console.error("[API][connector/create] error:", err);
     if (
       typeof err === "object" &&
       err !== null &&
