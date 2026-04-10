@@ -14,6 +14,11 @@ export const metadata: Metadata = {
   title: "Focus — Operational Platform",
   description:
     "Turn fragmented operational data into a canonical model, versioned operational brain, and powerful applications.",
+  icons: {
+    icon: "/logo.svg",
+    shortcut: "/logo.svg",
+    apple: "/logo.svg",
+  },
 };
 
 export default function RootLayout({
