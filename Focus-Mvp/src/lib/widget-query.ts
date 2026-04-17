@@ -207,8 +207,7 @@ export async function runQuery(orgId: string, query: DataQuery, where: Record<st
   }
 
   // ── LIST ─────────────────────────────────────────────────────────────────
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const orderBy: any = sort ? { [sort.field]: sort.dir } : { createdAt: "desc" };
+  const orderBy = buildOrderBy(sort, { createdAt: "desc" });
 
   if (entity === "products") {
     type ProductRow = { id: string; sku: string; name: string; category: string | null; unitCost: unknown; unit: string | null; leadTimeDays: number | null; reorderPoint: unknown; safetyStock: unknown; type: string | null };
@@ -217,9 +216,18 @@ export async function runQuery(orgId: string, query: DataQuery, where: Record<st
   }
 
   if (entity === "inventory") {
+    const COMPUTED_INV_FIELDS = new Set(["unitValue", "totalValue"]);
+    const invSort = sort && !COMPUTED_INV_FIELDS.has(sort.field) ? buildOrderBy(sort, { updatedAt: "desc" }) : { updatedAt: "desc" };
     type InvRow = { id: string; quantity: unknown; reservedQty: unknown; reorderPoint: unknown; reorderQty: unknown; daysOfSupply: unknown; product: { sku: string; name: string; category: string | null; unitCost: unknown }; location: { name: string; code: string } | null };
-    const rows = (await prisma.inventoryItem.findMany({ where: where as never, orderBy: sort ? { [sort.field]: sort.dir } : { updatedAt: "desc" }, take, include: { product: { select: { sku: true, name: true, category: true, unitCost: true } }, location: { select: { code: true, name: true } } } })) as unknown as InvRow[];
-    return rows.map((r) => ({ id: r.id, quantity: Number(r.quantity), reservedQty: Number(r.reservedQty ?? 0), reorderPoint: r.reorderPoint ? Number(r.reorderPoint) : null, reorderQty: r.reorderQty ? Number(r.reorderQty) : null, daysOfSupply: r.daysOfSupply ? Number(r.daysOfSupply) : null, unitValue: Number(r.quantity) * Number(r.product.unitCost ?? 0), "product.sku": r.product.sku, "product.name": r.product.name, "product.category": r.product.category, "location.name": r.location?.name ?? null, "location.code": r.location?.code ?? null, needsReorder: r.reorderPoint != null && Number(r.quantity) <= Number(r.reorderPoint) }));
+    const rows = (await prisma.inventoryItem.findMany({ where: where as never, orderBy: invSort, take, include: { product: { select: { sku: true, name: true, category: true, unitCost: true } }, location: { select: { code: true, name: true } } } })) as unknown as InvRow[];
+    const mapped = rows.map((r) => {
+      const computedValue = Math.round(Number(r.quantity) * Number(r.product.unitCost ?? 0));
+      return { id: r.id, quantity: Number(r.quantity), reservedQty: Number(r.reservedQty ?? 0), reorderPoint: r.reorderPoint ? Number(r.reorderPoint) : null, reorderQty: r.reorderQty ? Number(r.reorderQty) : null, daysOfSupply: r.daysOfSupply ? Number(r.daysOfSupply) : null, unitValue: computedValue, totalValue: computedValue, "product.sku": r.product.sku, "product.name": r.product.name, "product.category": r.product.category, "location.name": r.location?.name ?? null, "location.code": r.location?.code ?? null, needsReorder: r.reorderPoint != null && Number(r.quantity) <= Number(r.reorderPoint) };
+    });
+    if (sort && COMPUTED_INV_FIELDS.has(sort.field)) {
+      mapped.sort((a, b) => sort.dir === "asc" ? a.unitValue - b.unitValue : b.unitValue - a.unitValue);
+    }
+    return mapped;
   }
 
   if (entity === "orders") {
@@ -287,6 +295,23 @@ export async function runQuery(orgId: string, query: DataQuery, where: Record<st
 }
 
 // ---------------------------------------------------------------------------
+// Sort helper — converts dot-notation "product.category" → { product: { category: "asc" } }
+// ---------------------------------------------------------------------------
+
+function buildOrderBy(sort: DataQuery["sort"], fallback: Record<string, unknown>): Record<string, unknown> {
+  if (!sort) return fallback;
+  const parts = sort.field.split(".");
+  if (parts.length === 1) return { [sort.field]: sort.dir };
+  // Build nested: ["product","category"] → { product: { category: dir } }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let nested: any = sort.dir;
+  for (let i = parts.length - 1; i >= 0; i--) {
+    nested = { [parts[i]]: nested };
+  }
+  return nested;
+}
+
+// ---------------------------------------------------------------------------
 // Raw row fetcher (for time bucketing + computed fields)
 // ---------------------------------------------------------------------------
 
@@ -296,8 +321,7 @@ export async function fetchRawRows(
   sort: DataQuery["sort"],
   take: number
 ): Promise<Record<string, unknown>[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const orderBy: any = sort ? { [sort.field]: sort.dir } : { createdAt: "desc" };
+  const orderBy = buildOrderBy(sort, { createdAt: "desc" });
 
   const entityMap: Record<string, () => Promise<Record<string, unknown>[]>> = {
     purchase_orders: async () => {
@@ -321,8 +345,14 @@ export async function fetchRawRows(
       return rows.map((r) => ({ ...r, unitCost: Number(r.unitCost ?? 0) })) as unknown as Record<string, unknown>[];
     },
     inventory: async () => {
-      const rows = await prisma.inventoryItem.findMany({ where: where as never, orderBy: sort ? orderBy : { updatedAt: "desc" }, take, include: { product: { select: { unitCost: true } } } });
-      return rows.map((r) => ({ ...r, quantity: Number(r.quantity), unitCost: Number(r.product.unitCost ?? 0) })) as unknown as Record<string, unknown>[];
+      const COMPUTED_INV_FIELDS = new Set(["unitValue", "totalValue"]);
+      const invOrderBy = sort && !COMPUTED_INV_FIELDS.has(sort.field) ? buildOrderBy(sort, { updatedAt: "desc" }) : { updatedAt: "desc" };
+      const rows = await prisma.inventoryItem.findMany({ where: where as never, orderBy: invOrderBy, take, include: { product: { select: { unitCost: true } } } });
+      const mapped = rows.map((r) => ({ ...r, quantity: Number(r.quantity), unitCost: Number(r.product.unitCost ?? 0), unitValue: Math.round(Number(r.quantity) * Number(r.product.unitCost ?? 0)) })) as unknown as Record<string, unknown>[];
+      if (sort && COMPUTED_INV_FIELDS.has(sort.field)) {
+        (mapped as { unitValue: number }[]).sort((a, b) => sort.dir === "asc" ? a.unitValue - b.unitValue : b.unitValue - a.unitValue);
+      }
+      return mapped;
     },
     lots: async () => {
       const rows = await prisma.lot.findMany({ where: where as never, orderBy, take });
@@ -395,6 +425,11 @@ async function runAggregation(
     const rows = (await prisma.inventoryItem.findMany({ where: where as never, select: { quantity: true } })) as unknown as { quantity: unknown }[];
     return { value: agg(aggregation, rows.map((r) => Number(r.quantity ?? 0))) };
   }
+  if (entity === "inventory" && (field === "unitValue" || field === "totalValue")) {
+    const rows = await prisma.inventoryItem.findMany({ where: where as never, include: { product: { select: { unitCost: true } } } });
+    const values = rows.map((r) => Number(r.quantity) * Number(r.product.unitCost ?? 0));
+    return { value: Math.round(agg(aggregation, values)) };
+  }
   if (entity === "orders" && field === "totalAmount") {
     const rows = (await prisma.order.findMany({ where: where as never, select: { totalAmount: true } })) as unknown as { totalAmount: unknown }[];
     return { value: agg(aggregation, rows.map((r) => Number(r.totalAmount ?? 0))) };
@@ -456,13 +491,23 @@ async function runGroupBy(_orgId: string, query: DataQuery, where: Record<string
   }
 
   if (entity === "inventory" && groupBy === "product.category") {
-    const rows = await prisma.inventoryItem.findMany({ where: where as never, include: { product: { select: { category: true } } } });
-    return toGrouped(rows, (r: (typeof rows)[0]) => r.product.category ?? "Uncategorized", (r: (typeof rows)[0]) => Number(r.quantity)).slice(0, take);
+    const rows = await prisma.inventoryItem.findMany({ where: where as never, include: { product: { select: { category: true, unitCost: true } } } });
+    const useValue = field === "unitValue" || field === "totalValue";
+    return toGrouped(
+      rows,
+      (r: (typeof rows)[0]) => r.product.category ?? "Uncategorized",
+      (r: (typeof rows)[0]) => useValue ? Number(r.quantity) * Number(r.product.unitCost ?? 0) : Number(r.quantity)
+    ).slice(0, take);
   }
 
   if (entity === "inventory" && groupBy === "location.name") {
-    const rows = await prisma.inventoryItem.findMany({ where: where as never, include: { location: { select: { name: true } } } });
-    return toGrouped(rows, (r: (typeof rows)[0]) => r.location?.name ?? "No Location", (r: (typeof rows)[0]) => Number(r.quantity)).slice(0, take);
+    const rows = await prisma.inventoryItem.findMany({ where: where as never, include: { location: { select: { name: true } }, product: { select: { unitCost: true } } } });
+    const useValue = field === "unitValue" || field === "totalValue";
+    return toGrouped(
+      rows,
+      (r: (typeof rows)[0]) => r.location?.name ?? "No Location",
+      (r: (typeof rows)[0]) => useValue ? Number(r.quantity) * Number(r.product.unitCost ?? 0) : Number(r.quantity)
+    ).slice(0, take);
   }
 
   if (entity === "orders" && groupBy === "status") {

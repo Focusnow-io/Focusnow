@@ -6,6 +6,7 @@ import {
   Loader2, LayoutDashboard, ChevronDown, Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import ReactMarkdown from "react-markdown";
 import { CustomAppRenderer } from "./CustomAppRenderer";
 import type { CustomAppConfig } from "./widgets/types";
 
@@ -391,8 +392,8 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
                         </div>
                       </div>
                     ) : (
-                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
-                        {msg.content}
+                      <div className="text-sm text-gray-800 leading-relaxed prose prose-sm max-w-none prose-strong:font-semibold prose-p:my-1 prose-ul:my-1 prose-li:my-0">
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
                       </div>
                     )}
                   </div>
@@ -402,8 +403,8 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
                 {generating && (
                   <div className="space-y-2">
                     {liveExplanation ? (
-                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
-                        {liveExplanation}
+                      <div className="text-sm text-gray-800 leading-relaxed prose prose-sm max-w-none prose-strong:font-semibold prose-p:my-1 prose-ul:my-1 prose-li:my-0">
+                        <ReactMarkdown>{liveExplanation}</ReactMarkdown>
                         <span className="inline-block w-0.5 h-4 bg-gray-400 animate-pulse ml-0.5 align-text-bottom" />
                       </div>
                     ) : (

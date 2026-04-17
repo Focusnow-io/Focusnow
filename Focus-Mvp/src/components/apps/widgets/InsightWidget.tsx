@@ -12,9 +12,20 @@ export function InsightWidget({ widget }: { widget: WidgetConfig }) {
   const listenTo = widget.interactions?.listenTo ?? [];
   const config = widget.insightConfig;
 
-  const [markdown, setMarkdown] = useState("");
+  // Cache key per widget so each insight widget has its own cache
+  const cacheKey = `insight_cache_${widget.id}`;
+
+  const [markdown, setMarkdown] = useState(() => {
+    try { return localStorage.getItem(cacheKey) ?? ""; } catch { return ""; }
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Track whether the user has triggered at least one fetch (or loaded from cache)
+  const [hasGenerated, setHasGenerated] = useState(() => {
+    try { return !!localStorage.getItem(cacheKey); } catch { return false; }
+  });
+  // Track the filter/param state at last fetch to detect real changes
+  const lastFetchKeyRef = useRef<string | null>(null);
 
   // Debounce timer ref
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -29,8 +40,9 @@ export function InsightWidget({ widget }: { widget: WidgetConfig }) {
   const filterKey = JSON.stringify(externalFilters);
   const simKey = JSON.stringify(simParams);
 
-  const fetchInsight = useCallback(async () => {
+  const fetchInsight = useCallback(async (manual = false) => {
     if (!config) return;
+    if (!manual && !hasGenerated) return;
 
     // Abort any in-flight request
     if (abortRef.current) abortRef.current.abort();
@@ -39,6 +51,8 @@ export function InsightWidget({ widget }: { widget: WidgetConfig }) {
 
     setLoading(true);
     setError(null);
+    setHasGenerated(true);
+    lastFetchKeyRef.current = filterKey + simKey;
 
     try {
       // Merge external filters into each query
@@ -75,6 +89,7 @@ export function InsightWidget({ widget }: { widget: WidgetConfig }) {
       let fullText = "";
       let buffer = "";
 
+      setMarkdown("");
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -99,6 +114,10 @@ export function InsightWidget({ widget }: { widget: WidgetConfig }) {
           }
         }
       }
+      // Persist to cache
+      if (fullText) {
+        try { localStorage.setItem(cacheKey, fullText); } catch { /* ignore */ }
+      }
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
       setError(e instanceof Error ? e.message : "Failed to generate insight");
@@ -107,11 +126,14 @@ export function InsightWidget({ widget }: { widget: WidgetConfig }) {
       abortRef.current = null;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterKey, simKey, config?.prompt]);
+  }, [filterKey, simKey, config?.prompt, hasGenerated]);
 
-  // Debounced fetch on filter/param/refresh changes
+  // Auto-refresh when filters/params change — but only if the user has already generated once
   useEffect(() => {
-    if (!config) return;
+    if (!config || !hasGenerated) return;
+    // Skip if the filter+sim key hasn't actually changed since last fetch
+    const currentKey = filterKey + simKey;
+    if (lastFetchKeyRef.current === currentKey) return;
 
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
@@ -122,7 +144,7 @@ export function InsightWidget({ widget }: { widget: WidgetConfig }) {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterKey, simKey, state.refreshKey, fetchInsight]);
+  }, [filterKey, simKey, state.refreshKey]);
 
   if (!config) {
     return (
@@ -144,7 +166,7 @@ export function InsightWidget({ widget }: { widget: WidgetConfig }) {
         </div>
         {!loading && markdown && (
           <button
-            onClick={fetchInsight}
+            onClick={() => fetchInsight(true)}
             className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors"
             title="Regenerate"
           >
@@ -155,6 +177,20 @@ export function InsightWidget({ widget }: { widget: WidgetConfig }) {
 
       {/* Content */}
       <div className="px-5 py-4 min-h-[120px]">
+        {!hasGenerated && !loading && (
+          <div className="flex flex-col items-center justify-center gap-3 py-6">
+            <Sparkles className="w-6 h-6 text-purple-300" />
+            <p className="text-sm text-gray-400 text-center">Click to generate an AI analysis of your data</p>
+            <button
+              onClick={() => fetchInsight(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-purple-500 hover:bg-purple-600 rounded-lg transition-colors"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Generate insight
+            </button>
+          </div>
+        )}
+
         {error && (
           <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-3">
             <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />

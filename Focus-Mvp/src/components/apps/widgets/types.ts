@@ -47,6 +47,7 @@ export interface ColumnDef {
 export interface WidgetDisplay {
   format?: "number" | "currency" | "percentage";
   color?: string;
+  colorMap?: Record<string, string>;
   valueField?: string;
   labelField?: string;
   columns?: ColumnDef[];
