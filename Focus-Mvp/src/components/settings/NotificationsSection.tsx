@@ -82,7 +82,7 @@ export function NotificationsSection({ data }: { data: NotificationsData }) {
         <p className="text-sm text-muted-foreground">Control what Focus emails you about.</p>
       </div>
 
-      <div className="space-y-4 max-w-lg">
+      <div className="space-y-4">
         {NOTIFICATION_ITEMS.map((item) => (
           <div key={item.key} className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
