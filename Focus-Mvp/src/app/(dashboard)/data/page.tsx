@@ -16,7 +16,7 @@ export default async function DataSourcesPage() {
     where: { userId: session!.user!.id! },
     include: { organization: true },
   });
-  if (!member) redirect("/onboarding");
+  if (!member) redirect("/dashboard");
   const orgId = member.organization.id;
 
   const permissions = resolvePermissions(

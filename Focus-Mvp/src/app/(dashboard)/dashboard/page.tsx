@@ -15,7 +15,7 @@ export default async function DashboardPage() {
     where: { userId: session!.user!.id! },
     include: { organization: true },
   });
-  if (!member) redirect("/onboarding");
+  if (!member) redirect("/login");
   const orgId = member.organization.id;
   const data = await getDashboardData(orgId);
 
