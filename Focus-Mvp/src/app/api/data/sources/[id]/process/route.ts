@@ -177,6 +177,16 @@ export async function POST(
         continue;
       }
 
+      // Skip rows whose orderType doesn't match the entity being imported.
+      // Handles mixed PO+SO files — SO rows are silently ignored in a PO import and vice versa.
+      const rawOrderType = (
+        (row["orderType"] || row["order_type"] || row["Order Type"] || row["type"] || "") as string
+      ).trim().toUpperCase();
+      if (rawOrderType) {
+        if (entity === "PurchaseOrder" && rawOrderType === "SO") { skipped++; continue; }
+        if (entity === "SalesOrder" && rawOrderType === "PO") { skipped++; continue; }
+      }
+
       // Track total rows per entity type
       if (!entityTypeCounts[entity]) {
         entityTypeCounts[entity] = { totalRows: 0, importedRows: 0 };
@@ -528,17 +538,10 @@ async function upsertEntity(
           where: { organizationId_code: { organizationId: orgId, code: data.locationCode } },
           select: { id: true },
         });
-        const loc = existingLoc
-          ? existingLoc
-          : await prisma.location.create({
-              data: { organizationId: orgId, code: data.locationCode, name: data.locationCode },
-              select: { id: true },
-            });
-        if (!existingLoc && delta) {
-          if (!delta.Location) delta.Location = { created: 0, updated: 0 };
-          delta.Location.created++;
+        if (existingLoc) {
+          locationId = existingLoc.id;
         }
-        locationId = loc.id;
+        // Do not auto-create locations — users must upload a Locations/Sites file explicitly
       }
 
       const invOpt = optFields(data, [

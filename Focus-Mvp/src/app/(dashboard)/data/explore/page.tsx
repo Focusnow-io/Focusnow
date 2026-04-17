@@ -137,13 +137,21 @@ export default function ExplorePage() {
   const [loading, setLoading] = useState(false);
   const [counts, setCounts] = useState<Record<string, number>>({});
 
-  // Fetch counts once on mount
-  useEffect(() => {
-    fetch("/api/data/explore?counts=1")
+  const fetchCounts = useCallback(() => {
+    fetch("/api/data/explore?counts=1", { cache: "no-store" })
       .then(r => r.json())
       .then(d => setCounts(d.counts ?? {}))
       .catch(() => {});
   }, []);
+
+  // Fetch counts on mount and whenever the tab regains visibility
+  // (handles returning from the data sources page after a deletion)
+  useEffect(() => {
+    fetchCounts();
+    const handleVisible = () => { if (document.visibilityState === "visible") fetchCounts(); };
+    document.addEventListener("visibilitychange", handleVisible);
+    return () => document.removeEventListener("visibilitychange", handleVisible);
+  }, [fetchCounts]);
 
   // Fetch table data when entity/page/search changes
   useEffect(() => {
@@ -153,7 +161,7 @@ export default function ExplorePage() {
       page: String(pageParam),
       ...(debouncedSearch && { q: debouncedSearch }),
     });
-    fetch(`/api/data/explore?${params}`)
+    fetch(`/api/data/explore?${params}`, { cache: "no-store" })
       .then(r => r.json())
       .then(setData)
       .catch(() => setData(null))

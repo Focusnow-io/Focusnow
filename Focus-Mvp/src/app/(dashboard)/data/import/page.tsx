@@ -19,7 +19,7 @@
  */
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -42,7 +42,6 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowLeft,
-  Layers,
   Save,
   ChevronDown,
   ChevronUp,
@@ -466,10 +465,13 @@ function plural(n: number, noun: string) {
 
 export default function ImportPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ── Core wizard state ─────────────────────────────────────────────────────
-  const [step, setStep] = useState<Step>("select");
+  // If a resume ID is present, skip the hub and show a loading state until data arrives
+  const resumeId = searchParams.get("resume");
+  const [step, setStep] = useState<Step>(resumeId ? "upload" : "select");
   const [file, setFile] = useState<File | null>(null);
   const [entity, setEntity] = useState<EntityType>("Product");
   const [uploading, setUploading] = useState(false);
@@ -492,9 +494,6 @@ export default function ImportPage() {
   // ── Registry mapping UI state ─────────────────────────────────────────────
   // Columns the user has explicitly flagged as missing from the registry.
   const [flaggedColumns, setFlaggedColumns] = useState<string[]>([]);
-  // Whether the user acknowledged proceeding with unmapped required fields.
-  const [acknowledgedUnmapped, setAcknowledgedUnmapped] = useState(false);
-
   // ── Sheet escape hatch ────────────────────────────────────────────────────
   const [showSheetPicker, setShowSheetPicker] = useState(false);
 
@@ -551,6 +550,26 @@ export default function ImportPage() {
       .catch(() => {/* non-critical — coverage display degrades gracefully */})
       .finally(() => setFreshnessLoading(false));
   }, [freshnessVersion]);
+
+  // ── Resume a previously started import ───────────────────────────────────
+  useEffect(() => {
+    const resumeId = searchParams.get("resume");
+    if (!resumeId) return;
+
+    fetch(`/api/data/sources/${resumeId}`)
+      .then((r) => r.json())
+      .then((data: UploadResult & { attributeKeys?: string[] }) => {
+        setUploadResult(data);
+        setMapping(data.suggestedMapping ?? {});
+        setScore(data.score ?? {});
+        setAttributeKeys(data.attributeKeys ?? []);
+        setStep("map");
+      })
+      .catch(() => {
+        // If the source can't be loaded, stay on select screen
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Derived values ────────────────────────────────────────────────────────
   const fields = uploadResult
@@ -984,7 +1003,6 @@ export default function ImportPage() {
     setShowSheetPicker(false);
     setDismissedErrorBanner(false);
     setFlaggedColumns([]);
-    setAcknowledgedUnmapped(false);
     setMultiEntityProgress(null);
     setAggregatedDelta({});
     setSnapshotPreview(null);
@@ -1034,7 +1052,6 @@ export default function ImportPage() {
     });
 
     // Reset acknowledgement if user changes the mapping
-    setAcknowledgedUnmapped(false);
   }
 
   /** Flag a source column as missing from the registry and POST to the API. */
@@ -1242,7 +1259,17 @@ export default function ImportPage() {
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* STEP: Upload                                                       */}
       {/* ────────────────────────────────────────────────────────────────── */}
-      {step === "upload" && (
+      {step === "upload" && resumeId && !uploadResult && (
+        <div className="flex items-center justify-center py-24 text-gray-400 text-sm gap-2">
+          <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+          </svg>
+          Loading import…
+        </div>
+      )}
+
+      {step === "upload" && !(resumeId && !uploadResult) && (
         <div className="space-y-4">
           {/* Back button — outside the card */}
           <button
@@ -1495,8 +1522,6 @@ export default function ImportPage() {
           mapping={mapping}
           appliedTemplate={appliedTemplate}
           flaggedColumns={flaggedColumns}
-          acknowledgedUnmapped={acknowledgedUnmapped}
-          onAcknowledgeUnmapped={setAcknowledgedUnmapped}
           onSourceColumnMapping={handleSourceColumnMapping}
           showAdvanced={showAdvanced}
           onToggleAdvanced={() => setShowAdvanced((v) => !v)}
@@ -1865,35 +1890,6 @@ export default function ImportPage() {
                 </div>
               )}
 
-            {/* Multi-pass: map another entity from the same file */}
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <Layers className="w-4 h-4 text-slate-400 shrink-0" />
-                <p className="text-sm font-medium text-slate-700">
-                  Does this file also contain other data?
-                </p>
-              </div>
-              <p className="text-xs text-gray-400 -mt-1">
-                No re-upload needed — reuse the same file.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {ENTITY_OPTIONS.filter(
-                  ([e]) => e !== uploadResult.entity
-                ).map(([e, label]) => (
-                  <Button
-                    key={e}
-                    size="sm"
-                    variant="outline"
-                    disabled={addingPass}
-                    onClick={() => handleAddPass(e)}
-                    className="text-xs h-8"
-                  >
-                    {addingPass ? "…" : `Also import ${label}`}
-                  </Button>
-                ))}
-              </div>
-            </div>
-
             <div className="flex gap-3">
               <Button
                 variant="outline"
@@ -1920,8 +1916,6 @@ interface RegistryMapStepProps {
   mapping: Record<string, string>;
   appliedTemplate: MappingTemplate | null;
   flaggedColumns: string[];
-  acknowledgedUnmapped: boolean;
-  onAcknowledgeUnmapped: (v: boolean) => void;
   onSourceColumnMapping: (sourceCol: string, value: string) => void;
   showAdvanced: boolean;
   onToggleAdvanced: () => void;
@@ -1943,8 +1937,6 @@ function RegistryMapStep({
   mapping,
   appliedTemplate,
   flaggedColumns,
-  acknowledgedUnmapped,
-  onAcknowledgeUnmapped,
   onSourceColumnMapping,
   showAdvanced,
   onToggleAdvanced,
@@ -1976,7 +1968,7 @@ function RegistryMapStep({
   const unmappedRequired = entityFields.filter(
     (f) => f.required && !mapping[f.field]
   );
-  const canProceed = unmappedRequired.length === 0 || acknowledgedUnmapped;
+  const canProceed = unmappedRequired.length === 0;
 
   // Sort headers: mapped first (sorted by confidence), then unmapped, then flagged
   const sortedHeaders = [...uploadResult.headers].sort((a, b) => {
@@ -2173,15 +2165,6 @@ function RegistryMapStep({
                 <li key={f.field}>{f.label}</li>
               ))}
             </ul>
-            <label className="flex items-center gap-2 text-xs text-red-600 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={acknowledgedUnmapped}
-                onChange={(e) => onAcknowledgeUnmapped(e.target.checked)}
-                className="accent-red-600"
-              />
-              I understand, proceed anyway
-            </label>
           </div>
         )}
 

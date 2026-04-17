@@ -64,10 +64,19 @@ const ENTITY_CONFIG: Partial<Record<string, EntityQualityConfig>> = {
     orgField: "orgId",
   },
   PurchaseOrder: {
-    requiredFields: ["supplierId"],
-    optionalFields: ["currency", "paymentTerms"],
+    // supplierId is non-nullable in the schema — Prisma 5+ rejects { not: null } on non-nullable fields
+    requiredFields: [],
+    optionalFields: ["currency", "notes"],
     fkFields: ["supplierId"],
     model: "purchaseOrder",
+    orgField: "orgId",
+  },
+  SalesOrder: {
+    // customerId is non-nullable in the schema
+    requiredFields: [],
+    optionalFields: ["currency", "notes"],
+    fkFields: ["customerId"],
+    model: "salesOrder",
     orgField: "orgId",
   },
   BOMHeader: {
