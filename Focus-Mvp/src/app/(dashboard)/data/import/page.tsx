@@ -1529,7 +1529,7 @@ export default function ImportPage() {
                   ENTITY_NOUN[uploadResult.entity]
                 )}{" "}
                 from{" "}
-                <span className="text-slate-600">
+                <span>
                   {uploadResult.sourceId
                     ? uploadResult.selectedSheet
                       ? `${uploadResult.selectedSheet}`
