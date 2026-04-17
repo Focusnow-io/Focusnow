@@ -13,7 +13,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "How do I import data?",
     answer:
-      "Upload a CSV or connect a data source from the Data → Import page. We support products, inventory, orders, suppliers, and work orders.",
+      "Upload a CSV or connect a data source from the Data → Import page. We support a wide range of CSVs",
   },
   {
     question: "Why isn't my data showing in the chat?",
@@ -31,9 +31,14 @@ const FAQ_ITEMS: FaqItem[] = [
       "Go to the Admin panel (shield icon in the sidebar). You must be an Owner or Admin to invite new members.",
   },
   {
-    question: "How do I reset my password?",
+    question: "How do I reset my tokens?",
     answer:
-      "Click \"Forgot password?\" on the login page, enter your email, and follow the link sent to your inbox.",
+      "For resetting API tokens, please contact our support team at support@focusnow.io.",
+  },
+  {
+    question: "Where can I find a guide to the Web App?",
+    answer:
+      "Our documentation is coming soon! In the meantime, feel free to reach out to our support team for any questions or guidance on using the app.",
   },
 ];
 
