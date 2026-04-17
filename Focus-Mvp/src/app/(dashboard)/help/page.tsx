@@ -33,7 +33,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "How do I reset my tokens?",
     answer:
-      "For resetting API tokens, please contact our support team at support@focusnow.io.",
+      "For resetting tokens, please contact our support team at support@focusnow.io.",
   },
   {
     question: "Where can I find a guide to the Web App?",
