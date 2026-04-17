@@ -2,9 +2,10 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
-  Sparkles, ArrowUp, ArrowLeft, Save,
+  ArrowUp, ArrowLeft, Save,
   Loader2, LayoutDashboard, ChevronRight, ChevronDown, Database,
 } from "lucide-react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { CustomAppRenderer } from "./CustomAppRenderer";
 import type { CustomAppConfig } from "./widgets/types";
@@ -302,8 +303,8 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-gray-900 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-white" />
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center">
+              <Image src="/logo.svg" alt="Focus" width={28} height={28} />
             </div>
             <div>
               <p className="text-sm font-semibold text-gray-900">Build with AI</p>
