@@ -33,6 +33,7 @@ const TIMEZONES = [
   "Europe/Paris",
   "Europe/Berlin",
   "Europe/Istanbul",
+  "Asia/Jerusalem",
   "Asia/Dubai",
   "Asia/Kolkata",
   "Asia/Shanghai",
