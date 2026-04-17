@@ -44,9 +44,9 @@ function urgencyLevel(row: Record<string, unknown>): "critical" | "warning" | "o
 }
 
 const LEVEL_STYLES = {
-  critical: { row: "border-l-2 border-l-red-400", icon: <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />, badge: "bg-gray-100 text-red-600 border border-red-200" },
-  warning:  { row: "border-l-2 border-l-amber-300", icon: <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />, badge: "bg-gray-100 text-amber-600 border border-amber-200" },
-  ok:       { row: "border-l-2 border-l-transparent", icon: <CheckCircle className="w-3.5 h-3.5 text-gray-300 shrink-0" />, badge: "bg-gray-100 text-gray-500 border border-gray-200" },
+  critical: { row: "border-l-2 border-l-red-400", icon: <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />, badge: "bg-muted text-red-600 border border-red-200" },
+  warning:  { row: "border-l-2 border-l-amber-300", icon: <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />, badge: "bg-muted text-amber-600 border border-amber-200" },
+  ok:       { row: "border-l-2 border-l-transparent", icon: <CheckCircle className="w-3.5 h-3.5 text-muted-foreground shrink-0" />, badge: "bg-muted text-muted-foreground border border-border" },
 };
 
 export function AlertListWidget({ widget }: { widget: WidgetConfig }) {
@@ -83,28 +83,28 @@ export function AlertListWidget({ widget }: { widget: WidgetConfig }) {
   const warnCount = rows.filter((r) => urgencyLevel(r) === "warning").length;
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase text-gray-500">{widget.title}</p>
-          {widget.display?.description && <p className="text-xs text-gray-400 mt-0.5">{widget.display.description}</p>}
+          <p className="text-xs font-semibold uppercase text-muted-foreground">{widget.title}</p>
+          {widget.display?.description && <p className="text-xs text-muted-foreground mt-0.5">{widget.display.description}</p>}
         </div>
         {!loading && rows.length > 0 && (
           <div className="flex items-center gap-2">
-            {critCount > 0 && <span className="text-xs font-medium bg-gray-100 text-red-600 border border-red-200 px-2 py-0.5 rounded-full">{critCount} critical</span>}
-            {warnCount > 0 && <span className="text-xs font-medium bg-gray-100 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full">{warnCount} warning</span>}
+            {critCount > 0 && <span className="text-xs font-medium bg-muted text-red-600 border border-red-200 px-2 py-0.5 rounded-full">{critCount} critical</span>}
+            {warnCount > 0 && <span className="text-xs font-medium bg-muted text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full">{warnCount} warning</span>}
           </div>
         )}
       </div>
 
       {loading ? (
         <div className="p-4 space-y-2">
-          {[1,2,3,4].map((i) => <div key={i} className="h-10 bg-gray-50 rounded animate-pulse" />)}
+          {[1,2,3,4].map((i) => <div key={i} className="h-10 bg-muted rounded animate-pulse" />)}
         </div>
       ) : rows.length === 0 ? (
         <div className="p-10 text-center">
-          <CheckCircle className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-          <p className="text-sm text-gray-400">All clear — no alerts</p>
+          <CheckCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">All clear — no alerts</p>
         </div>
       ) : columns && columns.length > 0 ? (
         /* Column-based layout: renders like a colored table */
@@ -117,7 +117,7 @@ export function AlertListWidget({ widget }: { widget: WidgetConfig }) {
                 {styles.icon}
                 <div className="flex-1 min-w-0 flex items-center gap-4">
                   {columns.map((col, ci) => (
-                    <span key={col.key} className={`text-sm ${ci === 0 ? "font-medium text-gray-900 truncate min-w-0 flex-1" : "text-gray-500 whitespace-nowrap shrink-0"}`}>
+                    <span key={col.key} className={`text-sm ${ci === 0 ? "font-medium text-foreground truncate min-w-0 flex-1" : "text-muted-foreground whitespace-nowrap shrink-0"}`}>
                       {fmtCell(row[col.key], col.format)}
                     </span>
                   ))}
@@ -143,8 +143,8 @@ export function AlertListWidget({ widget }: { widget: WidgetConfig }) {
               <div key={i} className={`flex items-center gap-3 px-4 py-3 ${styles.row}`}>
                 {styles.icon}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
-                  {sub && <p className="text-xs text-gray-500 mt-0.5">{sub}</p>}
+                  <p className="text-sm font-medium text-foreground truncate">{name}</p>
+                  {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
                 </div>
                 <span className={`shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${styles.badge}`}>
                   {level === "critical" ? "Critical" : level === "warning" ? "Warning" : "OK"}

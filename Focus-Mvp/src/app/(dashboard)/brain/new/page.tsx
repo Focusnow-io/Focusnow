@@ -324,17 +324,17 @@ export default function NewRulePage() {
       <div className="flex -m-6 h-[calc(100vh-3.25rem)] flex-col">
         {/* Header bar */}
         <div
-          className="h-12 px-4 flex items-center gap-2 shrink-0 bg-white"
-          style={{ borderBottom: "1px solid #e8e8e8" }}
+          className="h-12 px-4 flex items-center gap-2 shrink-0 bg-card"
+          style={{ borderBottom: "1px solid hsl(var(--border))" }}
         >
           <button
             onClick={() => router.push("/brain")}
-            className="w-7 h-7 rounded-md flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+            className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <Brain className="w-4 h-4 text-gray-400" />
-          <span className="text-sm font-medium text-gray-700">New Rule</span>
+          <Brain className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm font-medium text-foreground">New Rule</span>
         </div>
 
         {/* Centered content */}
@@ -345,10 +345,10 @@ export default function NewRulePage() {
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center mx-auto mb-5 shadow-lg shadow-blue-500/20">
                 <Brain className="w-6 h-6 text-white" />
               </div>
-              <h1 className="text-xl font-semibold text-gray-900">
+              <h1 className="text-xl font-semibold text-foreground">
                 Describe a rule in your own words.
               </h1>
-              <p className="text-sm text-gray-500 mt-2 leading-relaxed max-w-md mx-auto">
+              <p className="text-sm text-muted-foreground mt-2 leading-relaxed max-w-md mx-auto">
                 Don&apos;t worry about structure or format. Just explain it the
                 way you&apos;d explain it to a new hire. Focus will do the rest.
               </p>
@@ -361,7 +361,7 @@ export default function NewRulePage() {
                   <button
                     key={prompt}
                     type="button"
-                    className="text-left px-4 py-3 rounded-xl border border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50 text-sm text-gray-700 transition-colors disabled:opacity-40"
+                    className="text-left px-4 py-3 rounded-xl border border-border bg-card hover:border-border hover:bg-muted text-sm text-foreground transition-colors disabled:opacity-40"
                     onClick={() => {
                       setNlPrompt(prompt);
                       handleParse(prompt);
@@ -387,7 +387,7 @@ export default function NewRulePage() {
         {/* Input area — pinned to bottom like chat */}
         <div className="shrink-0 px-4 pb-4 pt-2">
           <div className="max-w-xl mx-auto">
-            <div className="rounded-2xl border-2 border-blue-400 bg-white shadow-sm focus-within:border-blue-500 transition-colors">
+            <div className="rounded-2xl border-2 border-blue-400 bg-card shadow-sm focus-within:border-blue-500 transition-colors">
               <textarea
                 ref={textareaRef}
                 rows={1}
@@ -401,13 +401,13 @@ export default function NewRulePage() {
                   }
                 }}
                 disabled={step === "loading"}
-                className="w-full px-4 pt-4 pb-2 text-sm bg-transparent resize-none focus:outline-none placeholder:text-gray-400 disabled:opacity-60 text-gray-900 leading-relaxed"
+                className="w-full px-4 pt-4 pb-2 text-sm bg-transparent resize-none focus:outline-none placeholder:text-muted-foreground disabled:opacity-60 text-foreground leading-relaxed"
                 style={{ minHeight: "44px", maxHeight: "160px" }}
               />
               <div className="flex items-center justify-between px-4 pb-3">
                 <button
                   type="button"
-                  className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                  className="text-xs text-muted-foreground hover:text-muted-foreground transition-colors"
                   onClick={() => setStep("review")}
                 >
                   Create manually instead
@@ -438,17 +438,17 @@ export default function NewRulePage() {
       <div className="flex -m-6 h-[calc(100vh-3.25rem)] flex-col">
         {/* Header bar */}
         <div
-          className="h-12 px-4 flex items-center gap-2 shrink-0 bg-white"
-          style={{ borderBottom: "1px solid #e8e8e8" }}
+          className="h-12 px-4 flex items-center gap-2 shrink-0 bg-card"
+          style={{ borderBottom: "1px solid hsl(var(--border))" }}
         >
           <button
             onClick={() => setStep("input")}
-            className="w-7 h-7 rounded-md flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+            className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <Brain className="w-4 h-4 text-gray-400" />
-          <span className="text-sm font-medium text-gray-700">Clarify Rule</span>
+          <Brain className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm font-medium text-foreground">Clarify Rule</span>
         </div>
 
         {/* Messages area */}
@@ -456,7 +456,7 @@ export default function NewRulePage() {
           <div className="max-w-xl mx-auto px-4 space-y-5">
             {/* User's original prompt — right aligned bubble */}
             <div className="flex justify-end">
-              <div className="max-w-[80%] bg-gray-900 text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed">
+              <div className="max-w-[80%] bg-primary text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed">
                 {nlPrompt}
               </div>
             </div>
@@ -468,8 +468,8 @@ export default function NewRulePage() {
                   <Brain className="w-3.5 h-3.5 text-white" />
                 </div>
                 <div className="space-y-3 flex-1 min-w-0">
-                  <div className="text-sm text-gray-800 leading-relaxed">
-                    <p className="font-medium text-gray-900 mb-1.5">Here&apos;s what I understood:</p>
+                  <div className="text-sm text-foreground leading-relaxed">
+                    <p className="font-medium text-foreground mb-1.5">Here&apos;s what I understood:</p>
                     <div className="bg-blue-50/70 border border-blue-100 rounded-xl px-4 py-3">
                       <InteractiveSummary
                         entity={form.entity}
@@ -481,7 +481,7 @@ export default function NewRulePage() {
                   </div>
 
                   {/* Clarifying question */}
-                  <div className="flex items-start gap-2 text-sm text-gray-700">
+                  <div className="flex items-start gap-2 text-sm text-foreground">
                     <MessageCircle className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" />
                     <p>{clarifyingQuestion}</p>
                   </div>
@@ -504,7 +504,7 @@ export default function NewRulePage() {
                   className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all duration-150 ${
                     selectedOption === i
                       ? "border-blue-400 bg-blue-50 text-blue-900 shadow-sm"
-                      : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+                      : "border-border bg-card text-foreground hover:border-border hover:bg-muted"
                   }`}
                 >
                   <div className="flex items-center gap-3">
@@ -512,7 +512,7 @@ export default function NewRulePage() {
                       className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
                         selectedOption === i
                           ? "border-blue-500"
-                          : "border-gray-300"
+                          : "border-border"
                       }`}
                     >
                       {selectedOption === i && (
@@ -536,13 +536,13 @@ export default function NewRulePage() {
                 className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all duration-150 ${
                   showOtherInput
                     ? "border-blue-400 bg-blue-50 text-blue-900 shadow-sm"
-                    : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+                    : "border-border bg-card text-foreground hover:border-border hover:bg-muted"
                 }`}
               >
                 <div className="flex items-center gap-3">
                   <div
                     className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
-                      showOtherInput ? "border-blue-500" : "border-gray-300"
+                      showOtherInput ? "border-blue-500" : "border-border"
                     }`}
                   >
                     {showOtherInput && (
@@ -631,18 +631,18 @@ export default function NewRulePage() {
     <div className="flex -m-6 h-[calc(100vh-3.25rem)] flex-col">
       {/* Header bar */}
       <div
-        className="h-12 px-4 flex items-center gap-2 shrink-0 bg-white"
-        style={{ borderBottom: "1px solid #e8e8e8" }}
+        className="h-12 px-4 flex items-center gap-2 shrink-0 bg-card"
+        style={{ borderBottom: "1px solid hsl(var(--border))" }}
       >
         <button
           onClick={() => setStep("input")}
-          className="w-7 h-7 rounded-md flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+          className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
-        <Eye className="w-4 h-4 text-gray-400" />
-        <span className="text-sm font-medium text-gray-700">Review Rule</span>
-        <span className="text-xs text-gray-400 ml-1">Verify and adjust before saving</span>
+        <Eye className="w-4 h-4 text-muted-foreground" />
+        <span className="text-sm font-medium text-foreground">Review Rule</span>
+        <span className="text-xs text-muted-foreground ml-1">Verify and adjust before saving</span>
       </div>
 
       {/* Scrollable form */}
@@ -665,13 +665,13 @@ export default function NewRulePage() {
           </div>
 
           {/* Rule definition */}
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-900">Rule definition</h3>
+          <div className="bg-card border border-border rounded-xl overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-border">
+              <h3 className="text-sm font-semibold text-foreground">Rule definition</h3>
             </div>
             <div className="px-5 py-4 space-y-4">
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium text-gray-600">Rule name</Label>
+                <Label className="text-xs font-medium text-muted-foreground">Rule name</Label>
                 <Input
                   placeholder="e.g. Low stock reorder threshold"
                   value={form.name}
@@ -681,7 +681,7 @@ export default function NewRulePage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium text-gray-600">Description</Label>
+                <Label className="text-xs font-medium text-muted-foreground">Description</Label>
                 <Textarea
                   placeholder="What operational logic does this rule capture?"
                   value={form.description}
@@ -692,7 +692,7 @@ export default function NewRulePage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5" id="field-entity">
-                  <Label className="text-xs font-medium text-gray-600">Entity</Label>
+                  <Label className="text-xs font-medium text-muted-foreground">Entity</Label>
                   <Select
                     value={form.entity}
                     onValueChange={(v) => {
@@ -714,7 +714,7 @@ export default function NewRulePage() {
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-gray-600">Category</Label>
+                  <Label className="text-xs font-medium text-muted-foreground">Category</Label>
                   <Select
                     value={form.category}
                     onValueChange={(v) => set("category", v)}
@@ -733,7 +733,7 @@ export default function NewRulePage() {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium text-gray-600">Tags (comma-separated)</Label>
+                <Label className="text-xs font-medium text-muted-foreground">Tags (comma-separated)</Label>
                 <Input
                   placeholder="reorder, inventory, critical"
                   value={form.tags}
@@ -745,14 +745,14 @@ export default function NewRulePage() {
           </div>
 
           {/* Condition */}
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-900">Condition</h3>
+          <div className="bg-card border border-border rounded-xl overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-border">
+              <h3 className="text-sm font-semibold text-foreground">Condition</h3>
             </div>
             <div className="px-5 py-4">
               <div className="flex items-end gap-3">
                 <div className="flex-1 space-y-1.5" id="field-condField">
-                  <Label className="text-xs font-medium text-gray-600">Field</Label>
+                  <Label className="text-xs font-medium text-muted-foreground">Field</Label>
                   <Select
                     value={form.condField}
                     onValueChange={(v) => set("condField", v)}
@@ -770,7 +770,7 @@ export default function NewRulePage() {
                   </Select>
                 </div>
                 <div className="flex-1 space-y-1.5" id="field-condOperator">
-                  <Label className="text-xs font-medium text-gray-600">Operator</Label>
+                  <Label className="text-xs font-medium text-muted-foreground">Operator</Label>
                   <Select
                     value={form.condOperator}
                     onValueChange={(v) => set("condOperator", v)}
@@ -788,7 +788,7 @@ export default function NewRulePage() {
                   </Select>
                 </div>
                 <div className="w-28 space-y-1.5" id="field-condValue">
-                  <Label className="text-xs font-medium text-gray-600">Value</Label>
+                  <Label className="text-xs font-medium text-muted-foreground">Value</Label>
                   <Input
                     value={form.condValue}
                     onChange={(e) => set("condValue", e.target.value)}
@@ -800,14 +800,14 @@ export default function NewRulePage() {
           </div>
 
           {/* Live Preview */}
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2">
-              <Eye className="w-4 h-4 text-gray-400" />
-              <h3 className="text-sm font-semibold text-gray-900">Live Preview</h3>
+          <div className="bg-card border border-border rounded-xl overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-border flex items-center gap-2">
+              <Eye className="w-4 h-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold text-foreground">Live Preview</h3>
             </div>
             <div className="px-5 py-4">
               {previewLoading ? (
-                <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Checking against your data...
                 </div>
@@ -820,7 +820,7 @@ export default function NewRulePage() {
                     ) : (
                       <CheckCircle className="w-4 h-4 text-green-500" />
                     )}
-                    <span className="text-sm font-medium text-gray-800">
+                    <span className="text-sm font-medium text-foreground">
                       This rule currently matches{" "}
                       <strong>{preview.matchCount}</strong> of{" "}
                       <strong>{preview.totalCount}</strong> items
@@ -843,10 +843,10 @@ export default function NewRulePage() {
 
                   {/* Sample table */}
                   {preview.samples.length > 0 && (
-                    <div className="overflow-x-auto rounded-lg border border-gray-100">
+                    <div className="overflow-x-auto rounded-lg border border-border">
                       <table className="w-full text-xs">
                         <thead>
-                          <tr className="bg-gray-50 text-left text-gray-500">
+                          <tr className="bg-muted text-left text-muted-foreground">
                             {Object.keys(flattenSample(preview.samples[0])).map(
                               (key) => (
                                 <th key={key} className="px-3 py-2 font-medium whitespace-nowrap">
@@ -860,9 +860,9 @@ export default function NewRulePage() {
                           {preview.samples.map((sample, i) => {
                             const flat = flattenSample(sample);
                             return (
-                              <tr key={i} className="border-t border-gray-100 even:bg-gray-50/50">
+                              <tr key={i} className="border-t border-border even:bg-muted/50">
                                 {Object.values(flat).map((val, j) => (
-                                  <td key={j} className="px-3 py-2 text-gray-700">
+                                  <td key={j} className="px-3 py-2 text-foreground">
                                     {val}
                                   </td>
                                 ))}
@@ -875,7 +875,7 @@ export default function NewRulePage() {
                   )}
                 </div>
               ) : (
-                <p className="text-sm text-gray-400 py-2">
+                <p className="text-sm text-muted-foreground py-2">
                   Preview will appear once the condition is set.
                 </p>
               )}
@@ -883,16 +883,16 @@ export default function NewRulePage() {
           </div>
 
           {/* Commit message */}
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="bg-card border border-border rounded-xl overflow-hidden">
             <div className="px-5 py-4 space-y-2">
-              <Label className="text-xs font-medium text-gray-600">Add a note about this rule (optional)</Label>
+              <Label className="text-xs font-medium text-muted-foreground">Add a note about this rule (optional)</Label>
               <Input
                 placeholder="e.g. Initial safety stock threshold"
                 value={form.commitMessage}
                 onChange={(e) => set("commitMessage", e.target.value)}
                 className="rounded-lg"
               />
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 Like a git commit message — describe this version of the rule
               </p>
             </div>
@@ -909,8 +909,8 @@ export default function NewRulePage() {
 
       {/* Bottom action bar */}
       <div
-        className="shrink-0 px-4 py-3 bg-white"
-        style={{ borderTop: "1px solid #e8e8e8" }}
+        className="shrink-0 px-4 py-3 bg-card"
+        style={{ borderTop: "1px solid hsl(var(--border))" }}
       >
         <div className="max-w-2xl mx-auto flex gap-3">
           <Button onClick={handleSave} disabled={saving || !form.name.trim()} className="gap-2">

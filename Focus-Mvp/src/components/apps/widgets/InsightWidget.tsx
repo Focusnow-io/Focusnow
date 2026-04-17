@@ -126,26 +126,26 @@ export function InsightWidget({ widget }: { widget: WidgetConfig }) {
 
   if (!config) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-6 text-center text-sm text-gray-400">
+      <div className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
         No insight configuration provided.
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
       {/* Header */}
-      <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
+      <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-purple-500" />
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {widget.title}
           </p>
         </div>
         {!loading && markdown && (
           <button
             onClick={fetchInsight}
-            className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors"
+            className="p-1.5 rounded-md text-muted-foreground hover:text-muted-foreground hover:bg-muted transition-colors"
             title="Regenerate"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -164,20 +164,20 @@ export function InsightWidget({ widget }: { widget: WidgetConfig }) {
 
         {loading && !markdown && (
           <div className="space-y-3 animate-pulse">
-            <div className="flex items-center gap-2 text-sm text-gray-400">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="w-4 h-4 animate-spin" />
               Analyzing data...
             </div>
-            <div className="h-3 bg-gray-100 rounded w-full" />
-            <div className="h-3 bg-gray-100 rounded w-5/6" />
-            <div className="h-3 bg-gray-100 rounded w-4/6" />
-            <div className="h-3 bg-gray-100 rounded w-full" />
-            <div className="h-3 bg-gray-100 rounded w-3/6" />
+            <div className="h-3 bg-muted rounded w-full" />
+            <div className="h-3 bg-muted rounded w-5/6" />
+            <div className="h-3 bg-muted rounded w-4/6" />
+            <div className="h-3 bg-muted rounded w-full" />
+            <div className="h-3 bg-muted rounded w-3/6" />
           </div>
         )}
 
         {markdown && (
-          <div className="prose prose-sm max-w-none prose-p:text-gray-800 prose-headings:text-gray-900 prose-ul:pl-5 prose-li:text-gray-800 prose-strong:font-semibold prose-h3:text-sm prose-h3:mt-4 prose-h3:mb-2">
+          <div className="prose prose-sm max-w-none prose-p:text-foreground prose-headings:text-foreground prose-ul:pl-5 prose-li:text-foreground prose-strong:font-semibold prose-h3:text-sm prose-h3:mt-4 prose-h3:mb-2">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {markdown}
             </ReactMarkdown>

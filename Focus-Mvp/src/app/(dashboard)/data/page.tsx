@@ -103,8 +103,8 @@ export default async function DataSourcesPage() {
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 bg-slate-100 rounded-lg flex items-center justify-center">
-                      <FileText className="w-5 h-5 text-slate-600" />
+                    <div className="w-9 h-9 bg-muted rounded-lg flex items-center justify-center">
+                      <FileText className="w-5 h-5 text-muted-foreground" />
                     </div>
                     <div>
                       <p className="font-medium text-sm">{source.name}</p>
@@ -144,7 +144,7 @@ export default async function DataSourcesPage() {
                   </div>
                 </div>
                 {source.errorMessage && (
-                  <p className="mt-2 text-xs text-red-600 bg-red-50 px-3 py-1.5 rounded">
+                  <p className="mt-2 text-xs text-red-600 bg-red-500/10 px-3 py-1.5 rounded">
                     {source.errorMessage}
                   </p>
                 )}

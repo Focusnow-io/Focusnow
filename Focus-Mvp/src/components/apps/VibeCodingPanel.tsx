@@ -110,14 +110,14 @@ export function VibeCodingPanel({
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-lg max-h-[82vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl">
         {/* Header */}
-        <DialogHeader className="px-5 pt-5 pb-4 border-b border-gray-100">
+        <DialogHeader className="px-5 pt-5 pb-4 border-b border-border">
           <DialogTitle className="flex items-center gap-2 text-base">
-            <div className="w-7 h-7 rounded-lg bg-gray-900 flex items-center justify-center">
+            <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
               <Sparkles className="w-4 h-4 text-white" />
             </div>
             Customize {appName}
           </DialogTitle>
-          <DialogDescription className="text-xs text-gray-500">
+          <DialogDescription className="text-xs text-muted-foreground">
             Tell me what to change and I&apos;ll update it. Changes persist across sessions.
           </DialogDescription>
         </DialogHeader>
@@ -128,13 +128,13 @@ export function VibeCodingPanel({
             <div className="space-y-3">
               <div className="flex items-center gap-1.5">
                 <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Try asking</p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Try asking</p>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {examplePrompts.map((p) => (
                   <button
                     key={p}
-                    className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-2.5 py-1 rounded-full transition-colors text-left"
+                    className="text-xs bg-muted hover:bg-muted text-foreground px-2.5 py-1 rounded-full transition-colors text-left"
                     onClick={() => handleSend(p)}
                   >
                     {p}
@@ -149,14 +149,14 @@ export function VibeCodingPanel({
               key={i}
               className={`rounded-xl px-3.5 py-2.5 text-sm ${
                 msg.role === "user"
-                  ? "bg-gray-900 text-white ml-8 rounded-br-sm"
-                  : "bg-gray-50 border border-gray-200 text-gray-800 mr-8 rounded-bl-sm"
+                  ? "bg-primary text-white ml-8 rounded-br-sm"
+                  : "bg-muted border border-border text-foreground mr-8 rounded-bl-sm"
               }`}
             >
               {msg.role === "assistant" && (
                 <div className="flex items-center gap-1.5 mb-1.5">
-                  <Sparkles className="w-3 h-3 text-gray-400" />
-                  <span className="text-xs font-semibold text-gray-500">Focus AI</span>
+                  <Sparkles className="w-3 h-3 text-muted-foreground" />
+                  <span className="text-xs font-semibold text-muted-foreground">Focus AI</span>
                 </div>
               )}
               <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
@@ -164,12 +164,12 @@ export function VibeCodingPanel({
           ))}
 
           {loading && (
-            <div className="bg-gray-50 border border-gray-200 rounded-xl rounded-bl-sm px-3.5 py-3 mr-8">
+            <div className="bg-muted border border-border rounded-xl rounded-bl-sm px-3.5 py-3 mr-8">
               <div className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" />
-                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0.1s]" />
-                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0.2s]" />
-                <span className="text-xs text-gray-400 ml-1">Thinking…</span>
+                <div className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" />
+                <div className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.1s]" />
+                <div className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.2s]" />
+                <span className="text-xs text-muted-foreground ml-1">Thinking…</span>
               </div>
             </div>
           )}
@@ -183,7 +183,7 @@ export function VibeCodingPanel({
 
         {/* Applied indicator */}
         {appliedCount > 0 && (
-          <div className="px-4 py-2 border-t border-gray-100 bg-emerald-50/60">
+          <div className="px-4 py-2 border-t border-border bg-emerald-500/10">
             <p className="text-xs text-emerald-700 flex items-center gap-1.5">
               <CheckCircle className="w-3.5 h-3.5" />
               {appliedCount} customization{appliedCount !== 1 ? "s" : ""} applied to {appName}
@@ -192,7 +192,7 @@ export function VibeCodingPanel({
         )}
 
         {/* Input */}
-        <div className="px-4 py-3 border-t border-gray-100 flex gap-2">
+        <div className="px-4 py-3 border-t border-border flex gap-2">
           <Textarea
             placeholder="Describe a change…"
             value={prompt}
@@ -207,7 +207,7 @@ export function VibeCodingPanel({
             size="icon"
             onClick={() => handleSend()}
             disabled={loading || !prompt.trim()}
-            className="self-end bg-gray-900 hover:bg-gray-800 border-0"
+            className="self-end bg-primary hover:bg-primary/90 border-0"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           </Button>

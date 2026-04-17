@@ -1135,7 +1135,7 @@ export default function ImportPage() {
               className={cn(
                 "flex items-center justify-between gap-3 rounded-2xl border px-5 py-4 transition-shadow",
                 hasData
-                  ? "border-emerald-200 bg-emerald-50/60"
+                  ? "border-emerald-500/30 bg-emerald-500/100/10"
                   : "border-border bg-card hover:shadow-sm"
               )}
             >
@@ -1143,7 +1143,7 @@ export default function ImportPage() {
                 <span
                   className={cn(
                     "mt-1.5 w-2.5 h-2.5 rounded-full shrink-0",
-                    hasData ? "bg-emerald-500" : "bg-muted-foreground/30"
+                    hasData ? "bg-emerald-500/100" : "bg-muted-foreground/30"
                   )}
                 />
                 <div className="min-w-0">
@@ -1187,7 +1187,7 @@ export default function ImportPage() {
               </p>
               <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
                 <div
-                  className="h-full bg-emerald-500 transition-all"
+                  className="h-full bg-emerald-500/100 transition-all"
                   style={{ width: `${pct}%` }}
                 />
               </div>
@@ -1264,13 +1264,13 @@ export default function ImportPage() {
               {/* Drop zone */}
               <div
                 className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${
-                  file ? "border-emerald-300 bg-emerald-50/40" : "border-border hover:border-border hover:bg-muted"
+                  file ? "border-emerald-500/30 bg-emerald-500/100/10" : "border-border hover:border-border hover:bg-muted"
                 }`}
                 onClick={() => fileRef.current?.click()}
               >
                 {file ? (
                   <div className="flex flex-col items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
+                    <div className="w-12 h-12 rounded-full bg-emerald-500/15 flex items-center justify-center">
                       <FileText className="w-6 h-6 text-emerald-600" />
                     </div>
                     <div>
@@ -1382,8 +1382,8 @@ export default function ImportPage() {
                         <span className={cn(
                           "text-[10px] font-medium px-2 py-0.5 rounded-full",
                           ent.confidence === "high"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : "bg-amber-100 text-amber-700"
+                            ? "bg-emerald-500/15 text-emerald-700"
+                            : "bg-amber-500/15 text-amber-700"
                         )}>
                           {ent.confidence} confidence
                         </span>
@@ -1554,10 +1554,10 @@ export default function ImportPage() {
                       key={field}
                       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium border ${
                         s >= 1.0
-                          ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                          ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700"
                           : s >= AUTO_MAP_THRESHOLD
                           ? "bg-blue-50 border-blue-200 text-blue-700"
-                          : "bg-amber-50 border-amber-200 text-amber-700"
+                          : "bg-amber-500/10 border-amber-500/30 text-amber-700"
                       }`}
                     >
                       {s >= 1.0 ? (
@@ -1578,7 +1578,7 @@ export default function ImportPage() {
               </div>
             )}
             {snapshotPreview && (snapshotPreview.toDeactivate ?? 0) > 0 && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-2">
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 space-y-2">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
                   <p className="text-sm font-semibold text-amber-800">
@@ -1788,7 +1788,7 @@ export default function ImportPage() {
                 </div>
               )}
             {undoComplete && (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-700">
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700">
                 <CheckCircle className="w-3.5 h-3.5 inline mr-1.5" />
                 Deactivations have been reversed. All records are active again.
               </div>
@@ -1813,7 +1813,7 @@ export default function ImportPage() {
               }
               const unique = Array.from(counts.entries());
               return (
-                <div className="relative rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 space-y-1.5">
+                <div className="relative rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 space-y-1.5">
                   <button
                     className="absolute top-2 right-2 text-amber-400 hover:text-amber-700"
                     onClick={() => setDismissedErrorBanner(true)}
@@ -1827,7 +1827,7 @@ export default function ImportPage() {
                   {unique.slice(0, 5).map(([msg, count], i) => (
                     <p key={i} className="text-amber-700 leading-relaxed">
                       {count > 1 && (
-                        <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-amber-200 text-amber-800 text-[10px] font-bold mr-1.5">
+                        <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500/20 text-amber-800 text-[10px] font-bold mr-1.5">
                           {count >= 5 ? `${count}+` : count}x
                         </span>
                       )}
@@ -2056,9 +2056,9 @@ function RegistryMapStep({
                   className={cn(
                     "grid grid-cols-[1fr_28px_200px] gap-2 items-center px-3 py-2.5",
                     isFlagged
-                      ? "bg-amber-50/50"
+                      ? "bg-amber-500/100/10"
                       : isMapped
-                      ? "bg-emerald-50/30"
+                      ? "bg-emerald-500/100/5"
                       : "bg-card"
                   )}
                 >

@@ -36,7 +36,7 @@ function statusBadge(v: string): string {
     case "OPEN": case "ACTIVE": case "CONFIRMED": case "IN_PROGRESS": case "RELEASED": case "SHIPPED": return "bg-blue-100 text-blue-700";
     case "PARTIAL": case "IN_PRODUCTION": case "IN_TRANSIT": case "PLANNED": case "READY": return "bg-amber-100 text-amber-700";
     case "CANCELLED": case "FAILED": case "BLOCKED": return "bg-red-100 text-red-700";
-    default: return "bg-gray-100 text-gray-600";
+    default: return "bg-muted text-muted-foreground";
   }
 }
 
@@ -150,15 +150,15 @@ export function DetailPanel({ widget, recordId, onClose }: DetailPanelProps) {
       />
 
       {/* Slide-out panel */}
-      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-lg bg-white shadow-2xl animate-in slide-in-from-right duration-300 flex flex-col">
+      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-lg bg-card shadow-2xl animate-in slide-in-from-right duration-300 flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">{widget.title}</h2>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="text-lg font-semibold text-foreground">{widget.title}</h2>
           <div className="flex items-center gap-2">
             {editable && !editing && record && (
               <button
                 onClick={startEditing}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-muted-foreground bg-muted hover:bg-muted rounded-lg transition-colors"
               >
                 <Pencil className="w-3.5 h-3.5" />
                 Edit
@@ -168,7 +168,7 @@ export function DetailPanel({ widget, recordId, onClose }: DetailPanelProps) {
               <>
                 <button
                   onClick={() => setEditing(false)}
-                  className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                  className="px-3 py-1.5 text-xs font-medium text-muted-foreground bg-muted hover:bg-muted rounded-lg transition-colors"
                 >
                   Cancel
                 </button>
@@ -184,7 +184,7 @@ export function DetailPanel({ widget, recordId, onClose }: DetailPanelProps) {
             )}
             <button
               onClick={onClose}
-              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-1.5 text-muted-foreground hover:text-muted-foreground hover:bg-muted rounded-lg transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -197,13 +197,13 @@ export function DetailPanel({ widget, recordId, onClose }: DetailPanelProps) {
             <div className="space-y-4">
               {[1, 2, 3, 4, 5, 6].map((i) => (
                 <div key={i} className="space-y-1.5">
-                  <div className="h-3 w-24 bg-gray-100 rounded animate-pulse" />
-                  <div className="h-8 bg-gray-50 rounded animate-pulse" />
+                  <div className="h-3 w-24 bg-muted rounded animate-pulse" />
+                  <div className="h-8 bg-muted rounded animate-pulse" />
                 </div>
               ))}
             </div>
           ) : !record ? (
-            <div className="text-center text-sm text-gray-400 py-10">Record not found</div>
+            <div className="text-center text-sm text-muted-foreground py-10">Record not found</div>
           ) : (
             <div className="space-y-4">
               {columns.map((col) => {
@@ -214,9 +214,9 @@ export function DetailPanel({ widget, recordId, onClose }: DetailPanelProps) {
 
                 return (
                   <div key={col.key}>
-                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
                       {col.label}
-                      {isNested && editing && <span className="text-gray-300 ml-1 normal-case">(read-only)</span>}
+                      {isNested && editing && <span className="text-muted-foreground ml-1 normal-case">(read-only)</span>}
                     </label>
                     {isEditable ? (
                       <input
@@ -224,14 +224,14 @@ export function DetailPanel({ widget, recordId, onClose }: DetailPanelProps) {
                         value={editValues[col.key] ?? ""}
                         onChange={(e) => setEditValues((prev) => ({ ...prev, [col.key]: e.target.value }))}
                         step={col.format === "number" || col.format === "currency" ? "any" : undefined}
-                        className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                        className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-muted focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
                       />
                     ) : isStatus ? (
                       <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${statusBadge(val as string)}`}>
                         {val as string}
                       </span>
                     ) : (
-                      <p className="text-sm text-gray-900 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+                      <p className="text-sm text-foreground bg-muted rounded-lg px-3 py-2 border border-border">
                         {formatValue(val, col.format)}
                       </p>
                     )}

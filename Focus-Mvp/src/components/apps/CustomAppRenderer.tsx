@@ -105,7 +105,7 @@ function TabbedLayout({ tabs, allWidgets }: { tabs: TabDef[]; allWidgets: Widget
     <div className="space-y-4">
       {topWidgets.length > 0 && <WidgetGrid widgets={topWidgets} />}
 
-      <div className="border-b border-gray-200">
+      <div className="border-b border-border">
         <nav className="flex gap-1 px-1 -mb-px">
           {tabs.map((tab, i) => (
             <button
@@ -113,8 +113,8 @@ function TabbedLayout({ tabs, allWidgets }: { tabs: TabDef[]; allWidgets: Widget
               onClick={() => setActiveTab(i)}
               className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
                 i === activeTab
-                  ? "text-blue-600 bg-white border border-gray-200 border-b-white -mb-px"
-                  : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                  ? "text-blue-600 bg-card border border-border border-b-card -mb-px"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
               }`}
             >
               {tab.label}
@@ -148,9 +148,9 @@ function MultiPageLayout({ pages, allWidgets, title }: { pages: PageDef[]; allWi
   return (
     <div className="flex min-h-[600px] -mx-2">
       {/* Sidebar */}
-      <div className="w-56 shrink-0 border-r border-gray-200 bg-gray-50/50 rounded-l-xl">
-        <div className="px-4 py-4 border-b border-gray-200">
-          <h2 className="text-sm font-bold text-gray-900 truncate">{title}</h2>
+      <div className="w-56 shrink-0 border-r border-border bg-muted/50 rounded-l-xl">
+        <div className="px-4 py-4 border-b border-border">
+          <h2 className="text-sm font-bold text-foreground truncate">{title}</h2>
         </div>
         <nav className="p-2 space-y-0.5">
           {pages.map((pg, i) => (
@@ -160,7 +160,7 @@ function MultiPageLayout({ pages, allWidgets, title }: { pages: PageDef[]; allWi
               className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
                 i === activePage
                   ? "text-blue-700 bg-blue-50"
-                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
               }`}
             >
               {getIcon(pg.icon)}
@@ -172,7 +172,7 @@ function MultiPageLayout({ pages, allWidgets, title }: { pages: PageDef[]; allWi
 
       {/* Content */}
       <div className="flex-1 p-6 min-w-0">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">{currentPage?.label}</h2>
+        <h2 className="text-lg font-semibold text-foreground mb-4">{currentPage?.label}</h2>
         <WidgetGrid widgets={pageWidgets} />
       </div>
     </div>
@@ -200,8 +200,8 @@ export function CustomAppRenderer({ config }: Props) {
             {/* Only show title if not multi-page (sidebar has its own title) */}
             {!pages && (
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">{config.title}</h1>
-                {config.description && <p className="text-sm text-gray-500 mt-1">{config.description}</p>}
+                <h1 className="text-2xl font-bold text-foreground">{config.title}</h1>
+                {config.description && <p className="text-sm text-muted-foreground mt-1">{config.description}</p>}
               </div>
             )}
 
