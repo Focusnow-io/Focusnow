@@ -58,7 +58,7 @@ export default async function DataSourcesPage() {
       {/* Step 1c: Post-import nudge to create first rule */}
       {showCreateRuleNudge && (
         <div
-          className="rounded-xl border border-orange-200 bg-orange-50/60 overflow-hidden"
+          className="rounded-xl border border-orange-500/20 bg-orange-500/10 overflow-hidden"
           style={{ borderLeft: "3px solid #F04A00" }}
         >
           <div className="p-4">
