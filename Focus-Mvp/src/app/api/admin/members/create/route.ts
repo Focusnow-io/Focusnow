@@ -58,7 +58,15 @@ export async function POST(req: Request) {
 
     const [newUser] = await prisma.$transaction([
       prisma.user.create({
-        data: { email, name, passwordHash, emailVerified: new Date() },
+        data: {
+          email,
+          name,
+          passwordHash,
+          emailVerified: new Date(),
+          memberships: {
+            create: { organizationId: ctx.org.id, role },
+          },
+        },
       }),
     ]);
 
@@ -66,8 +74,8 @@ export async function POST(req: Request) {
       data: { identifier: resetIdentifier, token: resetToken, expires: resetExpires },
     });
 
-    member = await prisma.orgMember.create({
-      data: { organizationId: ctx.org.id, userId: newUser.id, role },
+    member = await prisma.orgMember.findFirstOrThrow({
+      where: { userId: newUser.id, organizationId: ctx.org.id },
       include: { user: { select: { id: true, name: true, email: true } } },
     });
 
