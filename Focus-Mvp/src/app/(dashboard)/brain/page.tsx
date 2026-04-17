@@ -23,9 +23,9 @@ interface Rule {
 
 const CATEGORY_COLOR: Record<string, string> = {
   THRESHOLD: "bg-amber-100 text-amber-800",
-  POLICY: "bg-blue-100 text-blue-800",
-  CONSTRAINT: "bg-purple-100 text-purple-800",
-  KPI: "bg-green-100 text-green-800",
+  POLICY: "bg-blue-500/15 text-blue-700 dark:text-blue-300",
+  CONSTRAINT: "bg-purple-500/15 text-purple-700 dark:text-purple-300",
+  KPI: "bg-green-500/15 text-green-700 dark:text-green-300",
 };
 
 const STATUS_VARIANT: Record<string, "success" | "warning" | "outline"> = {
@@ -58,10 +58,10 @@ export default function BrainPage() {
     <div className="space-y-6 w-full">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">
+          <h1 className="text-xl font-bold text-foreground">
             Operational Brain
           </h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <p className="text-sm text-muted-foreground mt-0.5">
             Layer 2 — Versioned rules, policies, and constraints
           </p>
         </div>
@@ -73,14 +73,14 @@ export default function BrainPage() {
       </div>
 
       {loading ? (
-        <div className="py-12 text-center text-gray-400 text-sm">Loading...</div>
+        <div className="py-12 text-center text-muted-foreground text-sm">Loading...</div>
       ) : rules.length === 0 ? (
         <div className="py-16 text-center border-2 border-dashed rounded-xl">
-          <Brain className="w-12 h-12 text-gray-200 mx-auto mb-3" />
-          <h3 className="font-semibold text-gray-600 mb-1">
+          <Brain className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+          <h3 className="font-semibold text-muted-foreground mb-1">
             This is where your operational logic lives.
           </h3>
-          <p className="text-sm text-gray-400 mb-4 max-w-sm mx-auto">
+          <p className="text-sm text-muted-foreground mb-4 max-w-sm mx-auto">
             Capture a policy, a formula, a workflow, or a constraint — anything
             that governs how your team makes decisions.
           </p>
@@ -95,12 +95,12 @@ export default function BrainPage() {
               <div className="flex items-center gap-2 mb-3">
                 <span
                   className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                    CATEGORY_COLOR[category] ?? "bg-gray-100 text-gray-700"
+                    CATEGORY_COLOR[category] ?? "bg-muted text-foreground"
                   }`}
                 >
                   {category}
                 </span>
-                <span className="text-sm text-gray-400">
+                <span className="text-sm text-muted-foreground">
                   {catRules.length} rule{catRules.length !== 1 ? "s" : ""}
                 </span>
               </div>
@@ -110,8 +110,8 @@ export default function BrainPage() {
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex items-start gap-3 min-w-0">
-                          <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
-                            <Zap className="w-4 h-4 text-slate-600" />
+                          <div className="w-8 h-8 bg-muted rounded-lg flex items-center justify-center shrink-0 mt-0.5">
+                            <Zap className="w-4 h-4 text-muted-foreground" />
                           </div>
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -131,18 +131,18 @@ export default function BrainPage() {
                               {rule.tags.map((tag) => (
                                 <span
                                   key={tag}
-                                  className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded"
+                                  className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded"
                                 >
                                   {tag}
                                 </span>
                               ))}
                             </div>
                             {rule.description && (
-                              <p className="text-xs text-gray-500 mt-1">
+                              <p className="text-xs text-muted-foreground mt-1">
                                 {rule.description}
                               </p>
                             )}
-                            <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400">
+                            <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
                               <span className="flex items-center gap-1">
                                 <GitBranch className="w-3 h-3" />
                                 v{rule.currentVersion}
@@ -158,7 +158,7 @@ export default function BrainPage() {
                         <div className="flex items-center gap-2 shrink-0">
                           <Link
                             href={`/brain/${rule.id}`}
-                            className="text-xs text-slate-700 hover:underline"
+                            className="text-xs text-foreground hover:underline"
                           >
                             View →
                           </Link>

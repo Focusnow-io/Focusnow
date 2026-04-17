@@ -258,7 +258,7 @@ export default function RuleDetailPage() {
       </div>
 
       {/* Plain-English summary — non-interactive tokens */}
-      <Card className="border-blue-200 bg-blue-50/50">
+      <Card className="border-blue-500/20 bg-blue-500/10">
         <CardContent className="p-4">
           <InteractiveSummary
             entity={rule.entity}

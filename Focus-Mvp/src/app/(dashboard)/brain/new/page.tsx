@@ -470,7 +470,7 @@ export default function NewRulePage() {
                 <div className="space-y-3 flex-1 min-w-0">
                   <div className="text-sm text-foreground leading-relaxed">
                     <p className="font-medium text-foreground mb-1.5">Here&apos;s what I understood:</p>
-                    <div className="bg-blue-50/70 border border-blue-100 rounded-xl px-4 py-3">
+                    <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3">
                       <InteractiveSummary
                         entity={form.entity}
                         condField={form.condField}
@@ -503,7 +503,7 @@ export default function NewRulePage() {
                   }}
                   className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all duration-150 ${
                     selectedOption === i
-                      ? "border-blue-400 bg-blue-50 text-blue-900 shadow-sm"
+                      ? "border-blue-500/40 bg-blue-500/10 text-foreground shadow-sm"
                       : "border-border bg-card text-foreground hover:border-border hover:bg-muted"
                   }`}
                 >
@@ -535,7 +535,7 @@ export default function NewRulePage() {
                 }}
                 className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all duration-150 ${
                   showOtherInput
-                    ? "border-blue-400 bg-blue-50 text-blue-900 shadow-sm"
+                    ? "border-blue-500/40 bg-blue-500/10 text-foreground shadow-sm"
                     : "border-border bg-card text-foreground hover:border-border hover:bg-muted"
                 }`}
               >
@@ -649,7 +649,7 @@ export default function NewRulePage() {
       <div className="flex-1 overflow-y-auto py-6">
         <div className="max-w-2xl mx-auto px-4 space-y-5">
           {/* Interactive plain-English summary */}
-          <div className="bg-blue-50/60 border border-blue-100 rounded-xl px-5 py-4">
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-5 py-4">
             <div className="flex items-start gap-3">
               <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shrink-0 mt-0.5">
                 <Sparkles className="w-3.5 h-3.5 text-white" />
