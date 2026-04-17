@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getDashboardData } from "./_lib/get-dashboard-data";
@@ -14,7 +15,8 @@ export default async function DashboardPage() {
     where: { userId: session!.user!.id! },
     include: { organization: true },
   });
-  const orgId = member!.organization.id;
+  if (!member) redirect("/onboarding");
+  const orgId = member.organization.id;
   const data = await getDashboardData(orgId);
 
   const permissions = resolvePermissions(

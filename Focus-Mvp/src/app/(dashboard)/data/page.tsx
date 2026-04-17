@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -15,7 +16,8 @@ export default async function DataSourcesPage() {
     where: { userId: session!.user!.id! },
     include: { organization: true },
   });
-  const orgId = member!.organization.id;
+  if (!member) redirect("/onboarding");
+  const orgId = member.organization.id;
 
   const permissions = resolvePermissions(
     member?.role ?? "VIEWER",

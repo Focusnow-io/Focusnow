@@ -21,6 +21,8 @@ export default async function DashboardLayout({
     include: { organization: true },
   });
 
+  if (!member) redirect("/onboarding");
+
   const permissions = resolvePermissions(
     member?.role ?? "VIEWER",
     member?.permissions as Record<string, unknown> | null
