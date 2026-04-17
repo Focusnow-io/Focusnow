@@ -14,12 +14,21 @@ import {
 import { LogOut, Settings, Sun, Moon } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 
+const ROLE_BADGE: Record<string, string> = {
+  OWNER: "bg-blue-500/15 text-blue-700 dark:text-blue-300",
+  ADMIN: "bg-purple-500/15 text-purple-700 dark:text-purple-300",
+  MEMBER: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+  VIEWER: "bg-muted text-muted-foreground",
+};
+
 interface HeaderProps {
   userName?: string | null;
   orgName?: string | null;
+  userRole?: string | null;
+  jobTitle?: string | null;
 }
 
-export function Header({ userName, orgName }: HeaderProps) {
+export function Header({ userName, orgName, userRole, jobTitle }: HeaderProps) {
   const { theme, toggle } = useTheme();
   const router = useRouter();
 
@@ -31,7 +40,27 @@ export function Header({ userName, orgName }: HeaderProps) {
     <header
       className="h-[52px] flex items-center justify-end px-5 shrink-0 transition-colors duration-200 border-b border-border bg-card/80 glass"
     >
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-3">
+        {/* User info */}
+        {userName && (
+          <div className="hidden sm:flex items-center gap-2 mr-1">
+            <div className="text-right">
+              <p className="text-[13px] font-medium text-foreground leading-tight">{userName}</p>
+              {(jobTitle || userRole) && (
+                <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                  {jobTitle && <span>{jobTitle}</span>}
+                  {jobTitle && userRole && <span> · </span>}
+                  {userRole && (
+                    <span className={`inline-flex px-1.5 py-px rounded text-[10px] font-semibold ${ROLE_BADGE[userRole] ?? ROLE_BADGE.VIEWER}`}>
+                      {userRole}
+                    </span>
+                  )}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Theme toggle */}
         <button
           onClick={toggle}
