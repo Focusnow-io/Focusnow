@@ -3,9 +3,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Sparkles, ArrowUp, ArrowLeft, Save,
-  Loader2, LayoutDashboard, ChevronRight, ChevronDown, Database,
+  Loader2, LayoutDashboard, ChevronDown, Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import ReactMarkdown from "react-markdown";
 import { CustomAppRenderer } from "./CustomAppRenderer";
 import type { CustomAppConfig } from "./widgets/types";
 
@@ -46,6 +47,15 @@ interface Props {
 // ---------------------------------------------------------------------------
 
 function buildStarterPrompts(data: DataSummary | null): string[] {
+  const FALLBACKS = [
+    "Show inventory breakdown by category with low-stock alerts",
+    "Create a procurement dashboard with PO status and supplier metrics",
+    "Build a production tracker with work order progress and completion rates",
+    "Show supplier performance: lead times, quality ratings, and risk levels",
+    "Create a KPI summary: total orders, active suppliers, inventory value, and alerts",
+    "Build an operations overview with key stats, trends, and risk indicators",
+  ];
+
   if (!data) {
     return [
       "Build me an operations overview with key stats and alerts",
@@ -89,8 +99,17 @@ function buildStarterPrompts(data: DataSummary | null): string[] {
   } else if (data.inventory > 0) {
     prompts.push("Show me inventory by category with stock alerts and value breakdown");
   }
+  if (data.suppliers > 0 && data.purchaseOrders === 0) {
+    prompts.push("Show supplier overview: lead times, quality ratings, countries, and risk levels");
+  }
 
-  return prompts.slice(0, 6);
+  // Pad up to 4 with fallbacks if not enough data-aware prompts were generated
+  for (const fallback of FALLBACKS) {
+    if (prompts.length >= 4) break;
+    if (!prompts.includes(fallback)) prompts.push(fallback);
+  }
+
+  return prompts.slice(0, 4);
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +160,7 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
   const [showPreview, setShowPreview] = useState(!!initialConfig);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [dataSummary, setDataSummary] = useState<DataSummary | null>(null);
+  const [dataSummaryLoaded, setDataSummaryLoaded] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -149,8 +169,8 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
   useEffect(() => {
     fetch("/api/apps/data-summary")
       .then((r) => r.ok ? r.json() : null)
-      .then((d: DataSummary | null) => { if (d) setDataSummary(d); })
-      .catch(() => {});
+      .then((d: DataSummary | null) => { if (d) setDataSummary(d); setDataSummaryLoaded(true); })
+      .catch(() => { setDataSummaryLoaded(true); });
   }, []);
 
   const scrollToBottom = useCallback(() => {
@@ -349,7 +369,7 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
                     </p>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-xl">
-                    {starterPrompts.map((p) => (
+                    {dataSummaryLoaded && starterPrompts.map((p) => (
                       <button
                         key={p}
                         onClick={() => generate(p)}
@@ -372,8 +392,8 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
                         </div>
                       </div>
                     ) : (
-                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
-                        {msg.content}
+                      <div className="text-sm text-gray-800 leading-relaxed prose prose-sm max-w-none prose-strong:font-semibold prose-p:my-1 prose-ul:my-1 prose-li:my-0">
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
                       </div>
                     )}
                   </div>
@@ -383,8 +403,8 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
                 {generating && (
                   <div className="space-y-2">
                     {liveExplanation ? (
-                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
-                        {liveExplanation}
+                      <div className="text-sm text-gray-800 leading-relaxed prose prose-sm max-w-none prose-strong:font-semibold prose-p:my-1 prose-ul:my-1 prose-li:my-0">
+                        <ReactMarkdown>{liveExplanation}</ReactMarkdown>
                         <span className="inline-block w-0.5 h-4 bg-gray-400 animate-pulse ml-0.5 align-text-bottom" />
                       </div>
                     ) : (

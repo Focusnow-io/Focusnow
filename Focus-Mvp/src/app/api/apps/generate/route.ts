@@ -164,7 +164,7 @@ Example — Scrap rate:
 2. aggregation:"count" does not need field
 3. For table/alert_list: display.columns is required — array of {key, label, format?}
    - format options: "number", "currency", "date"
-4. For charts: display.valueField="value", display.labelField="label"
+4. For charts: display.valueField="value", display.labelField="label". Optionally add display.colorMap: {"LabelName": "#hex"} to assign specific colors per label (e.g. {"Finished Good": "#10b981", "Raw Material": "#1f2937"})
 5. For stat_card: display.format + display.color (blue|green|red|amber|purple)
 6. For progress_bar: display.format="percentage", display.targetValue=100 (or custom goal), display.color
 7. Widget title ≤ 6 words

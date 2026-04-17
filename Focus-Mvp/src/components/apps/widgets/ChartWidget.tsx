@@ -102,6 +102,8 @@ export function ChartWidget({ widget }: { widget: WidgetConfig }) {
   const tooltipFmt = (v: unknown) => fmtTooltip(Number(v ?? 0), fmt);
   const isClickable = !!clickTarget;
   const cursorStyle = isClickable ? "pointer" : "default";
+  const colorMap = widget.display?.colorMap ?? {};
+  const getColor = (label: string, idx: number) => colorMap[label] ?? PALETTE[idx % PALETTE.length];
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-5">
@@ -117,11 +119,12 @@ export function ChartWidget({ widget }: { widget: WidgetConfig }) {
             <Tooltip formatter={tooltipFmt} contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e5e7eb" }} />
             <Bar
               dataKey="value"
-              fill={PALETTE[0]}
               radius={[4, 4, 0, 0]}
               cursor={cursorStyle}
               onClick={isClickable ? (_: unknown, idx: number) => handleClick(rows[idx]) : undefined}
-            />
+            >
+              {rows.map((row, i) => <Cell key={i} fill={getColor(row.label, i)} />)}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       )}
@@ -140,7 +143,7 @@ export function ChartWidget({ widget }: { widget: WidgetConfig }) {
               cursor={cursorStyle}
               onClick={isClickable ? (_: unknown, idx: number) => handleClick(rows[idx]) : undefined}
             >
-              {rows.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
+              {rows.map((row, i) => <Cell key={i} fill={getColor(row.label, i)} />)}
             </Pie>
             <Tooltip formatter={tooltipFmt} contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e5e7eb" }} />
             <Legend iconSize={10} iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
-  ArrowLeft, Settings, Package, DollarSign, Clock,
+  ArrowLeft, Package, DollarSign, Clock,
   AlertTriangle, Search, ShieldCheck, TrendingUp,
   ShoppingCart, Zap,
 } from "lucide-react";
@@ -16,7 +16,6 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { formatCurrency, formatNumber } from "@/lib/utils";
-import { VibeCodingPanel } from "@/components/apps/VibeCodingPanel";
 
 interface InventoryItem {
   id: string;
@@ -69,18 +68,6 @@ export default function InventoryCommandCenterPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "low" | "critical" | "buy">("all");
   const [search, setSearch] = useState("");
-  const [showCustomize, setShowCustomize] = useState(false);
-  const [instanceId, setInstanceId] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    fetch("/api/apps/instances")
-      .then((r) => r.json())
-      .then((d: { instances?: { id: string; template: string }[] }) => {
-        const inst = d.instances?.find((i) => i.template === "INVENTORY_COMMAND_CENTER");
-        if (inst) setInstanceId(inst.id);
-      })
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     fetch("/api/apps/inventory")
@@ -134,10 +121,6 @@ export default function InventoryCommandCenterPage() {
             <p className="text-sm text-gray-500">Stock health, velocity analysis, and replenishment intelligence</p>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setShowCustomize(true)}>
-          <Settings className="w-4 h-4 mr-2" />
-          Customize
-        </Button>
       </div>
 
       {loading ? (
@@ -544,13 +527,6 @@ export default function InventoryCommandCenterPage() {
         </>
       )}
 
-      <VibeCodingPanel
-        open={showCustomize}
-        onClose={() => setShowCustomize(false)}
-        appName="Inventory Command Center"
-        template="INVENTORY_COMMAND_CENTER"
-        instanceId={instanceId}
-      />
     </div>
   );
 }

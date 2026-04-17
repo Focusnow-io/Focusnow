@@ -100,7 +100,6 @@ function LoginForm() {
           <div className="space-y-3 pt-2">
             {[
               "Unified data model across all sources",
-              "Operational graph engine (ODE)",
               "Versioned rule brain",
               "Deploy apps instantly",
             ].map((f) => (

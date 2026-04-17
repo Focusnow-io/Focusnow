@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
-  ArrowLeft, Settings, ShoppingCart, DollarSign,
+  ArrowLeft, ShoppingCart, DollarSign,
   Factory, AlertTriangle, PackageCheck, ClipboardList,
   Target, CheckCircle,
 } from "lucide-react";
@@ -16,7 +16,6 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
-import { VibeCodingPanel } from "@/components/apps/VibeCodingPanel";
 
 interface OpenSO {
   id: string;
@@ -111,18 +110,6 @@ export default function DemandFulfillmentPage() {
   const [atRiskSKUs, setAtRiskSKUs] = useState<AtRiskSKU[]>([]);
   const [coverageDist, setCoverageDist] = useState<CoverageDist | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showCustomize, setShowCustomize] = useState(false);
-  const [instanceId, setInstanceId] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    fetch("/api/apps/instances")
-      .then((r) => r.json())
-      .then((d: { instances?: { id: string; template: string }[] }) => {
-        const inst = d.instances?.find((i) => i.template === "DEMAND_FULFILLMENT");
-        if (inst) setInstanceId(inst.id);
-      })
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     fetch("/api/apps/demand")
@@ -171,10 +158,6 @@ export default function DemandFulfillmentPage() {
             <p className="text-sm text-gray-500">Service levels, demand coverage, and production tracking</p>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setShowCustomize(true)}>
-          <Settings className="w-4 h-4 mr-2" />
-          Customize
-        </Button>
       </div>
 
       {loading ? (
@@ -572,13 +555,6 @@ export default function DemandFulfillmentPage() {
         </>
       )}
 
-      <VibeCodingPanel
-        open={showCustomize}
-        onClose={() => setShowCustomize(false)}
-        appName="Demand & Fulfillment"
-        template="DEMAND_FULFILLMENT"
-        instanceId={instanceId}
-      />
     </div>
   );
 }
