@@ -163,7 +163,7 @@ function StatusCell({
       )}
       {appNames && appNames.length > 0 && (
         <div className="flex items-center gap-1.5 flex-wrap -mt-1">
-          {appNames.map((name) => (
+          {[...new Set(appNames)].map((name) => (
             <span
               key={name}
               className="text-[11px] px-1.5 py-0.5 rounded-md bg-secondary text-secondary-foreground"

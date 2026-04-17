@@ -8,14 +8,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
-  ArrowLeft, Settings, Truck, DollarSign, AlertTriangle,
+  ArrowLeft, Truck, DollarSign, AlertTriangle,
   Globe, Users, ClipboardList, Shield, Star,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { VibeCodingPanel } from "@/components/apps/VibeCodingPanel";
 
 interface OpenOrder {
   id: string;
@@ -91,18 +90,6 @@ export default function ProcurementHubPage() {
   const [spendConcentration, setSpendConcentration] = useState<SpendEntry[]>([]);
   const [sourceRisk, setSourceRisk] = useState<SourceRisk | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showCustomize, setShowCustomize] = useState(false);
-  const [instanceId, setInstanceId] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    fetch("/api/apps/instances")
-      .then((r) => r.json())
-      .then((d: { instances?: { id: string; template: string }[] }) => {
-        const inst = d.instances?.find((i) => i.template === "PROCUREMENT_HUB");
-        if (inst) setInstanceId(inst.id);
-      })
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     fetch("/api/apps/procurement")
@@ -144,10 +131,6 @@ export default function ProcurementHubPage() {
             <p className="text-sm text-gray-500">Supplier intelligence, spend analytics, and supply risk</p>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setShowCustomize(true)}>
-          <Settings className="w-4 h-4 mr-2" />
-          Customize
-        </Button>
       </div>
 
       {loading ? (
@@ -174,11 +157,11 @@ export default function ProcurementHubPage() {
             <Card className={kpis && kpis.atRiskCount > 0 ? "border-red-200 bg-red-50" : ""}>
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-1">
-                  <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-                  <p className="text-xs text-red-600 font-medium uppercase">Overdue POs</p>
+                  <AlertTriangle className={`w-3.5 h-3.5 ${kpis && kpis.atRiskCount > 0 ? "text-red-400" : "text-gray-400"}`} />
+                  <p className={`text-xs font-medium uppercase ${kpis && kpis.atRiskCount > 0 ? "text-red-600" : "text-gray-500"}`}>Overdue POs</p>
                 </div>
-                <p className="text-2xl font-bold text-red-700">{kpis?.atRiskCount ?? 0}</p>
-                <p className="text-xs text-red-500 mt-0.5">Past expected delivery date</p>
+                <p className={`text-2xl font-bold ${kpis && kpis.atRiskCount > 0 ? "text-red-700" : "text-gray-900"}`}>{kpis?.atRiskCount ?? 0}</p>
+                <p className={`text-xs mt-0.5 ${kpis && kpis.atRiskCount > 0 ? "text-red-500" : "text-gray-400"}`}>Past expected delivery date</p>
               </CardContent>
             </Card>
             <Card>
@@ -234,7 +217,7 @@ export default function ProcurementHubPage() {
             )}
 
             {/* Spend Concentration */}
-            {spendConcentration.length > 0 && (
+            {spendConcentration.some((e) => e.spend > 0) && (
               <Card>
                 <CardContent className="p-4">
                   <p className="text-sm font-semibold text-gray-900 mb-3">Spend Concentration (Top 5)</p>
@@ -476,13 +459,6 @@ export default function ProcurementHubPage() {
         </>
       )}
 
-      <VibeCodingPanel
-        open={showCustomize}
-        onClose={() => setShowCustomize(false)}
-        appName="Procurement Hub"
-        template="PROCUREMENT_HUB"
-        instanceId={instanceId}
-      />
     </div>
   );
 }
