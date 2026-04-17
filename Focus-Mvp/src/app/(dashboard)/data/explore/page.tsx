@@ -190,14 +190,14 @@ export default function ExplorePage() {
   return (
     <div className="flex gap-0 h-full min-h-0">
       {/* ── Left sidebar: entity selector ── */}
-      <aside className="w-52 shrink-0 border-r bg-gray-50 flex flex-col overflow-y-auto">
+      <aside className="w-52 shrink-0 border-r border-border bg-muted flex flex-col overflow-y-auto">
         <div className="p-3 border-b">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Data Explorer</p>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Data Explorer</p>
         </div>
         <nav className="flex-1 p-2 space-y-3">
           {ENTITY_GROUPS.map(group => (
             <div key={group.label}>
-              <p className="px-2 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+              <p className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                 {group.label}
               </p>
               <ul className="space-y-0.5">
@@ -212,7 +212,7 @@ export default function ExplorePage() {
                           "w-full flex items-center justify-between px-2 py-1.5 rounded-md text-sm text-left transition-colors",
                           active
                             ? "bg-slate-900 text-white"
-                            : "text-gray-600 hover:bg-gray-200 hover:text-gray-900"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
                         )}
                       >
                         <span className="truncate">{e.label}</span>
@@ -220,7 +220,7 @@ export default function ExplorePage() {
                           <span
                             className={cn(
                               "text-[10px] font-medium ml-1 shrink-0",
-                              active ? "text-slate-300" : "text-gray-400"
+                              active ? "text-muted-foreground/50" : "text-muted-foreground"
                             )}
                           >
                             {count.toLocaleString()}
@@ -241,9 +241,9 @@ export default function ExplorePage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">{currentLabel}</h1>
+            <h1 className="text-xl font-bold text-foreground">{currentLabel}</h1>
             {data && (
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-muted-foreground">
                 {data.total.toLocaleString()} row{data.total !== 1 ? "s" : ""}
                 {data.pages > 1 && ` · page ${data.page} of ${data.pages}`}
               </p>
@@ -259,7 +259,7 @@ export default function ExplorePage() {
 
         {/* Search */}
         <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
           <Input
             className="pl-9"
             placeholder="Search..."
@@ -270,15 +270,15 @@ export default function ExplorePage() {
 
         {/* Table */}
         {loading ? (
-          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
+          <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
             Loading…
           </div>
         ) : !data || data.rows.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center py-16 border-2 border-dashed rounded-xl">
-            <p className="text-gray-500 font-medium">
+            <p className="text-muted-foreground font-medium">
               {search ? `No ${currentLabel.toLowerCase()} found` : "No data here yet."}
             </p>
-            <p className="text-sm text-gray-400 mt-1 max-w-sm">
+            <p className="text-sm text-muted-foreground mt-1 max-w-sm">
               {search
                 ? "Try a different search term"
                 : "Import a CSV to populate this table. You can add more data types later."}
@@ -291,14 +291,14 @@ export default function ExplorePage() {
           </div>
         ) : (
           <>
-            <div className="flex-1 min-h-0 bg-white border rounded-xl overflow-auto">
+            <div className="flex-1 min-h-0 bg-card border border-border rounded-xl overflow-auto">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 sticky top-0 z-10">
+                <thead className="bg-muted sticky top-0 z-10">
                   <tr>
                     {data.columns.map(col => (
                       <th
                         key={col.key}
-                        className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap border-b"
+                        className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap border-b border-border"
                       >
                         {col.label}
                       </th>
@@ -307,7 +307,7 @@ export default function ExplorePage() {
                 </thead>
                 <tbody className="divide-y">
                   {data.rows.map((row, i) => (
-                    <tr key={i} className="hover:bg-gray-50 transition-colors">
+                    <tr key={i} className="hover:bg-muted transition-colors">
                       {data.columns.map((col, ci) => {
                         const val = row[col.key];
                         const isFirst = ci === 0;
@@ -317,13 +317,13 @@ export default function ExplorePage() {
                             className={cn(
                               "px-3 py-2 whitespace-nowrap max-w-[280px] truncate",
                               isFirst
-                                ? "font-mono text-xs font-medium text-slate-700"
-                                : "text-gray-600"
+                                ? "font-mono text-xs font-medium text-foreground"
+                                : "text-muted-foreground"
                             )}
                             title={val !== null && val !== undefined ? String(val) : undefined}
                           >
                             {val === null || val === undefined ? (
-                              <span className="text-gray-300">—</span>
+                              <span className="text-muted-foreground/50">—</span>
                             ) : col.key === "status" ? (
                               <Badge variant="outline" className="text-xs">
                                 {val}
@@ -343,7 +343,7 @@ export default function ExplorePage() {
             {/* Pagination */}
             {data.pages > 1 && (
               <div className="flex items-center justify-between pt-1">
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-muted-foreground">
                   Showing {(data.page - 1) * 50 + 1}–{Math.min(data.page * 50, data.total)} of{" "}
                   {data.total.toLocaleString()}
                 </p>

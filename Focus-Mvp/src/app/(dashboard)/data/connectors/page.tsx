@@ -35,7 +35,7 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
 
 const STATUS_STYLES: Record<string, string> = {
   ACTIVE:   "bg-green-100 text-green-700",
-  INACTIVE: "bg-gray-100 text-gray-500",
+  INACTIVE: "bg-muted text-muted-foreground",
   SYNCING:  "bg-blue-100 text-blue-700",
   ERROR:    "bg-red-100 text-red-700",
 };
@@ -88,11 +88,11 @@ export default function ConnectorsPage() {
     <div className="space-y-6 w-full">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
-            <Plug className="w-5 h-5 text-slate-500" />
+          <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
+            <Plug className="w-5 h-5 text-muted-foreground" />
             Connectors
           </h1>
-          <p className="text-sm text-gray-400 mt-0.5">
+          <p className="text-sm text-muted-foreground mt-0.5">
             Registered operational system connections
           </p>
         </div>
@@ -100,13 +100,13 @@ export default function ConnectorsPage() {
           <button
             onClick={fetchConnectors}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-md hover:bg-muted disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           </button>
           <a
             href="https://github.com/nir-dotcom/Focus-product"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-slate-900 text-white rounded-md hover:bg-slate-700"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
           >
             <Plus className="w-3.5 h-3.5" />
             Add via API
@@ -121,15 +121,15 @@ export default function ConnectorsPage() {
       )}
 
       {/* API hint */}
-      <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-xs text-slate-600 font-mono">
-        <span className="text-slate-400">POST</span> /api/connectors
+      <div className="bg-muted border border-border rounded-lg px-4 py-3 text-xs text-muted-foreground font-mono">
+        <span className="text-muted-foreground">POST</span> /api/connectors
         {" "}
-        <span className="text-slate-400 font-sans font-normal">· Create a connector by POSTing</span>
+        <span className="text-muted-foreground font-sans font-normal">· Create a connector by POSTing</span>
         {" { name, type, config: { entityType, fieldMapping?, ... } }"}
       </div>
 
       {connectors.length === 0 && !loading ? (
-        <div className="text-center py-16 text-gray-400">
+        <div className="text-center py-16 text-muted-foreground">
           <Plug className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p className="text-sm font-medium">No connectors registered yet</p>
           <p className="text-xs mt-1">Use the API to create FILE_IMPORT, REST_API, or WEBHOOK connectors.</p>
@@ -142,24 +142,24 @@ export default function ConnectorsPage() {
             const LastSyncIcon = lastSync ? SYNC_STATUS_ICON[lastSync.status] ?? Clock : null;
 
             return (
-              <div key={c.id} className="bg-white border border-gray-200 rounded-xl p-4">
+              <div key={c.id} className="bg-card border border-border rounded-xl p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
-                      <TypeIcon className="w-4 h-4 text-slate-600" />
+                    <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                      <TypeIcon className="w-4 h-4 text-muted-foreground" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-sm text-slate-800">{c.name}</span>
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full uppercase ${STATUS_STYLES[c.status] ?? "bg-gray-100 text-gray-500"}`}>
+                        <span className="font-semibold text-sm text-foreground">{c.name}</span>
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full uppercase ${STATUS_STYLES[c.status] ?? "bg-muted text-muted-foreground"}`}>
                           {c.status}
                         </span>
-                        <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full uppercase font-semibold">
+                        <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full uppercase font-semibold">
                           {c.type.replace(/_/g, " ")}
                         </span>
                       </div>
                       {c.description && (
-                        <p className="text-xs text-gray-500 mt-0.5">{c.description}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{c.description}</p>
                       )}
                     </div>
                   </div>
@@ -167,7 +167,7 @@ export default function ConnectorsPage() {
                   <button
                     onClick={() => triggerSync(c.id)}
                     disabled={syncing === c.id || c.status === "SYNCING"}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-900 text-white rounded-md hover:bg-slate-700 disabled:opacity-50 shrink-0"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 shrink-0"
                   >
                     {syncing === c.id ? (
                       <Loader2 className="w-3 h-3 animate-spin" />
@@ -180,7 +180,7 @@ export default function ConnectorsPage() {
 
                 {/* Last sync summary */}
                 {lastSync && (
-                  <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-4 text-xs text-gray-500">
+                  <div className="mt-3 pt-3 border-t border-border flex items-center gap-4 text-xs text-muted-foreground">
                     {LastSyncIcon && (
                       <span className="flex items-center gap-1">
                         <LastSyncIcon
@@ -188,7 +188,7 @@ export default function ConnectorsPage() {
                             lastSync.status === "COMPLETED" ? "text-green-500" :
                             lastSync.status === "FAILED"    ? "text-red-500" :
                             lastSync.status === "RUNNING"   ? "text-blue-500 animate-spin" :
-                            "text-gray-400"
+                            "text-muted-foreground"
                           }`}
                         />
                         {lastSync.status}
@@ -199,12 +199,12 @@ export default function ConnectorsPage() {
                     {lastSync.recordsFailed > 0 && (
                       <span className="text-red-500 font-medium">{lastSync.recordsFailed} failed</span>
                     )}
-                    <span className="ml-auto text-gray-400">{c._count.syncs} total sync{c._count.syncs !== 1 ? "s" : ""}</span>
+                    <span className="ml-auto text-muted-foreground">{c._count.syncs} total sync{c._count.syncs !== 1 ? "s" : ""}</span>
                   </div>
                 )}
 
                 {!lastSync && (
-                  <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-400">
+                  <div className="mt-3 pt-3 border-t border-border text-xs text-muted-foreground">
                     Never synced · created {new Date(c.createdAt).toLocaleDateString()}
                   </div>
                 )}

@@ -542,19 +542,19 @@ export default function ChatPage() {
     <div className="flex -m-6 h-[calc(100vh-3.25rem)]">
       {/* Sidebar — conversation list */}
       <div
-        className="w-[280px] shrink-0 flex flex-col bg-white overflow-hidden"
-        style={{ borderRight: "1px solid #e8e8e8" }}
+        className="w-[280px] shrink-0 flex flex-col bg-card overflow-hidden"
+        style={{ borderRight: "1px solid hsl(var(--border))" }}
       >
         {/* Sidebar header */}
-        <div className="p-3 space-y-2" style={{ borderBottom: "1px solid #e8e8e8" }}>
+        <div className="p-3 space-y-2" style={{ borderBottom: "1px solid hsl(var(--border))" }}>
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-900">AI Chat</h2>
+            <h2 className="text-sm font-semibold text-foreground">AI Chat</h2>
             <div className="flex items-center gap-1">
               <button
                 onClick={handleNewConversation}
                 disabled={isCreating}
                 title="New Chat"
-                className="w-7 h-7 rounded-md flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors disabled:opacity-40"
+                className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40"
               >
                 <Plus className="w-4 h-4" />
               </button>
@@ -566,7 +566,7 @@ export default function ChatPage() {
                 }}
                 disabled={isCreating}
                 title="New Project"
-                className="w-7 h-7 rounded-md flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors disabled:opacity-40"
+                className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40"
               >
                 <FolderOpen className="w-4 h-4" />
               </button>
@@ -588,14 +588,14 @@ export default function ChatPage() {
                   if (e.key === "Enter") { e.preventDefault(); createProject(); }
                   if (e.key === "Escape") { setShowProjectInput(false); setProjectName(""); setProjectNameError(false); }
                 }}
-                className={`flex-1 px-2.5 py-1.5 text-xs bg-gray-50 border rounded-md focus:outline-none text-gray-700 placeholder:text-gray-400 ${
-                  projectNameError ? "border-red-400 focus:border-red-500" : "border-gray-200 focus:border-gray-300"
+                className={`flex-1 px-2.5 py-1.5 text-xs bg-muted border rounded-md focus:outline-none text-foreground placeholder:text-muted-foreground ${
+                  projectNameError ? "border-red-400 focus:border-red-500" : "border-border focus:border-ring"
                 }`}
               />
               <button
                 onClick={createProject}
                 disabled={isCreating}
-                className="w-7 h-7 rounded-md flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-green-600 transition-colors disabled:opacity-40"
+                className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-green-600 transition-colors disabled:opacity-40"
               >
                 <Check className="w-4 h-4" />
               </button>
@@ -603,13 +603,13 @@ export default function ChatPage() {
           )}
 
           <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
               placeholder="Search conversations…"
               value={sidebarSearch}
               onChange={(e) => setSidebarSearch(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-md focus:outline-none focus:border-gray-300 text-gray-700 placeholder:text-gray-400"
+              className="w-full pl-8 pr-3 py-1.5 text-xs bg-muted border border-border rounded-md focus:outline-none focus:border-ring text-foreground placeholder:text-muted-foreground"
             />
           </div>
         </div>
@@ -618,8 +618,8 @@ export default function ChatPage() {
         <div className="flex-1 overflow-y-auto">
           {projects.length === 0 && filteredConversations.filter((c) => !c.projectId).length === 0 ? (
             <div className="p-4 text-center">
-              <MessageSquare className="w-8 h-8 mx-auto text-gray-300 mb-2" />
-              <p className="text-xs text-gray-400">
+              <MessageSquare className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+              <p className="text-xs text-muted-foreground">
                 {conversations.length === 0 && projects.length === 0
                   ? "No conversations yet"
                   : "No matching conversations"}
@@ -653,7 +653,7 @@ export default function ChatPage() {
                             return next;
                           })
                         }
-                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
                       >
                         <FolderOpen className="w-3.5 h-3.5 shrink-0" />
                         <span className="flex-1 truncate text-left">{project.name}</span>
@@ -677,18 +677,18 @@ export default function ChatPage() {
                                 onClick={() => selectConversation(conv.id)}
                                 className={`w-full text-left px-2 py-2 transition-colors rounded-md ${
                                   conv.id === activeConversationId
-                                    ? "bg-gray-100"
-                                    : "hover:bg-gray-50"
+                                    ? "bg-muted"
+                                    : "hover:bg-muted"
                                 }`}
                               >
                                 <div className="flex items-center gap-1.5 min-w-0">
-                                  <MessageSquare className="w-3 h-3 shrink-0 text-gray-400" />
-                                  <p className="text-[12px] font-medium text-gray-800 truncate">
+                                  <MessageSquare className="w-3 h-3 shrink-0 text-muted-foreground" />
+                                  <p className="text-[12px] font-medium text-foreground truncate">
                                     {conv.title}
                                   </p>
                                 </div>
                                 <div className="flex items-center gap-2 mt-0.5 pl-4">
-                                  <span className="text-[10px] text-gray-400">
+                                  <span className="text-[10px] text-muted-foreground">
                                     {new Date(conv.updatedAt).toLocaleDateString()}
                                   </span>
                                 </div>
@@ -698,7 +698,7 @@ export default function ChatPage() {
                           <button
                             onClick={() => createNewConversationInProject(project.id)}
                             disabled={isCreating}
-                            className="flex items-center gap-1.5 w-full px-2 py-1 text-xs text-gray-400 hover:text-gray-600 rounded transition-colors disabled:opacity-40"
+                            className="flex items-center gap-1.5 w-full px-2 py-1 text-xs text-muted-foreground hover:text-foreground rounded transition-colors disabled:opacity-40"
                           >
                             <Plus className="w-3 h-3" />
                             New conversation
@@ -718,22 +718,22 @@ export default function ChatPage() {
                     onClick={() => selectConversation(conv.id)}
                     className={`w-full text-left px-3 py-2.5 transition-colors ${
                       conv.id === activeConversationId
-                        ? "bg-gray-100"
-                        : "hover:bg-gray-50"
+                        ? "bg-muted"
+                        : "hover:bg-muted"
                     }`}
                   >
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <MessageSquare className="w-3.5 h-3.5 shrink-0 text-gray-400" />
-                      <p className="text-[13px] font-medium text-gray-900 truncate">
+                      <MessageSquare className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                      <p className="text-[13px] font-medium text-foreground truncate">
                         {conv.title}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 mt-0.5 pl-5">
-                      <span className="text-[11px] text-gray-400">
+                      <span className="text-[11px] text-muted-foreground">
                         {new Date(conv.updatedAt).toLocaleDateString()}
                       </span>
                       {conv.lastMessage && (
-                        <span className="text-[11px] text-gray-400 truncate flex-1">
+                        <span className="text-[11px] text-muted-foreground truncate flex-1">
                           {conv.lastMessage.slice(0, 50)}
                         </span>
                       )}
@@ -749,11 +749,11 @@ export default function ChatPage() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Chat header */}
         <div
-          className="h-12 px-4 flex items-center gap-2 shrink-0 bg-white"
-          style={{ borderBottom: "1px solid #e8e8e8" }}
+          className="h-12 px-4 flex items-center gap-2 shrink-0 bg-card"
+          style={{ borderBottom: "1px solid hsl(var(--border))" }}
         >
-          <MessageSquare className="w-4 h-4 text-gray-400" />
-          <span className="text-sm font-medium text-gray-700 truncate">
+          <MessageSquare className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm font-medium text-foreground truncate">
             {getActiveConversationTitle()}
           </span>
         </div>
@@ -770,28 +770,28 @@ export default function ChatPage() {
                 <div>
                   {onboardingStage === "aha" && onboardingData?.firstRule ? (
                     <>
-                      <h2 className="text-xl font-semibold text-gray-900">
+                      <h2 className="text-xl font-semibold text-foreground">
                         Your Brain has {onboardingData.firstRule.name ? "1" : "a"} rule. Try asking something it covers.
                       </h2>
-                      <p className="text-sm text-gray-500 mt-1.5 max-w-md">
+                      <p className="text-sm text-muted-foreground mt-1.5 max-w-md">
                         Focus will use your rule as context. The answer will be specific to how your business works — not generic.
                       </p>
                     </>
                   ) : onboardingStage === "capture" || onboardingStage === "import" ? (
                     <>
-                      <h2 className="text-xl font-semibold text-gray-900">
+                      <h2 className="text-xl font-semibold text-foreground">
                         Ask about your data
                       </h2>
-                      <p className="text-sm text-gray-500 mt-1.5 max-w-md">
+                      <p className="text-sm text-muted-foreground mt-1.5 max-w-md">
                         Add a rule first — then Focus can give you grounded answers specific to how your business works.
                       </p>
                     </>
                   ) : (
                     <>
-                      <h2 className="text-xl font-semibold text-gray-900">
+                      <h2 className="text-xl font-semibold text-foreground">
                         Ask about your data
                       </h2>
-                      <p className="text-sm text-gray-500 mt-1.5 max-w-md">
+                      <p className="text-sm text-muted-foreground mt-1.5 max-w-md">
                         I have access to your complete operational dataset — inventory, orders, BOMs, quality records, and more. Ask me anything.
                       </p>
                     </>
@@ -802,7 +802,7 @@ export default function ChatPage() {
                     <button
                       key={q}
                       onClick={() => sendMessage(q)}
-                      className="text-left px-4 py-3 rounded-xl border border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50 text-sm text-gray-700 transition-colors"
+                      className="text-left px-4 py-3 rounded-xl border border-border bg-card hover:border-border hover:bg-muted text-sm text-foreground transition-colors"
                     >
                       {q}
                     </button>
@@ -815,7 +815,7 @@ export default function ChatPage() {
                   <div key={message.id ?? i}>
                     {message.role === "user" ? (
                       <div className="flex justify-end">
-                        <div dir="auto" className="max-w-[72%] bg-gray-900 text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed">
+                        <div dir="auto" className="max-w-[72%] bg-primary text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed">
                           {message.content}
                         </div>
                       </div>
@@ -833,47 +833,47 @@ export default function ChatPage() {
                         {/* Assistant text */}
                         {message.content === "" && !message.toolCalls?.length ? (
                           <div className="flex gap-1 items-center py-2">
-                            <span className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:0ms]" />
-                            <span className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:150ms]" />
-                            <span className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:300ms]" />
+                            <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce [animation-delay:0ms]" />
+                            <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce [animation-delay:150ms]" />
+                            <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce [animation-delay:300ms]" />
                           </div>
                         ) : message.content ? (
                           <div dir="auto" className="prose prose-base max-w-none
-                            prose-headings:font-bold prose-headings:text-gray-900 prose-headings:tracking-tight
+                            prose-headings:font-bold prose-headings:text-foreground prose-headings:tracking-tight
                             prose-h1:text-2xl prose-h1:mt-2 prose-h1:mb-3
                             prose-h2:text-lg prose-h2:mt-6 prose-h2:mb-2
                             prose-h3:text-base prose-h3:mt-4 prose-h3:mb-1
-                            prose-p:text-gray-800 prose-p:leading-relaxed prose-p:my-2
-                            prose-ul:pl-5 prose-ul:my-2 prose-li:text-gray-800 prose-li:my-1
+                            prose-p:text-foreground prose-p:leading-relaxed prose-p:my-2
+                            prose-ul:pl-5 prose-ul:my-2 prose-li:text-foreground prose-li:my-1
                             prose-ol:pl-5 prose-ol:my-2
-                            prose-strong:text-gray-900 prose-strong:font-semibold
-                            prose-code:text-gray-700 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm
-                            prose-hr:my-4 prose-hr:border-gray-200">
+                            prose-strong:text-foreground prose-strong:font-semibold
+                            prose-code:text-foreground prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm
+                            prose-hr:my-4 prose-hr:border-border">
                             <ReactMarkdown
                               remarkPlugins={[remarkGfm]}
                               components={{
                                 table: ({ children }) => (
                                   <div className="overflow-x-auto my-3">
-                                    <table className="min-w-full text-sm border-collapse border border-gray-200 rounded-lg overflow-hidden">
+                                    <table className="min-w-full text-sm border-collapse border border-border rounded-lg overflow-hidden">
                                       {children}
                                     </table>
                                   </div>
                                 ),
                                 thead: ({ children }) => (
-                                  <thead className="bg-gray-50">{children}</thead>
+                                  <thead className="bg-muted">{children}</thead>
                                 ),
                                 th: ({ children }) => (
-                                  <th className="px-3 py-2 text-start font-semibold text-gray-700 border border-gray-200 whitespace-nowrap text-xs">
+                                  <th className="px-3 py-2 text-start font-semibold text-foreground border border-border whitespace-nowrap text-xs">
                                     {children}
                                   </th>
                                 ),
                                 td: ({ children }) => (
-                                  <td className="px-3 py-2 border border-gray-100 text-gray-800">
+                                  <td className="px-3 py-2 border border-border text-foreground">
                                     {children}
                                   </td>
                                 ),
                                 tr: ({ children }) => (
-                                  <tr className="even:bg-gray-50/60">{children}</tr>
+                                  <tr className="even:bg-muted/60">{children}</tr>
                                 ),
                               }}
                             >
@@ -884,7 +884,7 @@ export default function ChatPage() {
 
                         {/* Streaming cursor */}
                         {isLoading && i === messages.length - 1 && (
-                          <span className="inline-block w-0.5 h-4 bg-gray-400 animate-pulse ml-0.5 align-text-bottom" />
+                          <span className="inline-block w-0.5 h-4 bg-muted-foreground animate-pulse ml-0.5 align-text-bottom" />
                         )}
                       </div>
                     )}
@@ -902,7 +902,7 @@ export default function ChatPage() {
             <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-10">
               <button
                 onClick={() => scrollToBottom()}
-                className="w-8 h-8 rounded-full border border-gray-200 bg-white shadow-md flex items-center justify-center text-gray-500 hover:text-gray-700 hover:shadow-lg transition-all"
+                className="w-8 h-8 rounded-full border border-border bg-card shadow-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:shadow-lg transition-all"
               >
                 <ChevronDown className="w-4 h-4" />
               </button>
@@ -930,7 +930,7 @@ export default function ChatPage() {
                 </span>
               </div>
             )}
-            <div className="rounded-2xl border-2 border-blue-400 bg-white shadow-sm focus-within:border-blue-500 transition-colors">
+            <div className="rounded-2xl border-2 border-blue-400 bg-card shadow-sm focus-within:border-blue-500 transition-colors">
               <textarea
                 ref={textareaRef}
                 rows={1}
@@ -940,11 +940,11 @@ export default function ChatPage() {
                 onKeyDown={handleKeyDown}
                 disabled={isLoading}
                 dir="auto"
-                className="w-full px-4 pt-4 pb-2 text-sm bg-transparent resize-none focus:outline-none placeholder:text-gray-400 disabled:opacity-60 text-gray-900 leading-relaxed"
+                className="w-full px-4 pt-4 pb-2 text-sm bg-transparent resize-none focus:outline-none placeholder:text-muted-foreground disabled:opacity-60 text-foreground leading-relaxed"
                 style={{ minHeight: "44px", maxHeight: "160px" }}
               />
               <div className="flex items-center justify-between px-4 pb-3">
-                <span className="flex items-center gap-1.5 text-xs text-gray-400">
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Database className="w-3.5 h-3.5" />
                   Live data
                 </span>
@@ -983,12 +983,12 @@ function ToolCallBlock({ toolCall }: { toolCall: ToolCallEvent }) {
   };
 
   return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden">
+    <div className="border border-border rounded-lg overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-500 hover:bg-gray-50 transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground hover:bg-muted transition-colors"
       >
-        <Database className="w-3 h-3 text-gray-400" />
+        <Database className="w-3 h-3 text-muted-foreground" />
         <span className="font-medium">
           {toolLabel[toolCall.name] ?? `Called ${toolCall.name}`}
         </span>
@@ -997,8 +997,8 @@ function ToolCallBlock({ toolCall }: { toolCall: ToolCallEvent }) {
         />
       </button>
       {expanded && toolCall.result && (
-        <div className="px-3 pb-3 border-t border-gray-100">
-          <pre className="text-[11px] text-gray-600 mt-2 overflow-x-auto whitespace-pre-wrap max-h-60 overflow-y-auto bg-gray-50 rounded p-2">
+        <div className="px-3 pb-3 border-t border-border">
+          <pre className="text-[11px] text-muted-foreground mt-2 overflow-x-auto whitespace-pre-wrap max-h-60 overflow-y-auto bg-muted rounded p-2">
             {toolCall.result}
           </pre>
         </div>

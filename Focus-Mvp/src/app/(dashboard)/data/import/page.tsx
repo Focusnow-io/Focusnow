@@ -455,7 +455,7 @@ function ColTypeBadge({ type }: { type: string | undefined }) {
     return <Hash className="w-3 h-3 text-sky-400 shrink-0" />;
   if (type === "date")
     return <Calendar className="w-3 h-3 text-violet-400 shrink-0" />;
-  return <Type className="w-3 h-3 text-gray-300 shrink-0" />;
+  return <Type className="w-3 h-3 text-muted-foreground shrink-0" />;
 }
 
 function plural(n: number, noun: string) {
@@ -1076,8 +1076,8 @@ export default function ImportPage() {
     <div className={cn("space-y-6 mx-auto w-full", step === "select" ? "max-w-5xl" : step === "map" ? "max-w-4xl" : step === "entity-split" ? "max-w-3xl" : "max-w-2xl")}>
       {step !== "select" && (
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Import Data</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <h1 className="text-xl font-bold text-foreground">Import Data</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
             Upload a CSV or Excel file — we&apos;ll handle the rest.
           </p>
         </div>
@@ -1090,7 +1090,7 @@ export default function ImportPage() {
             <div key={label} className="flex items-center gap-2">
               <div
                 className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-                  i <= milestoneIndex ? "text-slate-900" : "text-gray-400"
+                  i <= milestoneIndex ? "text-foreground" : "text-muted-foreground"
                 }`}
               >
                 <div
@@ -1099,7 +1099,7 @@ export default function ImportPage() {
                       ? "bg-slate-900 text-white"
                       : i === milestoneIndex
                       ? "bg-slate-900 text-white"
-                      : "bg-gray-200 text-gray-400"
+                      : "bg-muted text-muted-foreground"
                   }`}
                 >
                   {i < milestoneIndex ? (
@@ -1111,7 +1111,7 @@ export default function ImportPage() {
                 {label}
               </div>
               {i < MILESTONES.length - 1 && (
-                <ChevronRight className="w-4 h-4 text-gray-300" />
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
               )}
             </div>
           ))}
@@ -1136,26 +1136,26 @@ export default function ImportPage() {
                 "flex items-center justify-between gap-3 rounded-2xl border px-5 py-4 transition-shadow",
                 hasData
                   ? "border-emerald-200 bg-emerald-50/60"
-                  : "border-gray-200 bg-white hover:shadow-sm"
+                  : "border-border bg-card hover:shadow-sm"
               )}
             >
               <div className="flex items-start gap-3 min-w-0">
                 <span
                   className={cn(
                     "mt-1.5 w-2.5 h-2.5 rounded-full shrink-0",
-                    hasData ? "bg-emerald-500" : "bg-gray-300"
+                    hasData ? "bg-emerald-500" : "bg-muted-foreground/30"
                   )}
                 />
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 leading-tight">
+                  <p className="text-sm font-semibold text-foreground leading-tight">
                     {ENTITY_LABELS[type]}
                   </p>
-                  <p className="text-xs text-gray-500 mt-0.5 truncate">{meta}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">{meta}</p>
                 </div>
               </div>
               <button
                 onClick={() => { setEntity(type); setStep("upload"); }}
-                className="shrink-0 text-xs font-medium px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50 transition-colors"
+                className="shrink-0 text-xs font-medium px-4 py-2 rounded-lg border border-border bg-card text-foreground hover:border-border hover:bg-muted transition-colors"
               >
                 {hasData ? "Re-upload" : "Upload"}
               </button>
@@ -1174,18 +1174,18 @@ export default function ImportPage() {
         return (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">Connect your operational data</h2>
-              <p className="text-sm text-gray-500 mt-1">
+              <h2 className="text-2xl font-bold text-foreground">Connect your operational data</h2>
+              <p className="text-sm text-muted-foreground mt-1">
                 Upload the files Focus needs to answer inventory and procurement questions. Start with the essentials.
               </p>
             </div>
 
             {/* Progress */}
             <div className="space-y-2">
-              <p className="text-sm text-gray-700">
+              <p className="text-sm text-foreground">
                 {uploadedEssentials} of {ESSENTIAL_ENTITIES.length} essential files uploaded
               </p>
-              <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+              <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
                 <div
                   className="h-full bg-emerald-500 transition-all"
                   style={{ width: `${pct}%` }}
@@ -1195,7 +1195,7 @@ export default function ImportPage() {
 
             {/* Essentials */}
             <div className="space-y-3">
-              <p className="text-[11px] font-semibold tracking-wider text-gray-400 uppercase">
+              <p className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
                 Essential — upload these first
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1216,13 +1216,13 @@ export default function ImportPage() {
             {/* Additional data */}
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <div className="flex-1 h-px bg-gray-200" />
-                <p className="text-xs text-gray-400">Additional data — add when ready</p>
-                <div className="flex-1 h-px bg-gray-200" />
+                <div className="flex-1 h-px bg-border" />
+                <p className="text-xs text-muted-foreground">Additional data — add when ready</p>
+                <div className="flex-1 h-px bg-border" />
               </div>
               <button
                 onClick={() => setShowAllFiles((v) => !v)}
-                className="w-full text-sm font-medium text-gray-700 px-4 py-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
+                className="w-full text-sm font-medium text-foreground px-4 py-3 rounded-xl border border-border bg-card hover:bg-muted transition-colors flex items-center justify-center gap-2"
               >
                 {showAllFiles ? "Hide" : "Show"} {additionalEntities.length} more files
                 {showAllFiles ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -1247,7 +1247,7 @@ export default function ImportPage() {
           {/* Back button — outside the card */}
           <button
             onClick={() => { setFile(null); setUploadError(null); setStep("select"); }}
-            className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 rounded-lg px-3 py-2 transition-colors shadow-sm"
+            className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground bg-card border border-border hover:border-border rounded-lg px-3 py-2 transition-colors shadow-sm"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to Import
@@ -1257,14 +1257,14 @@ export default function ImportPage() {
             <CardContent className="p-8 space-y-6">
               {/* Header */}
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">{ENTITY_LABELS[entity]}</h2>
-                <p className="text-sm text-gray-500 mt-0.5">Upload a CSV or Excel file — we'll map your columns automatically.</p>
+                <h2 className="text-lg font-semibold text-foreground">{ENTITY_LABELS[entity]}</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">Upload a CSV or Excel file — we'll map your columns automatically.</p>
               </div>
 
               {/* Drop zone */}
               <div
                 className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${
-                  file ? "border-emerald-300 bg-emerald-50/40" : "border-gray-200 hover:border-slate-400 hover:bg-gray-50"
+                  file ? "border-emerald-300 bg-emerald-50/40" : "border-border hover:border-border hover:bg-muted"
                 }`}
                 onClick={() => fileRef.current?.click()}
               >
@@ -1274,18 +1274,18 @@ export default function ImportPage() {
                       <FileText className="w-6 h-6 text-emerald-600" />
                     </div>
                     <div>
-                      <p className="font-semibold text-sm text-gray-900">{file.name}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">{(file.size / 1024).toFixed(1)} KB · Click to change</p>
+                      <p className="font-semibold text-sm text-foreground">{file.name}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{(file.size / 1024).toFixed(1)} KB · Click to change</p>
                     </div>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
-                      <Upload className="w-6 h-6 text-gray-400" />
+                    <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                      <Upload className="w-6 h-6 text-muted-foreground" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-gray-700">Click to select your file</p>
-                      <p className="text-xs text-gray-400 mt-0.5">CSV or .xlsx · Max 50 MB</p>
+                      <p className="text-sm font-semibold text-foreground">Click to select your file</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">CSV or .xlsx · Max 50 MB</p>
                     </div>
                   </div>
                 )}
@@ -1353,11 +1353,11 @@ export default function ImportPage() {
             <CardContent className="p-6 space-y-5">
               {/* Header */}
               <div>
-                <p className="text-base font-semibold text-gray-900 flex items-center gap-2">
-                  <Columns className="w-5 h-5 text-slate-500" />
+                <p className="text-base font-semibold text-foreground flex items-center gap-2">
+                  <Columns className="w-5 h-5 text-muted-foreground" />
                   We detected multiple data types in your file
                 </p>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-sm text-muted-foreground mt-1">
                   Your file contains {significantEntities.length} entity types.
                   We&apos;ll import them in the right order automatically.
                 </p>
@@ -1370,14 +1370,14 @@ export default function ImportPage() {
                   return (
                     <div
                       key={ent.entity}
-                      className="rounded-lg border border-gray-200 bg-white p-4 space-y-2"
+                      className="rounded-lg border border-border bg-card p-4 space-y-2"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-600">
+                          <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
                             {i + 1}
                           </div>
-                          <span className="text-sm font-semibold text-gray-900">{label}</span>
+                          <span className="text-sm font-semibold text-foreground">{label}</span>
                         </div>
                         <span className={cn(
                           "text-[10px] font-medium px-2 py-0.5 rounded-full",
@@ -1388,14 +1388,14 @@ export default function ImportPage() {
                           {ent.confidence} confidence
                         </span>
                       </div>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-muted-foreground">
                         {ent.columnsUsed.length} column{ent.columnsUsed.length !== 1 ? "s" : ""} matched
                       </p>
                       <div className="flex flex-wrap gap-1.5">
                         {ent.columnsUsed.map((col) => (
                           <span
                             key={col}
-                            className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium bg-slate-50 border border-slate-200 text-slate-600"
+                            className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium bg-muted border border-border text-muted-foreground"
                           >
                             {col}
                           </span>
@@ -1435,18 +1435,18 @@ export default function ImportPage() {
 
               {/* Unclassified columns */}
               {unclassifiedCols.length > 0 && (
-                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-2">
-                  <p className="text-xs font-semibold text-gray-500 uppercase">
+                <div className="rounded-lg border border-border bg-muted p-4 space-y-2">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase">
                     Unclassified columns
                   </p>
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-muted-foreground">
                     These columns weren&apos;t matched to any entity. They&apos;ll be skipped unless you assign them manually later.
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {unclassifiedCols.map(([col]) => (
                       <span
                         key={col}
-                        className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium bg-white border border-gray-200 text-gray-500"
+                        className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium bg-card border border-border text-muted-foreground"
                       >
                         {col}
                       </span>
@@ -1457,8 +1457,8 @@ export default function ImportPage() {
 
               {/* Progress indicator (shown during sequential import) */}
               {processing && multiEntityProgress && (
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <Loader2 className="w-4 h-4 animate-spin text-slate-500" />
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
                   {multiEntityProgress}
                 </div>
               )}
@@ -1521,8 +1521,8 @@ export default function ImportPage() {
         <Card>
           <CardContent className="p-6 space-y-5">
             {/* Plain-language summary */}
-            <div className="bg-slate-50 rounded-xl p-5 space-y-2">
-              <p className="text-base font-semibold text-slate-900">
+            <div className="bg-muted rounded-xl p-5 space-y-2">
+              <p className="text-base font-semibold text-foreground">
                 Ready to import{" "}
                 {plural(
                   uploadResult.rowCount,
@@ -1539,7 +1539,7 @@ export default function ImportPage() {
               </p>
 
               {/* Mapped-fields pill list */}
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-muted-foreground">
                 {mappedFields.length > 0
                   ? `${mappedFields.length} field${mappedFields.length !== 1 ? "s" : ""} matched`
                   : "No fields matched"}{" "}
@@ -1572,7 +1572,7 @@ export default function ImportPage() {
 
             {/* Snapshot deactivation warning */}
             {loadingPreview && (
-              <div className="flex items-center gap-2 text-xs text-gray-500">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 Checking impact on existing data…
               </div>
@@ -1600,10 +1600,10 @@ export default function ImportPage() {
 
             {/* Template auto-applied notice */}
             {appliedTemplate && (
-              <p className="text-xs text-gray-500 flex items-center gap-1.5">
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                 <CheckCircle className="w-3 h-3 text-emerald-500" />
                 We applied your saved mapping for{" "}
-                <strong className="text-gray-700">
+                <strong className="text-foreground">
                   {ENTITY_LABELS[uploadResult.entity]}
                 </strong>
                 . Review below.
@@ -1612,16 +1612,16 @@ export default function ImportPage() {
 
             {/* Sheet info + escape hatch */}
             {uploadResult.wasAutoSelected && uploadResult.allSheets.length > 1 && (
-              <div className="text-xs text-gray-500 space-y-2">
+              <div className="text-xs text-muted-foreground space-y-2">
                 <div className="flex items-center gap-2">
                   <span>
                     Using sheet:{" "}
-                    <strong className="text-gray-700">
+                    <strong className="text-foreground">
                       {uploadResult.selectedSheet}
                     </strong>
                   </span>
                   <button
-                    className="text-slate-600 underline underline-offset-2 hover:text-slate-900"
+                    className="text-muted-foreground underline underline-offset-2 hover:text-foreground"
                     onClick={() => setShowSheetPicker((v) => !v)}
                   >
                     Wrong sheet?
@@ -1637,7 +1637,7 @@ export default function ImportPage() {
                           key={s}
                           onClick={() => handleUpload(s)}
                           disabled={uploading}
-                          className="rounded border border-gray-200 bg-white px-3 py-1 text-xs hover:border-slate-400 hover:text-slate-900 transition-colors"
+                          className="rounded border border-border bg-card px-3 py-1 text-xs hover:border-border hover:text-foreground transition-colors"
                         >
                           {uploading ? "…" : s}
                         </button>
@@ -1668,7 +1668,7 @@ export default function ImportPage() {
 
             {processing && (
               <div className="space-y-1.5">
-                <p className="text-sm text-gray-600">Importing…</p>
+                <p className="text-sm text-muted-foreground">Importing…</p>
                 <Progress value={undefined} className="animate-pulse" />
               </div>
             )}
@@ -1710,8 +1710,8 @@ export default function ImportPage() {
 
               {importResult.delta && Object.keys(importResult.delta).some((k) => k !== "LogicParam") ? (
                 <>
-                  <p className="text-lg font-semibold text-gray-900">Import complete</p>
-                  <div className="space-y-1 text-sm text-gray-700">
+                  <p className="text-lg font-semibold text-foreground">Import complete</p>
+                  <div className="space-y-1 text-sm text-foreground">
                     {Object.entries(importResult.delta)
                       .filter(([k]) => k !== "LogicParam")
                       .map(([entityKey, counts]) => {
@@ -1744,13 +1744,13 @@ export default function ImportPage() {
                 </>
               ) : (
                 <>
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-lg font-semibold text-foreground">
                     {importResult.imported > 0
                       ? `Done! ${plural(importResult.imported, ENTITY_NOUN[uploadResult.entity])} imported.`
                       : "Import failed — no records were saved."}
                   </p>
                   {importResult.imported === 0 && importResult.errors.length === 0 && (
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-muted-foreground">
                       All rows were skipped. Check that your column mapping is correct and try again.
                     </p>
                   )}
@@ -1758,7 +1758,7 @@ export default function ImportPage() {
               )}
 
               {importResult.errors.length > 0 && (
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-muted-foreground">
                   {importResult.imported > 0
                     ? `${plural(importResult.errors.length, "row")} couldn\u2019t be saved and were skipped.`
                     : "See the details below for what went wrong."}
@@ -1866,14 +1866,14 @@ export default function ImportPage() {
               )}
 
             {/* Multi-pass: map another entity from the same file */}
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 space-y-3">
+            <div className="rounded-xl border border-dashed border-border bg-muted p-4 space-y-3">
               <div className="flex items-center gap-2">
-                <Layers className="w-4 h-4 text-slate-400 shrink-0" />
-                <p className="text-sm font-medium text-slate-700">
+                <Layers className="w-4 h-4 text-muted-foreground shrink-0" />
+                <p className="text-sm font-medium text-foreground">
                   Does this file also contain other data?
                 </p>
               </div>
-              <p className="text-xs text-gray-400 -mt-1">
+              <p className="text-xs text-muted-foreground -mt-1">
                 No re-upload needed — reuse the same file.
               </p>
               <div className="flex flex-wrap gap-2">
@@ -1997,12 +1997,12 @@ function RegistryMapStep({
       <CardContent className="p-6 space-y-5">
         {/* Header */}
         <div>
-          <p className="text-base font-semibold text-gray-900">
+          <p className="text-base font-semibold text-foreground">
             Map your columns
           </p>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <p className="text-sm text-muted-foreground mt-0.5">
             Match each column from your file to a{" "}
-            <strong className="text-gray-700">{ENTITY_LABELS[uploadResult.entity]}</strong>{" "}
+            <strong className="text-foreground">{ENTITY_LABELS[uploadResult.entity]}</strong>{" "}
             field. {uploadResult.rowCount.toLocaleString()} rows detected.
           </p>
         </div>
@@ -2031,10 +2031,10 @@ function RegistryMapStep({
         {/* Column mapping table */}
         <div className="border rounded-lg overflow-hidden">
           {/* Table header */}
-          <div className="grid grid-cols-[1fr_28px_200px] gap-2 items-center px-3 py-2 bg-gray-50 border-b text-[10px] font-semibold uppercase tracking-wide">
-            <span className="text-gray-500">Your file column</span>
+          <div className="grid grid-cols-[1fr_28px_200px] gap-2 items-center px-3 py-2 bg-muted border-b text-[10px] font-semibold uppercase tracking-wide">
+            <span className="text-muted-foreground">Your file column</span>
             <span />
-            <span className="text-gray-500">System field</span>
+            <span className="text-muted-foreground">System field</span>
           </div>
 
           {/* Rows */}
@@ -2059,14 +2059,14 @@ function RegistryMapStep({
                       ? "bg-amber-50/50"
                       : isMapped
                       ? "bg-emerald-50/30"
-                      : "bg-white"
+                      : "bg-card"
                   )}
                 >
                   {/* Left: user's column */}
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
                       <ColTypeBadge type={colType} />
-                      <span className="text-sm font-medium text-gray-800 truncate">
+                      <span className="text-sm font-medium text-foreground truncate">
                         {sourceCol}
                       </span>
                       {isMapped && (
@@ -2077,7 +2077,7 @@ function RegistryMapStep({
                       )}
                     </div>
                     {samples.length > 0 && (
-                      <p className="text-[11px] text-gray-400 mt-0.5 truncate pl-5" title={samples.join(" · ")}>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 truncate pl-5" title={samples.join(" · ")}>
                         {samples.join(" · ")}
                       </p>
                     )}
@@ -2089,7 +2089,7 @@ function RegistryMapStep({
                   </div>
 
                   {/* Arrow */}
-                  <ChevronRight className="w-4 h-4 text-gray-300 shrink-0" />
+                  <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
 
                   {/* Right: system field dropdown */}
                   <Select
@@ -2116,7 +2116,7 @@ function RegistryMapStep({
                               <span className="flex items-center gap-1.5">
                                 <span>{f.label}</span>
                                 {mapping[f.field] && mapping[f.field] !== sourceCol && (
-                                  <span className="text-[10px] text-gray-400">(in use)</span>
+                                  <span className="text-[10px] text-muted-foreground">(in use)</span>
                                 )}
                               </span>
                             </SelectItem>
@@ -2129,7 +2129,7 @@ function RegistryMapStep({
                         <>
                           <SelectSeparator />
                           <SelectGroup>
-                            <SelectLabel className="text-[10px] text-gray-400 uppercase tracking-wide">
+                            <SelectLabel className="text-[10px] text-muted-foreground uppercase tracking-wide">
                               Optional
                             </SelectLabel>
                             {entityFields.filter((f) => !f.required).map((f) => (
@@ -2137,7 +2137,7 @@ function RegistryMapStep({
                                 <span className="flex items-center gap-1.5">
                                   <span>{f.label}</span>
                                   {mapping[f.field] && mapping[f.field] !== sourceCol && (
-                                    <span className="text-[10px] text-gray-400">(in use)</span>
+                                    <span className="text-[10px] text-muted-foreground">(in use)</span>
                                   )}
                                 </span>
                               </SelectItem>
@@ -2255,10 +2255,10 @@ function AdvancedSection({
   appliedTemplate,
 }: AdvancedSectionProps) {
   return (
-    <div className="border border-gray-100 rounded-lg overflow-hidden">
+    <div className="border border-border rounded-lg overflow-hidden">
       <button
         onClick={onToggle}
-        className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-medium text-gray-500 hover:bg-gray-50 transition-colors"
+        className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted transition-colors"
       >
         Advanced options
         {show ? (
@@ -2269,19 +2269,19 @@ function AdvancedSection({
       </button>
 
       {show && (
-        <div className="border-t border-gray-100 px-3 py-3 space-y-4 bg-gray-50/50">
+        <div className="border-t border-border px-3 py-3 space-y-4 bg-muted/50">
           {/* Extra fields → attributes */}
           {unmappedSourceCols.length > 0 && (
             <div>
-              <p className="text-[11px] font-semibold text-gray-500 uppercase mb-1.5">
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase mb-1.5">
                 Save extra columns as metadata
               </p>
-              <p className="text-[11px] text-gray-400 mb-2">
+              <p className="text-[11px] text-muted-foreground mb-2">
                 Checked columns are stored in{" "}
-                <code className="bg-white border rounded px-1">attributes</code>{" "}
+                <code className="bg-card border rounded px-1">attributes</code>{" "}
                 — queryable later, no schema change needed.
               </p>
-              <div className="divide-y divide-gray-100 rounded border border-gray-200 bg-white">
+              <div className="divide-y divide-gray-100 rounded border border-border bg-card">
                 {unmappedSourceCols.map((col) => {
                   const samples =
                     uploadResult.sampleValues?.[col]
@@ -2290,7 +2290,7 @@ function AdvancedSection({
                   return (
                     <label
                       key={col}
-                      className="flex items-center gap-2.5 px-3 py-2 cursor-pointer select-none hover:bg-gray-50"
+                      className="flex items-center gap-2.5 px-3 py-2 cursor-pointer select-none hover:bg-muted"
                     >
                       <input
                         type="checkbox"
@@ -2302,11 +2302,11 @@ function AdvancedSection({
                         type={uploadResult.columnTypes?.[col]}
                       />
                       <span className="flex-1 min-w-0">
-                        <span className="text-xs font-medium text-gray-700">
+                        <span className="text-xs font-medium text-foreground">
                           {col}
                         </span>
                         {samples && (
-                          <span className="text-[11px] text-gray-400 ml-1.5">
+                          <span className="text-[11px] text-muted-foreground ml-1.5">
                             {samples}
                           </span>
                         )}
@@ -2320,7 +2320,7 @@ function AdvancedSection({
 
           {/* Template save */}
           <div>
-            <p className="text-[11px] font-semibold text-gray-500 uppercase mb-1.5">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase mb-1.5">
               Save as template
             </p>
             {appliedTemplate && (
@@ -2330,7 +2330,7 @@ function AdvancedSection({
               </p>
             )}
             {allTemplates.length > 0 && (
-              <p className="text-[11px] text-gray-400 mb-1.5">
+              <p className="text-[11px] text-muted-foreground mb-1.5">
                 Existing:{" "}
                 {allTemplates.map((t) => t.name).join(", ")}
               </p>
@@ -2341,7 +2341,7 @@ function AdvancedSection({
                 value={templateName}
                 onChange={(e) => setTemplateName(e.target.value)}
                 placeholder="Template name…"
-                className="flex-1 h-8 text-xs rounded border border-gray-200 bg-white px-2 outline-none focus:border-slate-400"
+                className="flex-1 h-8 text-xs rounded border border-border bg-card px-2 outline-none focus:border-border"
               />
               <Button
                 size="sm"

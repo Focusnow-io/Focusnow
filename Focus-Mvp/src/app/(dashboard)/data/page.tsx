@@ -41,8 +41,8 @@ export default async function DataSourcesPage() {
     <div className="space-y-6 w-full">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Data Sources</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <h1 className="text-xl font-bold text-foreground">Data Sources</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
             Ingested files and their import status
           </p>
         </div>
@@ -62,10 +62,10 @@ export default async function DataSourcesPage() {
           style={{ borderLeft: "3px solid #F04A00" }}
         >
           <div className="p-4">
-            <h3 className="text-sm font-semibold text-gray-900 leading-snug">
+            <h3 className="text-sm font-semibold text-foreground leading-snug">
               Your data is in. Now teach Focus how your operations work.
             </h3>
-            <p className="text-[13px] text-gray-600 mt-1 leading-relaxed max-w-xl">
+            <p className="text-[13px] text-muted-foreground mt-1 leading-relaxed max-w-xl">
               Data alone gives Focus facts. Rules give Focus judgment. Add your
               first rule to tell Focus how your business actually runs.
             </p>
@@ -83,9 +83,9 @@ export default async function DataSourcesPage() {
 
       {sources.length === 0 ? (
         <div className="text-center py-16 border-2 border-dashed rounded-xl">
-          <Database className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-          <h3 className="font-semibold text-gray-600 mb-1">No data here yet.</h3>
-          <p className="text-sm text-gray-400 mb-4 max-w-sm mx-auto">
+          <Database className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+          <h3 className="font-semibold text-muted-foreground mb-1">No data here yet.</h3>
+          <p className="text-sm text-muted-foreground mb-4 max-w-sm mx-auto">
             {permissions.import
               ? "Import a CSV to populate this table. Inventory, suppliers, orders, or products — start with whatever you have."
               : "Your workspace has no data imported yet. Contact your admin to import data."}
@@ -108,7 +108,7 @@ export default async function DataSourcesPage() {
                     </div>
                     <div>
                       <p className="font-medium text-sm">{source.name}</p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-muted-foreground">
                         {source.originalName} · {(source.fileSize / 1024).toFixed(1)} KB
                         {source.rowCount && ` · ${source.rowCount} rows`}
                         {source.importedRows != null && ` (${source.importedRows} imported)`}
@@ -116,7 +116,7 @@ export default async function DataSourcesPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-muted-foreground">
                       {formatDate(source.createdAt)}
                     </span>
                     <Badge

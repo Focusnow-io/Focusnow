@@ -297,9 +297,9 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Top bar */}
-      <div className="flex items-center justify-between px-4 shrink-0 h-12" style={{ borderBottom: "1px solid #e8e8e8" }}>
+      <div className="flex items-center justify-between px-4 shrink-0 h-12 border-b border-border">
         <div className="flex items-center gap-3">
-          <button onClick={onBack} className="p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+          <button onClick={onBack} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div className="flex items-center gap-2">
@@ -307,8 +307,8 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
               <Image src="/logo.svg" alt="Focus" width={28} height={28} />
             </div>
             <div>
-              <p className="text-sm font-semibold text-gray-900">Build with AI</p>
-              <p className="text-xs text-gray-400">Describe what you want to see</p>
+              <p className="text-sm font-semibold text-foreground">Build with AI</p>
+              <p className="text-xs text-muted-foreground">Describe what you want to see</p>
             </div>
           </div>
         </div>
@@ -317,12 +317,12 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowPreview((p) => !p)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-muted-foreground border border-border rounded-lg hover:bg-muted transition-colors"
             >
               <LayoutDashboard className="w-3.5 h-3.5" />
               {showPreview ? "Hide preview" : "Show preview"}
             </button>
-            <Button size="sm" onClick={handleSave} disabled={saving || !appName.trim()} className="gap-1.5 text-xs h-8 bg-gray-900 hover:bg-gray-800 border-0">
+            <Button size="sm" onClick={handleSave} disabled={saving || !appName.trim()} className="gap-1.5 text-xs h-8 bg-foreground hover:bg-foreground/90 border-0">
               {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
               Save app
             </Button>
@@ -333,7 +333,7 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
       {/* Main area */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Chat pane */}
-        <div className={`flex flex-col ${showPreview && config ? "w-[420px] shrink-0 border-r border-gray-100" : "flex-1"}`}>
+        <div className={`flex flex-col ${showPreview && config ? "w-[420px] shrink-0 border-r border-border" : "flex-1"}`}>
           {/* Messages */}
           <div
             ref={scrollAreaRef}
@@ -344,8 +344,8 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
               {isEmpty && (
                 <div className="flex flex-col items-center justify-center h-full min-h-[60vh] gap-6 text-center">
                   <div>
-                    <h2 className="text-xl font-semibold text-gray-900">What should your app show?</h2>
-                    <p className="text-sm text-gray-500 mt-1.5 max-w-md mx-auto">
+                    <h2 className="text-xl font-semibold text-foreground">What should your app show?</h2>
+                    <p className="text-sm text-muted-foreground mt-1.5 max-w-md mx-auto">
                       Describe the dashboard you have in mind. I&apos;ll build it from your live data.
                     </p>
                   </div>
@@ -354,7 +354,7 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
                       <button
                         key={p}
                         onClick={() => generate(p)}
-                        className="text-left text-sm text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-xl px-4 py-3 transition-colors"
+                        className="text-left text-sm text-foreground bg-card hover:bg-muted border border-border hover:border-border rounded-xl px-4 py-3 transition-colors"
                       >
                         {p}
                       </button>
@@ -368,12 +368,12 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
                   <div key={i}>
                     {msg.role === "user" ? (
                       <div className="flex justify-end">
-                        <div className="max-w-[72%] bg-gray-900 text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed">
+                        <div className="max-w-[72%] bg-primary text-primary-foreground rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed">
                           {msg.content}
                         </div>
                       </div>
                     ) : (
-                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
+                      <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
                         {msg.content}
                       </div>
                     )}
@@ -384,16 +384,16 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
                 {generating && (
                   <div className="space-y-2">
                     {liveExplanation ? (
-                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
+                      <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
                         {liveExplanation}
-                        <span className="inline-block w-0.5 h-4 bg-gray-400 animate-pulse ml-0.5 align-text-bottom" />
+                        <span className="inline-block w-0.5 h-4 bg-muted-foreground animate-pulse ml-0.5 align-text-bottom" />
                       </div>
                     ) : (
                       <div className="flex gap-1 items-center py-2">
-                        <span className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:0ms]" />
-                        <span className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:150ms]" />
-                        <span className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:300ms]" />
-                        <span className="text-xs text-gray-400 ml-1">Designing your dashboard…</span>
+                        <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce [animation-delay:0ms]" />
+                        <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce [animation-delay:150ms]" />
+                        <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce [animation-delay:300ms]" />
+                        <span className="text-xs text-muted-foreground ml-1">Designing your dashboard…</span>
                       </div>
                     )}
                   </div>
@@ -414,7 +414,7 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
               <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-10">
                 <button
                   onClick={scrollToBottom}
-                  className="w-8 h-8 rounded-full border border-gray-200 bg-white shadow-md flex items-center justify-center text-gray-500 hover:text-gray-700 hover:shadow-lg transition-all"
+                  className="w-8 h-8 rounded-full border border-border bg-card shadow-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:shadow-lg transition-all"
                 >
                   <ChevronDown className="w-4 h-4" />
                 </button>
@@ -428,11 +428,11 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
                   value={appName}
                   onChange={(e) => setAppName(e.target.value)}
                   placeholder="App name…"
-                  className="w-full text-sm font-medium text-gray-900 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 mb-2 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:border-gray-400"
+                  className="w-full text-sm font-medium text-foreground bg-muted border border-border rounded-lg px-3 py-2 mb-2 focus:outline-none focus:ring-2 focus:ring-ring focus:border-border"
                 />
               )}
 
-              <div className="rounded-2xl border-2 border-blue-400 bg-white shadow-sm focus-within:border-blue-500 transition-colors">
+              <div className="rounded-2xl border-2 border-blue-400 bg-card shadow-sm focus-within:border-blue-500 transition-colors">
                 <textarea
                   ref={textareaRef}
                   rows={1}
@@ -441,11 +441,11 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
                   placeholder={config ? "Refine your dashboard… (e.g. add a chart, change filters)" : "Describe your dashboard…"}
                   onKeyDown={handleKeyDown}
                   disabled={generating}
-                  className="w-full px-4 pt-4 pb-2 text-sm bg-transparent resize-none focus:outline-none placeholder:text-gray-400 disabled:opacity-60 text-gray-900 leading-relaxed"
+                  className="w-full px-4 pt-4 pb-2 text-sm bg-transparent resize-none focus:outline-none placeholder:text-muted-foreground disabled:opacity-60 text-foreground leading-relaxed"
                   style={{ minHeight: "44px", maxHeight: "160px" }}
                 />
                 <div className="flex items-center justify-between px-4 pb-3">
-                  <span className="flex items-center gap-1.5 text-xs text-gray-400">
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <Database className="w-3.5 h-3.5" />
                     Live data
                   </span>
@@ -468,7 +468,7 @@ export function CreateAppPanel({ onSave, onBack, initialConfig, initialName }: P
 
         {/* Preview pane */}
         {showPreview && config && (
-          <div className="flex-1 overflow-y-auto p-6 bg-gray-50/50">
+          <div className="flex-1 overflow-y-auto p-6 bg-muted/50">
             <CustomAppRenderer config={config} />
           </div>
         )}
