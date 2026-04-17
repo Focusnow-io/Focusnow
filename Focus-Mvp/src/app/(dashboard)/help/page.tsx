@@ -13,7 +13,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "How do I import data?",
     answer:
-      "Upload a CSV or connect a data source from the Data → Import page. We support a wide range of CSVs",
+      "Upload a CSV or connect a data source from the Data → Import page.\nWe support a wide range of CSVs.",
   },
   {
     question: "Why isn't my data showing in the chat?",
@@ -61,7 +61,7 @@ function FaqRow({ item }: { item: FaqItem }) {
       <div
         className={`overflow-hidden transition-all duration-200 ${open ? "max-h-40 opacity-100" : "max-h-0 opacity-0"}`}
       >
-        <p className="px-6 pb-5 text-sm text-muted-foreground leading-relaxed">{item.answer}</p>
+        <p className="px-6 pb-5 text-sm text-muted-foreground leading-relaxed whitespace-pre-line">{item.answer}</p>
       </div>
     </div>
   );
