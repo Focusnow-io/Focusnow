@@ -12,6 +12,17 @@ export async function GET(_req: Request) {
     orderBy: { quantity: "asc" },
   });
 
+  // Build a set of distinct location codes (from resolved Location records +
+  // unresolved locationCode stored in attributes) for the locationCount KPI.
+  const locationCodesSet = new Set<string>();
+  for (const item of inventory) {
+    if (item.location?.code) locationCodesSet.add(item.location.code);
+    else {
+      const code = (item.attributes as Record<string, unknown> | null)?.locationCode as string | undefined;
+      if (code) locationCodesSet.add(code);
+    }
+  }
+
   // Compute alert levels and aggregates
   let totalValue = 0;
   let daysOfSupplySum = 0;
@@ -94,7 +105,12 @@ export async function GET(_req: Request) {
         category: item.product.category,
         abcClass: item.product.abcClass,
       },
-      location: item.location ? { name: item.location.name, code: item.location.code } : null,
+      location: item.location
+        ? { name: item.location.name, code: item.location.code }
+        : (() => {
+            const code = (item.attributes as Record<string, unknown> | null)?.locationCode as string | undefined;
+            return code ? { name: code, code } : null;
+          })(),
     };
   });
 
@@ -161,6 +177,7 @@ export async function GET(_req: Request) {
       avgDaysOfSupply: daysOfSupplyCount > 0 ? Math.round(daysOfSupplySum / daysOfSupplyCount) : null,
       needReorder: reorderCount,
       totalSKUs: items.length,
+      locationCount: locationCodesSet.size,
       inventoryTurns,
       buyRecommendations: buyRecCount,
       belowSafetyStock,

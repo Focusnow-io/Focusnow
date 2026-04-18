@@ -18,7 +18,7 @@
  *  • "Extra fields as metadata" lives behind an Advanced toggle.
  */
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -464,6 +464,14 @@ function plural(n: number, noun: string) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ImportPage() {
+  return (
+    <Suspense>
+      <ImportPageInner />
+    </Suspense>
+  );
+}
+
+function ImportPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -536,6 +544,10 @@ export default function ImportPage() {
   // ── Multi-pass state ──────────────────────────────────────────────────────
   const [parentSourceId, setParentSourceId] = useState<string | null>(null);
   const [addingPass, setAddingPass] = useState(false);
+
+  // ── Re-upload mode ────────────────────────────────────────────────────────
+  const [importMode, setImportMode] = useState<"replace" | "merge">("merge");
+  const [reuploadModal, setReuploadModal] = useState<{ entity: EntityType; label: string } | null>(null);
 
   // ── Supply chain hub: coverage data (all 16 entity types via DataSource) ──
   const [coverageMap, setCoverageMap] = useState<Record<string, CoverageEntry>>({});
@@ -629,6 +641,7 @@ export default function ImportPage() {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("entity", entity);
+    fd.append("importMode", importMode);
     if (overrideSheet) fd.append("sheet", overrideSheet);
 
     let data: UploadResult;
@@ -1171,7 +1184,14 @@ export default function ImportPage() {
                 </div>
               </div>
               <button
-                onClick={() => { setEntity(type); setStep("upload"); }}
+                onClick={() => {
+                  if (hasData) {
+                    setReuploadModal({ entity: type, label: ENTITY_LABELS[type] });
+                  } else {
+                    setEntity(type);
+                    setStep("upload");
+                  }
+                }}
                 className="shrink-0 text-xs font-medium px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50 transition-colors"
               >
                 {hasData ? "Re-upload" : "Upload"}
@@ -1747,7 +1767,7 @@ export default function ImportPage() {
                               <p>{plural(counts.created, `new ${noun}`)} added</p>
                             )}
                             {counts.updated > 0 && (
-                              <p>{plural(counts.updated, `${noun}`)} {counts.created > 0 ? "merged (duplicate rows)" : "updated"}</p>
+                              <p>{plural(counts.updated, `${noun}`)} updated</p>
                             )}
                             {(counts as { deactivated?: number }).deactivated != null && (counts as { deactivated?: number }).deactivated! > 0 && (
                               <p className="text-amber-600">
@@ -1904,6 +1924,59 @@ export default function ImportPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+      {/* ── Re-upload mode modal ─────────────────────────────────────────── */}
+      {reuploadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6 space-y-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-base font-semibold text-gray-900">Re-upload {reuploadModal.label}</p>
+                <p className="text-sm text-gray-500 mt-1">You already have data for this entity. How would you like to handle it?</p>
+              </div>
+              <button
+                onClick={() => setReuploadModal(null)}
+                className="text-gray-400 hover:text-gray-600 shrink-0 mt-0.5"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid gap-3">
+              {/* Replace option */}
+              <button
+                onClick={() => {
+                  setImportMode("replace");
+                  setEntity(reuploadModal.entity);
+                  setReuploadModal(null);
+                  setStep("upload");
+                }}
+                className="w-full text-left rounded-xl border-2 border-gray-200 hover:border-red-400 hover:bg-red-50/40 px-4 py-4 transition-colors group"
+              >
+                <p className="text-sm font-semibold text-gray-900 group-hover:text-red-700">Start fresh</p>
+                <p className="text-xs text-gray-500 mt-0.5 group-hover:text-red-600">
+                  Delete all existing {reuploadModal.label.toLowerCase()} records and import only the new file.
+                </p>
+              </button>
+
+              {/* Merge option */}
+              <button
+                onClick={() => {
+                  setImportMode("merge");
+                  setEntity(reuploadModal.entity);
+                  setReuploadModal(null);
+                  setStep("upload");
+                }}
+                className="w-full text-left rounded-xl border-2 border-gray-200 hover:border-emerald-400 hover:bg-emerald-50/40 px-4 py-4 transition-colors group"
+              >
+                <p className="text-sm font-semibold text-gray-900 group-hover:text-emerald-700">Add &amp; update</p>
+                <p className="text-xs text-gray-500 mt-0.5 group-hover:text-emerald-600">
+                  Keep existing records — new rows are added, matching rows are updated.
+                </p>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

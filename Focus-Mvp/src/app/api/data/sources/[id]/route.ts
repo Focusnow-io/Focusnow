@@ -3,6 +3,7 @@ import { getSessionOrg, unauthorized, forbidden, notFound } from "@/lib/api-help
 import { resolvePermissions } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { invalidateOrgContextCache } from "@/lib/chat/build-context";
+import { deleteEntityData } from "@/lib/ingestion/entity-cleanup";
 
 // ---------------------------------------------------------------------------
 // GET /api/data/sources/:id — reconstruct UploadResult for the resume flow
@@ -61,102 +62,7 @@ export async function GET(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Entity cleanup — deletes all org records for the entity type(s) in the source
-// ---------------------------------------------------------------------------
 
-async function deleteEntityData(orgId: string, entity: string) {
-  switch (entity) {
-    case "InventoryItem":
-      await prisma.inventoryItem.deleteMany({ where: { organizationId: orgId } });
-      break;
-
-    case "Product":
-      // Delete dependents first to avoid FK violations
-      await prisma.pOLine.deleteMany({
-        where: { purchaseOrder: { orgId } },
-      });
-      await prisma.sOLine.deleteMany({
-        where: { salesOrder: { orgId } },
-      });
-      await prisma.inventoryItem.deleteMany({ where: { organizationId: orgId } });
-      await prisma.bOMLine.deleteMany({
-        where: { bomHeader: { orgId } },
-      });
-      await prisma.bOMHeader.deleteMany({ where: { orgId } });
-      await prisma.product.deleteMany({ where: { organizationId: orgId } });
-      break;
-
-    case "Supplier":
-      await prisma.pOLine.deleteMany({
-        where: { purchaseOrder: { orgId } },
-      });
-      await prisma.purchaseOrder.deleteMany({ where: { orgId } });
-      await prisma.supplier.deleteMany({ where: { organizationId: orgId } });
-      break;
-
-    case "Customer":
-      await prisma.sOLine.deleteMany({
-        where: { salesOrder: { orgId } },
-      });
-      await prisma.salesOrder.deleteMany({ where: { orgId } });
-      await prisma.customer.deleteMany({ where: { orgId } });
-      break;
-
-    case "PurchaseOrder":
-      await prisma.pOLine.deleteMany({
-        where: { purchaseOrder: { orgId } },
-      });
-      await prisma.purchaseOrder.deleteMany({ where: { orgId } });
-      break;
-
-    case "POLine":
-      await prisma.pOLine.deleteMany({
-        where: { purchaseOrder: { orgId } },
-      });
-      break;
-
-    case "SalesOrder":
-      await prisma.sOLine.deleteMany({
-        where: { salesOrder: { orgId } },
-      });
-      await prisma.salesOrder.deleteMany({ where: { orgId } });
-      break;
-
-    case "SalesOrderLine":
-      await prisma.sOLine.deleteMany({
-        where: { salesOrder: { orgId } },
-      });
-      break;
-
-    case "Location":
-      // locationId is nullable — clear it on inventory items before deleting
-      await prisma.inventoryItem.updateMany({
-        where: { organizationId: orgId },
-        data: { locationId: null },
-      });
-      await prisma.location.deleteMany({ where: { organizationId: orgId } });
-      break;
-
-    case "BOMHeader":
-    case "BOM":
-      await prisma.bOMLine.deleteMany({
-        where: { bomHeader: { orgId } },
-      });
-      await prisma.bOMHeader.deleteMany({ where: { orgId } });
-      break;
-
-    case "BOMLine":
-      await prisma.bOMLine.deleteMany({
-        where: { bomHeader: { orgId } },
-      });
-      break;
-
-    default:
-      // Unknown entity type — no data to delete
-      break;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // DELETE /api/data/sources/:id
@@ -190,12 +96,40 @@ export async function DELETE(
     entity,
   });
 
-  // Delete entity data first, then the source record
   if (entity) {
-    await deleteEntityData(orgId, entity);
-  }
+    // Count siblings — other sources for the same entity (excluding this one).
+    const siblingCount = await prisma.dataSource.count({
+      where: {
+        organizationId: orgId,
+        id: { not: id },
+        mappingConfig: { path: ["entity"], equals: entity },
+      },
+    });
 
-  await prisma.dataSource.delete({ where: { id } });
+    if (siblingCount === 0) {
+      // Last (or only) source — wipe all entity data cleanly.
+      await deleteEntityData(orgId, entity);
+    } else {
+      // Other sources exist — only remove rows that this source created.
+      // Each row stores its creator in attributes.sourceId (set during import).
+      // Rows from other sources are untouched.
+      if (entity === "InventoryItem") {
+        await prisma.$executeRaw`
+          DELETE FROM "InventoryItem"
+          WHERE "organizationId" = ${orgId}
+            AND "attributes"->>'sourceId' = ${id}
+        `;
+      }
+      // For other entity types that don't track sourceId, we cannot selectively
+      // remove rows — leave the data intact and only remove the source record.
+    }
+
+    // Always delete just this source record.
+    await prisma.dataSource.delete({ where: { id } });
+  } else {
+    // No entity resolved — fall back to deleting just this record
+    await prisma.dataSource.delete({ where: { id } });
+  }
 
   // Invalidate AI chat context cache so Explorer reflects the deletion immediately
   invalidateOrgContextCache(orgId);

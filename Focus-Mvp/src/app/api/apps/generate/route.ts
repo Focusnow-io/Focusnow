@@ -39,6 +39,7 @@ Computed: unitValue = quantity × unitCost (auto-calculated)
 Aggregation: quantity (sum/avg/count)
 groupBy: product.category | location.name
 IMPORTANT: Always use "quantity" for stock levels — NOT qtyOnHand (which is always 0).
+IMPORTANT: location.name and location.code are automatically populated from either a linked Location record OR the raw locationCode stored during import — both cases return the location label correctly. Always use groupBy: "location.name" on inventory (not the locations entity) to break down stock by warehouse/location.
 
 ### orders (legacy)
 Fields: id, orderNumber, type (PURCHASE/SALES/TRANSFER), status (PENDING/CONFIRMED/IN_TRANSIT/RECEIVED/CANCELLED), totalAmount, orderDate, expectedDate
@@ -190,7 +191,7 @@ Example — Scrap rate:
 - "sales" or "revenue" → SO-focused: revenue stat, customer breakdown, status pipeline, trend
 - "quality" → Use products/lots entities with filtering
 - "customer" → Customer count, country breakdown, credit limits, top customers table
-- "inventory" or "warehouse" → Inventory by location/category, stock alerts, days of supply, reorder needs
+- "inventory" or "warehouse" → Inventory by location/category (use groupBy: "location.name" on inventory entity), stock alerts, days of supply, reorder needs
 - "forecast" or "demand" → Forecast trend line, forecast by type, planned vs actual comparison
 - "supplier" → Supplier count, country distribution, lead times, PO values per supplier
 - When the user mentions "overdue", filter by date < TODAY
@@ -422,7 +423,11 @@ async function buildDataContext(orgId: string, orgName: string, currentConfig?: 
     productCount, supplierCount, inventoryCount, poCount, soCount,
     woCount, lotCount, customerCount, locationCount, bomCount, forecastCount,
   ] = await Promise.all([
-    prisma.product.count({ where: { organizationId: orgId } }),
+    // Count only real products (exclude auto-created stubs where name = sku)
+    prisma.$queryRaw<[{ cnt: bigint }]>`
+      SELECT COUNT(*)::bigint AS cnt FROM "Product"
+      WHERE "organizationId" = ${orgId} AND "name" != "sku"
+    `.then(r => Number(r[0]?.cnt ?? 0)),
     prisma.supplier.count({ where: { organizationId: orgId } }),
     prisma.inventoryItem.count({ where: { organizationId: orgId } }),
     prisma.purchaseOrder.count({ where: { orgId } }),
@@ -430,7 +435,18 @@ async function buildDataContext(orgId: string, orgName: string, currentConfig?: 
     prisma.workOrder.count({ where: { organizationId: orgId } }),
     prisma.lot.count({ where: { orgId } }),
     prisma.customer.count({ where: { orgId } }),
-    prisma.location.count({ where: { organizationId: orgId } }),
+    // Count distinct locations: from Location table or, when no locations are imported,
+    // from the locationCode stored in inventory attributes JSON
+    prisma.location.count({ where: { organizationId: orgId } }).then(async (count) => {
+      if (count > 0) return count;
+      const result = await prisma.$queryRaw<[{ cnt: bigint }]>`
+        SELECT COUNT(DISTINCT "attributes"->>'locationCode')::bigint AS cnt
+        FROM "InventoryItem"
+        WHERE "organizationId" = ${orgId}
+          AND "attributes"->>'locationCode' IS NOT NULL
+      `;
+      return Number(result[0]?.cnt ?? 0);
+    }),
     prisma.bOMHeader.count({ where: { orgId } }),
     prisma.demandForecast.count({ where: { orgId } }),
   ]);
@@ -484,7 +500,7 @@ async function buildDataContext(orgId: string, orgName: string, currentConfig?: 
   const [inventoryWithCost, openPOs, openSOs, stockOuts, woInProgress, woAll, lotsSoon] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: { organizationId: orgId },
-      select: { quantity: true, product: { select: { unitCost: true } } },
+      select: { quantity: true, unitCost: true, product: { select: { unitCost: true } } },
     }),
     prisma.purchaseOrder.findMany({
       where: { orgId, status: { notIn: ["RECEIVED", "CANCELLED"] } },
@@ -513,7 +529,7 @@ async function buildDataContext(orgId: string, orgName: string, currentConfig?: 
   ]);
 
   const totalInventoryValue = inventoryWithCost.reduce(
-    (sum, i) => sum + dec(i.quantity) * dec(i.product.unitCost), 0
+    (sum, i) => sum + dec(i.quantity) * dec(i.unitCost ?? i.product.unitCost), 0
   );
   const openPOValue = openPOs.reduce((sum, po) => sum + dec(po.totalAmount), 0);
   const openSOValue = openSOs.reduce((sum, so) => sum + dec(so.totalAmount), 0);

@@ -666,6 +666,7 @@ export interface MappingConfig {
   confidence?: Record<string, MappingConfidence>;
   score?: Record<string, number>;
   columnClassification?: Record<string, ColumnClassification>;
+  importMode?: "replace" | "merge";
 }
 
 export interface MappingWithConfidence {

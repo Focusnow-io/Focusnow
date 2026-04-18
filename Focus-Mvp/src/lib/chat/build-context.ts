@@ -126,10 +126,11 @@ async function buildContextInternal(orgId: string): Promise<string> {
 
     const inventoryWithCost = await prisma.inventoryItem.findMany({
       where: { organizationId: orgId },
-      select: { quantity: true, product: { select: { unitCost: true } } },
+      select: { quantity: true, unitCost: true, product: { select: { unitCost: true } } },
     });
     const totalInventoryValue = inventoryWithCost.reduce(
-      (sum, i) => sum + dec(i.quantity) * dec(i.product.unitCost),
+      // Prefer item-level unitCost (set during inventory import); fall back to product-level
+      (sum, i) => sum + dec(i.quantity) * dec(i.unitCost ?? i.product.unitCost),
       0
     );
 
@@ -190,7 +191,7 @@ async function buildContextInternal(orgId: string): Promise<string> {
 
   sections.push(`## Available Tables & Key Fields (use tools to query)
 
-IMPORTANT: For inventory stock levels, ALWAYS use the "quantity" field (current stock). Do NOT use qtyOnHand/qtyAllocated/qtyAvailable — those fields are empty. For work orders, use "plannedQty" and "actualQty" — NOT qtyPlanned/qtyProduced.
+IMPORTANT: For inventory stock levels, ALWAYS use the "quantity" field (current stock). Do NOT use qtyOnHand/qtyAllocated/qtyAvailable — those fields are empty. For work orders, use "plannedQty" and "actualQty" — NOT qtyPlanned/qtyProduced. For inventory VALUE calculations, use inventory.unitCost (set during import) multiplied by quantity — do NOT use product.unitCost which may be empty for auto-created product stubs.
 
 - **product**: sku, name, type, category, unitCost, makeBuy, active, unit, productFamily, abcClass, productLine, shelfLifeDays, listPrice
 - **inventory** (model: inventoryItem): productId, locationId, quantity (current stock — USE THIS), reservedQty, reorderPoint, reorderQty, uom, unitCost, daysOfSupply, demandPerDay, demandCurrentMonth, demandNextMonth, demandMonth3, qtyOnHold, totalValue, moq, orderMultiple, leadTimeDays

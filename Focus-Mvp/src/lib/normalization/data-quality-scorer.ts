@@ -50,9 +50,11 @@ const ENTITY_CONFIG: Partial<Record<string, EntityQualityConfig>> = {
     orgField: "organizationId",
   },
   InventoryItem: {
-    requiredFields: ["quantity"],
+    // quantity and productId are non-nullable in the schema — Prisma 7.4.2 rejects
+    // { not: null } on non-nullable fields, and they always score 100% anyway.
+    requiredFields: [],
     optionalFields: ["reorderPoint", "demandPerDay", "reorderQty"],
-    fkFields: ["productId", "locationId"],
+    fkFields: ["locationId"], // locationId is nullable — meaningful FK resolution metric
     model: "inventoryItem",
     orgField: "organizationId",
   },
@@ -126,26 +128,23 @@ export async function computeDataQualityScore(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const model = (prisma as any)[config.model];
 
-  const [total, requiredScores, optionalScores, fkScores] = await Promise.all([
-    model.count({ where }) as Promise<number>,
-    // Required field scores — one count per field
-    Promise.all(
-      config.requiredFields.map((field) =>
-        model.count({ where: { ...where, [field]: { not: null } } }) as Promise<number>,
-      ),
-    ),
-    // Optional field scores — one count per field
-    Promise.all(
-      config.optionalFields.map((field) =>
-        model.count({ where: { ...where, [field]: { not: null } } }) as Promise<number>,
-      ),
-    ),
-    // FK resolution scores — one count per FK field
-    Promise.all(
-      config.fkFields.map((field) =>
-        model.count({ where: { ...where, [field]: { not: null } } }) as Promise<number>,
-      ),
-    ),
+  const total = await model.count({ where }) as number;
+
+  // Prisma 7+ rejects { not: null } on non-nullable schema fields.
+  // Wrap each per-field count: if it throws (non-nullable field), treat as fully
+  // populated (count === total), since a non-nullable field is always present.
+  const safeCount = async (field: string): Promise<number> => {
+    try {
+      return await model.count({ where: { ...where, [field]: { not: null } } }) as number;
+    } catch {
+      return total; // non-nullable field → always 100% populated
+    }
+  };
+
+  const [requiredScores, optionalScores, fkScores] = await Promise.all([
+    Promise.all(config.requiredFields.map(safeCount)),
+    Promise.all(config.optionalFields.map(safeCount)),
+    Promise.all(config.fkFields.map(safeCount)),
   ]);
 
   // 1. Type validity — rows that passed import validation

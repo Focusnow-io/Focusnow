@@ -216,15 +216,21 @@ export async function runQuery(orgId: string, query: DataQuery, where: Record<st
   }
 
   if (entity === "inventory") {
-    const COMPUTED_INV_FIELDS = new Set(["unitValue", "totalValue"]);
-    const invSort = sort && !COMPUTED_INV_FIELDS.has(sort.field) ? buildOrderBy(sort, { updatedAt: "desc" }) : { updatedAt: "desc" };
-    type InvRow = { id: string; quantity: unknown; reservedQty: unknown; reorderPoint: unknown; reorderQty: unknown; daysOfSupply: unknown; product: { sku: string; name: string; category: string | null; unitCost: unknown }; location: { name: string; code: string } | null };
+    const INV_UNSORTABLE = new Set(["unitValue", "totalValue", "createdAt"]);
+    const invSort = sort && !INV_UNSORTABLE.has(sort.field) ? buildOrderBy(sort, { updatedAt: "desc" }) : { updatedAt: "desc" };
+    type InvRow = { id: string; quantity: unknown; reservedQty: unknown; reorderPoint: unknown; reorderQty: unknown; daysOfSupply: unknown; unitCost: unknown; attributes: unknown; product: { sku: string; name: string; category: string | null; unitCost: unknown }; location: { name: string; code: string } | null };
     const rows = (await prisma.inventoryItem.findMany({ where: where as never, orderBy: invSort, take, include: { product: { select: { sku: true, name: true, category: true, unitCost: true } }, location: { select: { code: true, name: true } } } })) as unknown as InvRow[];
     const mapped = rows.map((r) => {
-      const computedValue = Math.round(Number(r.quantity) * Number(r.product.unitCost ?? 0));
-      return { id: r.id, quantity: Number(r.quantity), reservedQty: Number(r.reservedQty ?? 0), reorderPoint: r.reorderPoint ? Number(r.reorderPoint) : null, reorderQty: r.reorderQty ? Number(r.reorderQty) : null, daysOfSupply: r.daysOfSupply ? Number(r.daysOfSupply) : null, unitValue: computedValue, totalValue: computedValue, "product.sku": r.product.sku, "product.name": r.product.name, "product.category": r.product.category, "location.name": r.location?.name ?? null, "location.code": r.location?.code ?? null, needsReorder: r.reorderPoint != null && Number(r.quantity) <= Number(r.reorderPoint) };
+      // Prefer item-level unitCost (from inventory import), fall back to product-level
+      const unitCost = Number(r.unitCost ?? r.product.unitCost ?? 0);
+      const computedValue = Math.round(Number(r.quantity) * unitCost);
+      // Fall back to attributes.locationCode when no Location record is linked
+      const attrs = r.attributes as Record<string, unknown> | null;
+      const locationName = r.location?.name ?? attrs?.locationCode as string ?? null;
+      const locationCode = r.location?.code ?? attrs?.locationCode as string ?? null;
+      return { id: r.id, quantity: Number(r.quantity), reservedQty: Number(r.reservedQty ?? 0), reorderPoint: r.reorderPoint ? Number(r.reorderPoint) : null, reorderQty: r.reorderQty ? Number(r.reorderQty) : null, daysOfSupply: r.daysOfSupply ? Number(r.daysOfSupply) : null, unitValue: computedValue, totalValue: computedValue, "product.sku": r.product.sku, "product.name": r.product.name, "product.category": r.product.category, "location.name": locationName, "location.code": locationCode, needsReorder: r.reorderPoint != null && Number(r.quantity) <= Number(r.reorderPoint) };
     });
-    if (sort && COMPUTED_INV_FIELDS.has(sort.field)) {
+    if (sort && INV_UNSORTABLE.has(sort.field)) {
       mapped.sort((a, b) => sort.dir === "asc" ? a.unitValue - b.unitValue : b.unitValue - a.unitValue);
     }
     return mapped;
@@ -345,11 +351,19 @@ export async function fetchRawRows(
       return rows.map((r) => ({ ...r, unitCost: Number(r.unitCost ?? 0) })) as unknown as Record<string, unknown>[];
     },
     inventory: async () => {
-      const COMPUTED_INV_FIELDS = new Set(["unitValue", "totalValue"]);
-      const invOrderBy = sort && !COMPUTED_INV_FIELDS.has(sort.field) ? buildOrderBy(sort, { updatedAt: "desc" }) : { updatedAt: "desc" };
-      const rows = await prisma.inventoryItem.findMany({ where: where as never, orderBy: invOrderBy, take, include: { product: { select: { unitCost: true } } } });
-      const mapped = rows.map((r) => ({ ...r, quantity: Number(r.quantity), unitCost: Number(r.product.unitCost ?? 0), unitValue: Math.round(Number(r.quantity) * Number(r.product.unitCost ?? 0)) })) as unknown as Record<string, unknown>[];
-      if (sort && COMPUTED_INV_FIELDS.has(sort.field)) {
+      // InventoryItem has no createdAt — map it to updatedAt; also skip computed fields
+      const INV_UNSORTABLE = new Set(["unitValue", "totalValue", "createdAt"]);
+      const invSort = sort && INV_UNSORTABLE.has(sort.field) ? undefined : sort;
+      const invOrderBy = invSort ? buildOrderBy(invSort, { updatedAt: "desc" }) : { updatedAt: "desc" };
+      const rows = await prisma.inventoryItem.findMany({ where: where as never, orderBy: invOrderBy, take, include: { product: { select: { sku: true, name: true, category: true, unitCost: true } }, location: { select: { name: true, code: true } } } });
+      const mapped = rows.map((r) => {
+        const uc = Number(r.unitCost ?? r.product.unitCost ?? 0);
+        const attrs = r.attributes as Record<string, unknown> | null;
+        const locationName = r.location?.name ?? attrs?.locationCode as string ?? null;
+        const locationCode = r.location?.code ?? attrs?.locationCode as string ?? null;
+        return { ...r, quantity: Number(r.quantity), unitCost: uc, unitValue: Math.round(Number(r.quantity) * uc), "product.sku": r.product.sku, "product.name": r.product.name, "product.category": r.product.category, "location.name": locationName, "location.code": locationCode };
+      }) as unknown as Record<string, unknown>[];
+      if (sort && INV_UNSORTABLE.has(sort.field)) {
         (mapped as { unitValue: number }[]).sort((a, b) => sort.dir === "asc" ? a.unitValue - b.unitValue : b.unitValue - a.unitValue);
       }
       return mapped;
@@ -427,7 +441,7 @@ async function runAggregation(
   }
   if (entity === "inventory" && (field === "unitValue" || field === "totalValue")) {
     const rows = await prisma.inventoryItem.findMany({ where: where as never, include: { product: { select: { unitCost: true } } } });
-    const values = rows.map((r) => Number(r.quantity) * Number(r.product.unitCost ?? 0));
+    const values = rows.map((r) => Number(r.quantity) * Number(r.unitCost ?? r.product.unitCost ?? 0));
     return { value: Math.round(agg(aggregation, values)) };
   }
   if (entity === "orders" && field === "totalAmount") {
@@ -496,7 +510,7 @@ async function runGroupBy(_orgId: string, query: DataQuery, where: Record<string
     return toGrouped(
       rows,
       (r: (typeof rows)[0]) => r.product.category ?? "Uncategorized",
-      (r: (typeof rows)[0]) => useValue ? Number(r.quantity) * Number(r.product.unitCost ?? 0) : Number(r.quantity)
+      (r: (typeof rows)[0]) => useValue ? Number(r.quantity) * Number(r.unitCost ?? r.product.unitCost ?? 0) : Number(r.quantity)
     ).slice(0, take);
   }
 
@@ -505,8 +519,12 @@ async function runGroupBy(_orgId: string, query: DataQuery, where: Record<string
     const useValue = field === "unitValue" || field === "totalValue";
     return toGrouped(
       rows,
-      (r: (typeof rows)[0]) => r.location?.name ?? "No Location",
-      (r: (typeof rows)[0]) => useValue ? Number(r.quantity) * Number(r.product.unitCost ?? 0) : Number(r.quantity)
+      (r: (typeof rows)[0]) => {
+        if (r.location?.name) return r.location.name;
+        const lc = (r.attributes as Record<string, unknown> | null)?.locationCode;
+        return lc ? String(lc) : "No Location";
+      },
+      (r: (typeof rows)[0]) => useValue ? Number(r.quantity) * Number(r.unitCost ?? r.product.unitCost ?? 0) : Number(r.quantity)
     ).slice(0, take);
   }
 

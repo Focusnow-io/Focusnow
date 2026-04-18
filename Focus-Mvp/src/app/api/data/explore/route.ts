@@ -103,6 +103,7 @@ async function queryEntity(
           moq: true, orderMultiple: true,
           lastReceiptDate: true, buyRecommendation: true, recommendedQty: true,
           lotId: true,
+          attributes: true,
           product: { select: { sku: true } }, location: { select: { name: true, code: true } },
         },
         orderBy: { product: { sku: "asc" } },
@@ -127,7 +128,8 @@ async function queryEntity(
         { key: "recommendedQty", label: "Recommended Qty" }, { key: "lotId", label: "Lot ID" },
       ],
       rows: items.map(r => ({
-        sku: r.product.sku, location: s(r.location?.name ?? r.location?.code),
+        sku: r.product.sku,
+        location: s(r.location?.name ?? r.location?.code ?? (r.attributes as Record<string, unknown> | null)?.locationCode as string | undefined),
         quantity: s(r.quantity), reorderPoint: s(r.reorderPoint),
         unitCost: s(r.unitCost), totalValue: s(r.totalValue),
         uom: r.uom || null,
