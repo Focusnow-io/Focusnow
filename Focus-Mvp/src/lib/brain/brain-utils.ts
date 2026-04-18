@@ -1,34 +1,24 @@
-import { BrainEntry } from './brain-types'
+import { formatDate } from '@/lib/utils'
+import type { BrainEntry } from './brain-types'
 
 export function formatRelativeTime(dateString: string): string {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffSec = Math.floor(diffMs / 1000)
-  const diffMin = Math.floor(diffSec / 60)
+  const now = Date.now()
+  const diffMs = now - new Date(dateString).getTime()
+  const diffMin = Math.floor(diffMs / 60_000)
   const diffHour = Math.floor(diffMin / 60)
   const diffDay = Math.floor(diffHour / 24)
-  const diffWeek = Math.floor(diffDay / 7)
-  const diffMonth = Math.floor(diffDay / 30)
-  const diffYear = Math.floor(diffDay / 365)
 
-  if (diffSec < 60) return 'just now'
+  if (diffMin < 1) return 'just now'
   if (diffMin < 60) return `${diffMin}m ago`
   if (diffHour < 24) return `${diffHour}h ago`
   if (diffDay === 1) return 'yesterday'
   if (diffDay < 7) return `${diffDay}d ago`
-  if (diffWeek < 5) return `${diffWeek}w ago`
-  if (diffMonth < 12) return `${diffMonth}mo ago`
-  return `${diffYear}y ago`
+  if (diffDay < 30) return `${Math.floor(diffDay / 7)}w ago`
+  if (diffDay < 365) return `${Math.floor(diffDay / 30)}mo ago`
+  return `${Math.floor(diffDay / 365)}y ago`
 }
 
-export function formatShortDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
+export const formatShortDate = formatDate
 
 export function buildEntryPreview(entry: BrainEntry): string {
   return [

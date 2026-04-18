@@ -1,4 +1,4 @@
-import { BrainEntry, BrainEntryVersion, ChangeRequest, BrainStats } from './brain-types'
+import type { BrainEntry, BrainEntryType, BrainEntryDomain, BrainEntryVersion, ChangeRequest, BrainStats } from './brain-types'
 
 export const MOCK_BRAIN_ENTRIES: BrainEntry[] = [
   {
@@ -208,27 +208,27 @@ export const MOCK_CHANGE_REQUESTS: ChangeRequest[] = [
   },
 ]
 
-export const MOCK_BRAIN_STATS: BrainStats = {
-  total: 6,
-  activeCount: 5,
-  draftCount: 1,
-  byType: {
-    RULE: 1,
-    PROCESS: 1,
-    CONSTRAINT: 2,
-    KNOWLEDGE: 1,
-    AGREEMENT: 1,
-  },
-  byDomain: {
-    PROCUREMENT: 3,
-    INVENTORY: 1,
-    PRODUCTION: 1,
-    PLANNING: 0,
-    LOGISTICS: 0,
-    QUALITY: 0,
-    FINANCE: 1,
-    HR: 0,
-    OTHER: 0,
-  },
-  pendingChangeRequests: 2,
+function deriveStats(entries: BrainEntry[], changeRequests: ChangeRequest[]): BrainStats {
+  const byType = { RULE: 0, PROCESS: 0, CONSTRAINT: 0, KNOWLEDGE: 0, AGREEMENT: 0 } as Record<BrainEntryType, number>
+  const byDomain = { PROCUREMENT: 0, INVENTORY: 0, PRODUCTION: 0, PLANNING: 0, LOGISTICS: 0, QUALITY: 0, FINANCE: 0, HR: 0, OTHER: 0 } as Record<BrainEntryDomain, number>
+  let activeCount = 0
+  let draftCount = 0
+
+  for (const e of entries) {
+    byType[e.type]++
+    byDomain[e.domain]++
+    if (e.status === 'ACTIVE') activeCount++
+    if (e.status === 'DRAFT') draftCount++
+  }
+
+  return {
+    total: entries.length,
+    activeCount,
+    draftCount,
+    byType,
+    byDomain,
+    pendingChangeRequests: changeRequests.filter((cr) => cr.status === 'PENDING').length,
+  }
 }
+
+export const MOCK_BRAIN_STATS: BrainStats = deriveStats(MOCK_BRAIN_ENTRIES, MOCK_CHANGE_REQUESTS)
