@@ -22,7 +22,7 @@ function Token({
 }) {
   if (!interactive) {
     return (
-      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-semibold">
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-700 dark:text-blue-300 font-semibold">
         {children}
       </span>
     );
@@ -31,7 +31,7 @@ function Token({
   return (
     <button
       type="button"
-      className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-semibold hover:bg-blue-200 transition-colors cursor-pointer border border-blue-200 border-dashed"
+      className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-700 dark:text-blue-300 font-semibold hover:bg-blue-500/25 transition-colors cursor-pointer border border-blue-500/30 border-dashed"
       onClick={() => {
         const el = document.getElementById(targetId);
         if (el) {
@@ -60,7 +60,7 @@ export default function InteractiveSummary({
   const opLabel = OPERATOR_LABELS[condOperator] ?? condOperator;
 
   return (
-    <p className="text-sm text-blue-900 font-medium leading-relaxed flex flex-wrap items-center gap-1">
+    <p className="text-sm text-foreground font-medium leading-relaxed flex flex-wrap items-center gap-1">
       <span>When any</span>
       <Token targetId="field-entity" interactive={interactive}>
         {entity}

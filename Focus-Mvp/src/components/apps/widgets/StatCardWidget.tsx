@@ -120,13 +120,13 @@ export function StatCardWidget({ widget }: { widget: WidgetConfig }) {
   const sparkColor = trend ? (trend.up ? "#10b981" : "#ef4444") : "#6b7280";
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5">
+    <div className="rounded-xl border border-border bg-card p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1.5 min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">{widget.title}</p>
-          <p className="text-3xl font-bold tabular-nums text-gray-900">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{widget.title}</p>
+          <p className="text-3xl font-bold tabular-nums text-foreground">
             {loading ? (
-              <span className="inline-block w-24 h-9 bg-gray-100 rounded-md animate-pulse" />
+              <span className="inline-block w-24 h-9 bg-muted rounded-md animate-pulse" />
             ) : value !== null ? fmt(value, widget.display?.format) : "—"}
           </p>
           <div className="flex items-center gap-2">
@@ -137,7 +137,7 @@ export function StatCardWidget({ widget }: { widget: WidgetConfig }) {
               </span>
             )}
             {widget.display?.description && (
-              <p className="text-xs text-gray-400">{widget.display.description}</p>
+              <p className="text-xs text-muted-foreground">{widget.display.description}</p>
             )}
           </div>
         </div>

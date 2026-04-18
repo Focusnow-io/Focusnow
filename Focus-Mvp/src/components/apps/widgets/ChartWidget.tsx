@@ -29,9 +29,9 @@ function fmtTooltip(v: number, format?: string): string {
 
 function Skeleton() {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5">
-      <div className="h-3 w-28 bg-gray-100 rounded animate-pulse mb-4" />
-      <div className="h-44 bg-gray-50 rounded-lg animate-pulse" />
+    <div className="rounded-xl border border-border bg-card p-5">
+      <div className="h-3 w-28 bg-muted rounded animate-pulse mb-4" />
+      <div className="h-44 bg-muted rounded-lg animate-pulse" />
     </div>
   );
 }
@@ -92,9 +92,9 @@ export function ChartWidget({ widget }: { widget: WidgetConfig }) {
 
   if (!rows.length) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-5 flex flex-col items-center justify-center min-h-[9rem] gap-2">
-        <p className="text-xs font-semibold uppercase text-gray-400">{widget.title}</p>
-        <p className="text-sm text-gray-400">No data available</p>
+      <div className="rounded-xl border border-border bg-card p-5 flex flex-col items-center justify-center min-h-[9rem] gap-2">
+        <p className="text-xs font-semibold uppercase text-muted-foreground">{widget.title}</p>
+        <p className="text-sm text-muted-foreground">No data available</p>
       </div>
     );
   }
@@ -106,9 +106,9 @@ export function ChartWidget({ widget }: { widget: WidgetConfig }) {
   const getColor = (label: string, idx: number) => colorMap[label] ?? PALETTE[idx % PALETTE.length];
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5">
-      <p className="text-xs font-semibold uppercase text-gray-500 mb-1">{widget.title}</p>
-      {widget.display?.description && <p className="text-xs text-gray-400 mb-3">{widget.display.description}</p>}
+    <div className="rounded-xl border border-border bg-card p-5">
+      <p className="text-xs font-semibold uppercase text-muted-foreground mb-1">{widget.title}</p>
+      {widget.display?.description && <p className="text-xs text-muted-foreground mb-3">{widget.display.description}</p>}
 
       {widget.type === "bar_chart" && (
         <ResponsiveContainer width="100%" height={200}>

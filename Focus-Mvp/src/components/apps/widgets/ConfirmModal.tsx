@@ -69,11 +69,11 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
           />
 
           {/* Dialog */}
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 animate-in zoom-in-95 fade-in duration-200">
+          <div className="relative bg-card rounded-2xl shadow-2xl w-full max-w-md mx-4 animate-in zoom-in-95 fade-in duration-200">
             {/* Close button */}
             <button
               onClick={() => handleClose(false)}
-              className="absolute top-3 right-3 p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              className="absolute top-3 right-3 p-1 rounded-lg text-muted-foreground hover:text-muted-foreground hover:bg-muted transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -85,15 +85,15 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
               </div>
 
               {/* Content */}
-              <h3 className="text-lg font-semibold text-gray-900 mb-1">{state.title}</h3>
-              <p className="text-sm text-gray-600 leading-relaxed">{state.message}</p>
+              <h3 className="text-lg font-semibold text-foreground mb-1">{state.title}</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">{state.message}</p>
             </div>
 
             {/* Actions */}
             <div className="flex gap-3 px-6 pb-6">
               <button
                 onClick={() => handleClose(false)}
-                className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="flex-1 px-4 py-2.5 text-sm font-medium text-foreground bg-card border border-border rounded-xl hover:bg-muted transition-colors focus:outline-none focus:ring-2 focus:ring-gray-300"
               >
                 {state.cancelLabel ?? "Cancel"}
               </button>

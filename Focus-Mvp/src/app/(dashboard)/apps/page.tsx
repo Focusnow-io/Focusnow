@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Package, ShoppingCart, Truck, MessageSquare,
-  Search, Sparkles, Plus, LayoutDashboard, ArrowRight,
+  Search, Plus, LayoutDashboard, ArrowRight,
   DollarSign, ShieldCheck, ClipboardList, TrendingUp,
   Factory, AlertTriangle, Bot, Boxes, Clock, Star, Trash2, MoreHorizontal,
 } from "lucide-react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { CreateAppPanel } from "@/components/apps/CreateAppPanel";
 import type { CustomAppConfig } from "@/components/apps/widgets/types";
@@ -324,8 +325,8 @@ function BuildFromScratchCard({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       className="group rounded-xl border border-dashed border-border hover:border-[hsl(var(--primary)/0.4)] bg-card hover:bg-[hsl(var(--primary)/0.02)] transition-all duration-200 cursor-pointer flex flex-col items-center justify-center min-h-[220px] gap-3 p-6"
     >
-      <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center group-hover:scale-105 transition-transform duration-200 shadow-lg shadow-blue-500/20">
-        <Sparkles className="w-5 h-5 text-white" />
+      <div className="w-11 h-11 rounded-xl flex items-center justify-center group-hover:scale-105 transition-transform duration-200">
+        <Image src="/logo.svg" alt="Focus" width={40} height={40} />
       </div>
       <div className="text-center">
         <p className="text-sm font-semibold text-foreground">Build with AI</p>

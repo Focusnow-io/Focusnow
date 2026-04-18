@@ -107,7 +107,7 @@ export default function RulesPage() {
       </div>
 
       {/* Chat integration banner */}
-      <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+      <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
         <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
         <div>
           <p className="text-sm font-semibold text-amber-800">Chat engine integration coming soon</p>
@@ -189,7 +189,7 @@ export default function RulesPage() {
           {rules.map((rule) => (
             <div key={rule.id} className="flex items-center justify-between px-4 py-3.5 rounded-lg border border-border bg-card hover:bg-muted/30 transition-colors">
               <div className="flex items-center gap-3 min-w-0">
-                <span className={`shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full ${categoryColors[rule.category] ?? "bg-gray-100 text-gray-600"}`}>
+                <span className={`shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full ${categoryColors[rule.category] ?? "bg-muted text-muted-foreground"}`}>
                   {rule.category}
                 </span>
                 <div className="min-w-0">
@@ -201,7 +201,7 @@ export default function RulesPage() {
                 <span className="text-xs text-muted-foreground hidden sm:block">
                   {new Date(rule.createdAt).toLocaleDateString()}
                 </span>
-                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${rule.status === "ACTIVE" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${rule.status === "ACTIVE" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>
                   {rule.status}
                 </span>
                 <button onClick={() => handleDelete(rule.id)} className="text-muted-foreground hover:text-destructive transition-colors p-1 rounded">

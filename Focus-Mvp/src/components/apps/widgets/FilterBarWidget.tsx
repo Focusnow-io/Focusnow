@@ -93,14 +93,14 @@ export function FilterBarWidget({ widget }: { widget: WidgetConfig }) {
   const hasActive = Object.keys(values).length > 0 || searchInput.length > 0;
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white px-5 py-4">
+    <div className="rounded-xl border border-border bg-card px-5 py-4">
       <div className="flex items-center gap-2 mb-3">
-        <Filter className="w-4 h-4 text-gray-400" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">{widget.title}</p>
+        <Filter className="w-4 h-4 text-muted-foreground" />
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{widget.title}</p>
         {hasActive && (
           <button
             onClick={clearAll}
-            className="ml-auto flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+            className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-muted-foreground transition-colors"
           >
             <X className="w-3 h-3" />
             Clear
@@ -113,13 +113,13 @@ export function FilterBarWidget({ widget }: { widget: WidgetConfig }) {
           if (opt.type === "search") {
             return (
               <div key={opt.field} className="relative flex-1 min-w-[180px]">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                 <input
                   type="text"
                   placeholder={opt.label}
                   value={searchInput}
                   onChange={(e) => handleSearchChange(opt.field, e.target.value)}
-                  className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 bg-gray-50"
+                  className="w-full pl-8 pr-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 bg-muted"
                 />
               </div>
             );
@@ -132,7 +132,7 @@ export function FilterBarWidget({ widget }: { widget: WidgetConfig }) {
                 key={opt.field}
                 value={values[opt.field] ?? ""}
                 onChange={(e) => handleSelectChange(opt.field, e.target.value)}
-                className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 min-w-[140px]"
+                className="text-sm border border-border rounded-lg px-3 py-2 bg-muted focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 min-w-[140px]"
               >
                 <option value="">{opt.label}</option>
                 {opts.map((o) => (
@@ -149,7 +149,7 @@ export function FilterBarWidget({ widget }: { widget: WidgetConfig }) {
                 type="date"
                 value={values[opt.field] ?? ""}
                 onChange={(e) => handleSelectChange(opt.field, e.target.value)}
-                className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                className="text-sm border border-border rounded-lg px-3 py-2 bg-muted focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
                 title={opt.label}
               />
             );

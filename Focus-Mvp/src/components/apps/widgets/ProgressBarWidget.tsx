@@ -56,21 +56,21 @@ export function ProgressBarWidget({ widget }: { widget: WidgetConfig }) {
   const color = COLOR_MAP[widget.display?.color ?? "blue"] ?? COLOR_MAP.blue;
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 flex flex-col gap-2">
-      <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">{widget.title}</p>
+    <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-2">
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{widget.title}</p>
       {loading ? (
         <div className="space-y-2">
-          <div className="h-8 w-20 bg-gray-100 rounded-md animate-pulse" />
-          <div className="h-2.5 w-full bg-gray-100 rounded-full animate-pulse" />
+          <div className="h-8 w-20 bg-muted rounded-md animate-pulse" />
+          <div className="h-2.5 w-full bg-muted rounded-full animate-pulse" />
         </div>
       ) : (
         <>
           <div className="flex items-baseline gap-2">
-            <p className="text-2xl font-bold tabular-nums text-gray-900">
+            <p className="text-2xl font-bold tabular-nums text-foreground">
               {value !== null ? fmt(value, widget.display?.format) : "—"}
             </p>
             {target !== 100 && (
-              <p className="text-xs text-gray-400">/ {fmt(target, widget.display?.format)}</p>
+              <p className="text-xs text-muted-foreground">/ {fmt(target, widget.display?.format)}</p>
             )}
           </div>
           <div className={`w-full h-2.5 rounded-full ${color.bg}`}>
@@ -80,7 +80,7 @@ export function ProgressBarWidget({ widget }: { widget: WidgetConfig }) {
             />
           </div>
           {widget.display?.description && (
-            <p className="text-xs text-gray-400">{widget.display.description}</p>
+            <p className="text-xs text-muted-foreground">{widget.display.description}</p>
           )}
         </>
       )}

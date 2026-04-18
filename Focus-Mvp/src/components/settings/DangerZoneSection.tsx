@@ -75,7 +75,7 @@ export function DangerZoneSection({ workspaceName, userEmail, userRole }: Danger
         <p className="text-sm text-muted-foreground">Irreversible actions. Proceed with caution.</p>
       </div>
 
-      <div className="max-w-lg rounded-lg border-2 border-red-200 dark:border-red-900 p-4 space-y-4">
+      <div className="rounded-lg border-2 border-red-200 dark:border-red-900 p-4 space-y-4">
         {/* Export all data */}
         <div className="flex items-center justify-between gap-4">
           <div>

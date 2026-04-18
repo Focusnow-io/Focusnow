@@ -43,11 +43,11 @@ function FieldInput({
   onChange: (key: string, val: string) => void;
   dynamicOptions: string[];
 }) {
-  const inputClass = "w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400";
+  const inputClass = "w-full text-sm border border-border rounded-lg px-3 py-2 bg-muted focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400";
 
   return (
     <div className={field.type === "textarea" ? "sm:col-span-2" : ""}>
-      <label className="block text-sm font-medium text-gray-700 mb-1">
+      <label className="block text-sm font-medium text-foreground mb-1">
         {field.label}
         {field.required && <span className="text-red-400 ml-0.5">*</span>}
       </label>
@@ -235,12 +235,12 @@ export function FormWidget({ widget }: { widget: WidgetConfig }) {
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">{widget.title}</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{widget.title}</p>
           {widget.display?.description && (
-            <p className="text-xs text-gray-400 mt-0.5">{widget.display.description}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{widget.display.description}</p>
           )}
         </div>
         {isMultiStep && (
@@ -253,11 +253,11 @@ export function FormWidget({ widget }: { widget: WidgetConfig }) {
                     ? "bg-blue-500"
                     : i + 1 < currentStep
                     ? "bg-blue-300"
-                    : "bg-gray-200"
+                    : "bg-muted"
                 }`}
               />
             ))}
-            <span className="text-xs text-gray-400 ml-1">Step {currentStep}/{totalSteps}</span>
+            <span className="text-xs text-muted-foreground ml-1">Step {currentStep}/{totalSteps}</span>
           </div>
         )}
       </div>
@@ -284,7 +284,7 @@ export function FormWidget({ widget }: { widget: WidgetConfig }) {
             <button
               type="button"
               onClick={handlePrev}
-              className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+              className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted rounded-lg transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
               Back

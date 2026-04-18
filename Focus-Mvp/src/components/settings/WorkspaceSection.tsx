@@ -33,6 +33,7 @@ const TIMEZONES = [
   "Europe/Paris",
   "Europe/Berlin",
   "Europe/Istanbul",
+  "Asia/Jerusalem",
   "Asia/Dubai",
   "Asia/Kolkata",
   "Asia/Shanghai",
@@ -93,7 +94,7 @@ export function WorkspaceSection({ data }: { data: WorkspaceData }) {
         <p className="text-sm text-muted-foreground">Basic identity of your workspace.</p>
       </div>
 
-      <div className="space-y-4 max-w-lg">
+      <div className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="ws-name">Workspace name *</Label>
           <Input

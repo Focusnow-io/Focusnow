@@ -23,8 +23,8 @@ function ParameterControl({
     return (
       <div>
         <div className="flex items-center justify-between mb-1.5">
-          <label className="text-sm font-medium text-gray-700">{param.label}</label>
-          <span className="text-sm font-semibold text-gray-900 tabular-nums">
+          <label className="text-sm font-medium text-foreground">{param.label}</label>
+          <span className="text-sm font-semibold text-foreground tabular-nums">
             {numValue.toLocaleString()}{param.unit ? ` ${param.unit}` : ""}
           </span>
         </div>
@@ -35,11 +35,11 @@ function ParameterControl({
           step={step}
           value={numValue}
           onChange={(e) => onChange(param.key, Number(e.target.value))}
-          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+          className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-purple-600"
         />
         <div className="flex justify-between mt-1">
-          <span className="text-xs text-gray-400">{min.toLocaleString()}{param.unit ? ` ${param.unit}` : ""}</span>
-          <span className="text-xs text-gray-400">{max.toLocaleString()}{param.unit ? ` ${param.unit}` : ""}</span>
+          <span className="text-xs text-muted-foreground">{min.toLocaleString()}{param.unit ? ` ${param.unit}` : ""}</span>
+          <span className="text-xs text-muted-foreground">{max.toLocaleString()}{param.unit ? ` ${param.unit}` : ""}</span>
         </div>
       </div>
     );
@@ -49,7 +49,7 @@ function ParameterControl({
     const numValue = typeof value === "number" ? value : Number(value) || 0;
     return (
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">{param.label}</label>
+        <label className="block text-sm font-medium text-foreground mb-1">{param.label}</label>
         <div className="relative">
           <input
             type="number"
@@ -58,10 +58,10 @@ function ParameterControl({
             max={param.max}
             step={param.step ?? 1}
             onChange={(e) => onChange(param.key, Number(e.target.value))}
-            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-purple-400"
+            className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-muted focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-purple-400"
           />
           {param.unit && (
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
               {param.unit}
             </span>
           )}
@@ -73,11 +73,11 @@ function ParameterControl({
   if (param.type === "select") {
     return (
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">{param.label}</label>
+        <label className="block text-sm font-medium text-foreground mb-1">{param.label}</label>
         <select
           value={String(value)}
           onChange={(e) => onChange(param.key, e.target.value)}
-          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-purple-400"
+          className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-muted focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-purple-400"
         >
           <option value="">Select...</option>
           {(param.options ?? []).map((o) => (
@@ -131,18 +131,18 @@ export function SimulatorWidget({ widget }: { widget: WidgetConfig }) {
 
   if (!config || parameters.length === 0) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-6 text-center text-sm text-gray-400">
+      <div className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
         No simulator parameters configured.
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
       {/* Header */}
-      <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2">
+      <div className="px-5 py-3.5 border-b border-border flex items-center gap-2">
         <SlidersHorizontal className="w-4 h-4 text-purple-500" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {widget.title}
         </p>
       </div>

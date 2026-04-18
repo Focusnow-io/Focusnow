@@ -25,8 +25,8 @@ function statusBadge(v: string): string {
     case "OPEN": case "ACTIVE": case "CONFIRMED": case "IN_PROGRESS": case "RELEASED": case "SHIPPED": return "bg-blue-100 text-blue-700";
     case "PARTIAL": case "IN_PRODUCTION": case "IN_TRANSIT": case "PLANNED": case "READY": return "bg-amber-100 text-amber-700";
     case "CANCELLED": case "FAILED": case "BLOCKED": return "bg-red-100 text-red-700";
-    case "DRAFT": case "PENDING": case "SENT": case "SUBMITTED": return "bg-gray-100 text-gray-600";
-    default: return "bg-gray-100 text-gray-600";
+    case "DRAFT": case "PENDING": case "SENT": case "SUBMITTED": return "bg-muted text-muted-foreground";
+    default: return "bg-muted text-muted-foreground";
   }
 }
 
@@ -42,7 +42,7 @@ const ACTION_COLORS: Record<string, string> = {
   green: "text-emerald-600 hover:bg-emerald-50 border-emerald-200",
   red:   "text-red-600 hover:bg-red-50 border-red-200",
   amber: "text-amber-600 hover:bg-amber-50 border-amber-200",
-  gray:  "text-gray-600 hover:bg-gray-50 border-gray-200",
+  gray:  "text-muted-foreground hover:bg-muted border-border",
 };
 
 function shouldShowAction(action: RowAction, row: Record<string, unknown>): boolean {
@@ -274,12 +274,12 @@ export function TableWidget({ widget }: { widget: WidgetConfig }) {
         onClose={() => setDetailRecordId(null)}
       />
     )}
-    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
       {/* Header */}
-      <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between gap-3">
+      <div className="px-5 py-3.5 border-b border-border flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase text-gray-500">{widget.title}</p>
-          {widget.display?.description && <p className="text-xs text-gray-400 mt-0.5">{widget.display.description}</p>}
+          <p className="text-xs font-semibold uppercase text-muted-foreground">{widget.title}</p>
+          {widget.display?.description && <p className="text-xs text-muted-foreground mt-0.5">{widget.display.description}</p>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {enableBulkSelect && selected.size > 0 && (
@@ -294,33 +294,33 @@ export function TableWidget({ widget }: { widget: WidgetConfig }) {
           )}
           {enableSearch && !loading && rows.length > 5 && (
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
               <input
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Search..."
-                className="pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 w-44"
+                className="pl-8 pr-3 py-1.5 text-xs border border-border rounded-lg bg-muted focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 w-44"
               />
             </div>
           )}
-          {!loading && <span className="text-xs text-gray-400">{sorted.length} rows</span>}
+          {!loading && <span className="text-xs text-muted-foreground">{sorted.length} rows</span>}
         </div>
       </div>
 
       {loading ? (
         <div className="p-4 space-y-2">
-          {[1,2,3,4,5].map((i) => <div key={i} className="h-8 bg-gray-50 rounded animate-pulse" />)}
+          {[1,2,3,4,5].map((i) => <div key={i} className="h-8 bg-muted rounded animate-pulse" />)}
         </div>
       ) : sorted.length === 0 ? (
-        <div className="p-10 text-center text-sm text-gray-400">
+        <div className="p-10 text-center text-sm text-muted-foreground">
           {searchTerm ? "No matching records" : "No data"}
         </div>
       ) : (
         <>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 sticky top-0">
+              <thead className="bg-muted sticky top-0">
                 <tr>
                   {enableBulkSelect && (
                     <th className="px-3 py-2.5 w-10">
@@ -328,7 +328,7 @@ export function TableWidget({ widget }: { widget: WidgetConfig }) {
                         type="checkbox"
                         checked={selected.size === paged.length && paged.length > 0}
                         onChange={toggleSelectAll}
-                        className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        className="w-3.5 h-3.5 rounded border-border text-blue-600 focus:ring-blue-500"
                       />
                     </th>
                   )}
@@ -336,7 +336,7 @@ export function TableWidget({ widget }: { widget: WidgetConfig }) {
                     <th
                       key={col.key}
                       onClick={() => toggleSort(col.key)}
-                      className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase whitespace-nowrap cursor-pointer hover:text-gray-700 select-none"
+                      className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap cursor-pointer hover:text-foreground select-none"
                     >
                       <span className="inline-flex items-center gap-1">
                         {col.label}
@@ -349,7 +349,7 @@ export function TableWidget({ widget }: { widget: WidgetConfig }) {
                     </th>
                   ))}
                   {hasActions && (
-                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">
+                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">
                       Actions
                     </th>
                   )}
@@ -362,7 +362,7 @@ export function TableWidget({ widget }: { widget: WidgetConfig }) {
                   return (
                     <tr
                       key={ri}
-                      className={`hover:bg-gray-50/60 transition-colors ${isClickable ? "cursor-pointer" : ""} ${isSelected ? "bg-blue-50/40" : ""}`}
+                      className={`hover:bg-muted/60 transition-colors ${isClickable ? "cursor-pointer" : ""} ${isSelected ? "bg-blue-50/40" : ""}`}
                       onClick={isClickable ? () => handleRowClick(row) : undefined}
                     >
                       {enableBulkSelect && (
@@ -371,7 +371,7 @@ export function TableWidget({ widget }: { widget: WidgetConfig }) {
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => toggleSelectRow(rowId)}
-                            className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            className="w-3.5 h-3.5 rounded border-border text-blue-600 focus:ring-blue-500"
                           />
                         </td>
                       )}
@@ -379,7 +379,7 @@ export function TableWidget({ widget }: { widget: WidgetConfig }) {
                         const val = row[col.key];
                         const isStatus = typeof val === "string" && STATUS_VALS.has(val);
                         return (
-                          <td key={col.key} className="px-4 py-2.5 text-gray-700 whitespace-nowrap">
+                          <td key={col.key} className="px-4 py-2.5 text-foreground whitespace-nowrap">
                             {isStatus ? (
                               <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${statusBadge(val as string)}`}>
                                 {val as string}
@@ -418,25 +418,25 @@ export function TableWidget({ widget }: { widget: WidgetConfig }) {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100">
-              <span className="text-xs text-gray-500">
+            <div className="flex items-center justify-between px-5 py-3 border-t border-border">
+              <span className="text-xs text-muted-foreground">
                 {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sorted.length)} of {sorted.length}
               </span>
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setPage((p) => Math.max(0, p - 1))}
                   disabled={page === 0}
-                  className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <span className="text-xs text-gray-500 px-2">
+                <span className="text-xs text-muted-foreground px-2">
                   {page + 1} / {totalPages}
                 </span>
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                   disabled={page >= totalPages - 1}
-                  className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>

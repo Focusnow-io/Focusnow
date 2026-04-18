@@ -23,7 +23,7 @@ function statusColor(status: string): string {
     case "OPEN": case "ACTIVE": case "CONFIRMED": case "IN_PROGRESS": case "RELEASED": case "SHIPPED": return "bg-blue-100 text-blue-700";
     case "PARTIAL": case "IN_PRODUCTION": case "IN_TRANSIT": case "PLANNED": case "READY": return "bg-amber-100 text-amber-700";
     case "CANCELLED": case "FAILED": case "BLOCKED": return "bg-red-100 text-red-700";
-    default: return "bg-gray-100 text-gray-600";
+    default: return "bg-muted text-muted-foreground";
   }
 }
 
@@ -128,15 +128,15 @@ export function KanbanWidget({ widget }: { widget: WidgetConfig }) {
   }, [dragging, rows, statusField, widget.query.entity, toast, appState]);
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-gray-100">
-        <p className="text-xs font-semibold uppercase text-gray-500">{widget.title}</p>
-        {widget.display?.description && <p className="text-xs text-gray-400 mt-0.5">{widget.display.description}</p>}
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-border">
+        <p className="text-xs font-semibold uppercase text-muted-foreground">{widget.title}</p>
+        {widget.display?.description && <p className="text-xs text-muted-foreground mt-0.5">{widget.display.description}</p>}
       </div>
 
       {loading ? (
         <div className="p-6 flex items-center justify-center">
-          <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
         </div>
       ) : (
         <div className="flex gap-3 p-4 overflow-x-auto min-h-[300px]">
@@ -147,7 +147,7 @@ export function KanbanWidget({ widget }: { widget: WidgetConfig }) {
             return (
               <div
                 key={col}
-                className={`flex-1 min-w-[200px] max-w-[280px] rounded-xl bg-gray-50 border-t-4 ${COLUMN_COLORS[ci % COLUMN_COLORS.length]} ${
+                className={`flex-1 min-w-[200px] max-w-[280px] rounded-xl bg-muted border-t-4 ${COLUMN_COLORS[ci % COLUMN_COLORS.length]} ${
                   isDragTarget ? "ring-2 ring-blue-300 bg-blue-50/30" : ""
                 }`}
                 onDragOver={(e) => handleDragOver(e, col)}
@@ -159,7 +159,7 @@ export function KanbanWidget({ widget }: { widget: WidgetConfig }) {
                   <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(col)}`}>
                     {col}
                   </span>
-                  <span className="text-xs text-gray-400 font-medium">{colRows.length}</span>
+                  <span className="text-xs text-muted-foreground font-medium">{colRows.length}</span>
                 </div>
 
                 {/* Cards */}
@@ -173,27 +173,27 @@ export function KanbanWidget({ widget }: { widget: WidgetConfig }) {
                         key={rowId}
                         draggable={!isUpdating}
                         onDragStart={() => handleDragStart(rowId)}
-                        className={`bg-white rounded-lg border border-gray-200 p-3 shadow-sm hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing ${
+                        className={`bg-card rounded-lg border border-border p-3 shadow-sm hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing ${
                           isUpdating ? "opacity-50" : ""
                         } ${dragging === rowId ? "opacity-30" : ""}`}
                       >
                         <div className="flex items-start gap-2">
-                          <GripVertical className="w-3.5 h-3.5 text-gray-300 shrink-0 mt-0.5" />
+                          <GripVertical className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" />
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-gray-900 truncate">
+                            <p className="text-sm font-medium text-foreground truncate">
                               {String(row[titleField] ?? "Untitled")}
                             </p>
                             {cardFields.map((field) => {
                               const val = row[field];
                               if (val === null || val === undefined) return null;
                               return (
-                                <p key={field} className="text-xs text-gray-500 truncate mt-0.5">
+                                <p key={field} className="text-xs text-muted-foreground truncate mt-0.5">
                                   {String(val)}
                                 </p>
                               );
                             })}
                           </div>
-                          {isUpdating && <Loader2 className="w-3 h-3 animate-spin text-gray-400 shrink-0" />}
+                          {isUpdating && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground shrink-0" />}
                         </div>
                       </div>
                     );

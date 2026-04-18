@@ -164,13 +164,13 @@ export default function RuleDetailPage() {
 
   if (loading) {
     return (
-      <div className="py-12 text-center text-gray-400 text-sm">Loading...</div>
+      <div className="py-12 text-center text-muted-foreground text-sm">Loading...</div>
     );
   }
 
   if (!rule) {
     return (
-      <div className="py-12 text-center text-gray-400 text-sm">
+      <div className="py-12 text-center text-muted-foreground text-sm">
         Rule not found
       </div>
     );
@@ -190,7 +190,7 @@ export default function RuleDetailPage() {
         </Button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-bold text-gray-900">{rule.name}</h1>
+            <h1 className="text-xl font-bold text-foreground">{rule.name}</h1>
             <Badge
               variant={
                 rule.status === "ACTIVE"
@@ -202,13 +202,13 @@ export default function RuleDetailPage() {
             >
               {rule.status.toLowerCase()}
             </Badge>
-            <span className="text-xs text-gray-400 flex items-center gap-1">
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
               <GitBranch className="w-3 h-3" />
               v{rule.currentVersion}
             </span>
           </div>
           {rule.description && (
-            <p className="text-sm text-gray-500 mt-1">{rule.description}</p>
+            <p className="text-sm text-muted-foreground mt-1">{rule.description}</p>
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -258,7 +258,7 @@ export default function RuleDetailPage() {
       </div>
 
       {/* Plain-English summary — non-interactive tokens */}
-      <Card className="border-blue-200 bg-blue-50/50">
+      <Card className="border-blue-500/20 bg-blue-500/10">
         <CardContent className="p-4">
           <InteractiveSummary
             entity={rule.entity}
@@ -287,12 +287,12 @@ export default function RuleDetailPage() {
       {/* Condition */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-xs font-semibold uppercase text-gray-500">
+          <CardTitle className="text-xs font-semibold uppercase text-muted-foreground">
             Condition
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="bg-slate-50 rounded-lg p-3 font-mono text-xs text-gray-700">
+          <div className="bg-slate-50 rounded-lg p-3 font-mono text-xs text-foreground">
             <p>
               <span className="text-blue-600">entity</span>: {rule.entity}
             </p>
@@ -315,8 +315,8 @@ export default function RuleDetailPage() {
           { label: "Entity", value: rule.entity },
           { label: "Tags", value: rule.tags.join(", ") || "\u2014" },
         ].map(({ label, value }) => (
-          <div key={label} className="bg-white border rounded-lg p-3">
-            <p className="text-xs text-gray-400 font-medium uppercase">
+          <div key={label} className="bg-card border rounded-lg p-3">
+            <p className="text-xs text-muted-foreground font-medium uppercase">
               {label}
             </p>
             <p className="font-medium mt-0.5">{value}</p>
@@ -334,7 +334,7 @@ export default function RuleDetailPage() {
         </CardHeader>
         <CardContent>
           {previewLoading ? (
-            <div className="flex items-center gap-2 text-sm text-gray-400 py-1">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
               <Loader2 className="w-4 h-4 animate-spin" />
               Checking against your data...
             </div>
@@ -357,7 +357,7 @@ export default function RuleDetailPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="border-b text-left text-gray-500">
+                      <tr className="border-b text-left text-muted-foreground">
                         {Object.keys(
                           flattenSample(preview.samples[0])
                         ).map((key) => (
@@ -371,11 +371,11 @@ export default function RuleDetailPage() {
                       {preview.samples.map((sample, i) => {
                         const flat = flattenSample(sample);
                         return (
-                          <tr key={i} className="border-b border-gray-100">
+                          <tr key={i} className="border-b border-border">
                             {Object.values(flat).map((val, j) => (
                               <td
                                 key={j}
-                                className="py-1.5 pr-3 text-gray-700"
+                                className="py-1.5 pr-3 text-foreground"
                               >
                                 {val}
                               </td>
@@ -389,7 +389,7 @@ export default function RuleDetailPage() {
               )}
             </div>
           ) : (
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-muted-foreground">
               Unable to load preview data.
             </p>
           )}
@@ -406,17 +406,17 @@ export default function RuleDetailPage() {
         </CardHeader>
         <CardContent>
           {rule.versions.length === 0 ? (
-            <p className="text-sm text-gray-400">No versions yet</p>
+            <p className="text-sm text-muted-foreground">No versions yet</p>
           ) : (
             <div className="relative">
-              <div className="absolute left-3.5 top-0 bottom-0 w-px bg-gray-200" />
+              <div className="absolute left-3.5 top-0 bottom-0 w-px bg-border" />
               <div className="space-y-4">
                 {rule.versions.map((v, i) => (
                   <div
                     key={v.id}
                     className="flex items-start gap-4 pl-9 relative"
                   >
-                    <div className="absolute left-2 w-3 h-3 rounded-full border-2 border-slate-400 bg-white top-1" />
+                    <div className="absolute left-2 w-3 h-3 rounded-full border-2 border-slate-400 bg-card top-1" />
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-mono font-semibold text-slate-700">
@@ -430,11 +430,11 @@ export default function RuleDetailPage() {
                             current
                           </Badge>
                         )}
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs text-muted-foreground">
                           {v.commitMessage ?? "No message"}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
+                      <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
                         <Clock className="w-3 h-3" />
                         {formatDate(v.committedAt)}
                         {v.snapshot && (
@@ -453,7 +453,7 @@ export default function RuleDetailPage() {
                       </div>
                       {/* Inline version snapshot viewer */}
                       {versionSnapshot?.id === v.id && (
-                        <div className="mt-2 bg-slate-50 border rounded-lg p-3 font-mono text-xs text-gray-600">
+                        <div className="mt-2 bg-slate-50 border rounded-lg p-3 font-mono text-xs text-muted-foreground">
                           <pre className="whitespace-pre-wrap">
                             {JSON.stringify(v.snapshot, null, 2)}
                           </pre>
@@ -475,7 +475,7 @@ export default function RuleDetailPage() {
             <DialogTitle>Publish rule</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-muted-foreground">
               Publishing activates this rule and creates a new version snapshot.
               This is like committing to the operational brain.
             </p>

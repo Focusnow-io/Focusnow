@@ -18,7 +18,7 @@ export default async function DashboardLayout({
 
   const member = await prisma.orgMember.findFirst({
     where: { userId: session.user.id },
-    include: { organization: true },
+    include: { organization: true, user: true },
   });
 
   if (!member) redirect("/login");
@@ -42,6 +42,8 @@ export default async function DashboardLayout({
           <Header
             userName={session.user.name}
             orgName={member?.organization.name}
+            userRole={member?.role}
+            jobTitle={member?.user.jobTitle}
           />
           <main className="flex-1 overflow-y-auto p-6 bg-background transition-colors duration-150">
             <ToastProvider>

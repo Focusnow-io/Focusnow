@@ -93,7 +93,7 @@ export function BillingSection({ data }: { data: BillingData }) {
         <p className="text-sm text-muted-foreground">Your current plan and usage.</p>
       </div>
 
-      <div className="max-w-lg rounded-lg border border-border p-4 space-y-3">
+      <div className="rounded-lg border border-border p-4 space-y-3">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">Current plan</span>
           <Badge variant="success">
@@ -125,7 +125,7 @@ export function BillingSection({ data }: { data: BillingData }) {
 
       {/* Usage section */}
       {usage && (
-        <div className="max-w-lg rounded-lg border border-border p-4 space-y-4">
+        <div className="rounded-lg border border-border p-4 space-y-4">
           <h3 className="text-sm font-semibold">Token Usage</h3>
 
           <UsageMeter label="Today" bucket={usage.daily} />
