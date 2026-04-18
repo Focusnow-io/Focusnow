@@ -153,26 +153,19 @@ export function Sidebar({ userName, orgName, userRole, permissions }: SidebarPro
         <NavItem href="/dashboard" icon={Home} label="Home" />
 
         {/* Brain — permission controlled */}
+        {/* TODO: wire to GET /api/brain/stats */}
         {permissions?.brain && (
-          <div>
-            <NavItem icon={Brain} label="Brain" expandable sectionId="brain" />
-            {expandedSections.brain && (
-              <div className="pl-4 space-y-px">
-                {/* TODO: wire to GET /api/brain/stats */}
-                <Link
-                  href="/brain"
-                  className={cn(itemBase, isActive("/brain") && !pathname.startsWith("/brain/change-requests") ? itemActive : itemInactive)}
-                >
-                  <Brain className={cn("w-[15px] h-[15px] shrink-0", isActive("/brain") ? "opacity-100" : "opacity-50")} />
-                  Rules
-                  <span className="ml-auto flex items-center gap-1.5">
-                    <span className="text-[11px] bg-[hsl(var(--surface-nav-hover))] px-1.5 py-0.5 rounded-md opacity-70">5</span>
-                    <span className="w-2 h-2 rounded-full bg-orange-500 shrink-0" title="Pending change requests" />
-                  </span>
-                </Link>
-              </div>
-            )}
-          </div>
+          <Link
+            href="/brain"
+            className={cn(itemBase, isActive("/brain") ? itemActive : itemInactive)}
+          >
+            <Brain className={cn("w-[15px] h-[15px] shrink-0", isActive("/brain") ? "opacity-100" : "opacity-50")} />
+            Operational Brain
+            <span className="ml-auto flex items-center gap-1.5">
+              <span className="text-xs text-[hsl(var(--surface-nav-text-muted))] tabular-nums opacity-70">5</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-500 shrink-0" />
+            </span>
+          </Link>
         )}
 
         {/* Apps — permission controlled */}

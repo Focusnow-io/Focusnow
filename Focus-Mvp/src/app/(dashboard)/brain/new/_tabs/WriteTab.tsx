@@ -13,10 +13,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Sparkles, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/toast'
 import { TYPE_CONFIG, DOMAIN_LABELS } from '@/lib/brain/brain-config'
-import { MOCK_BRAIN_ENTRIES } from '@/lib/brain/mock-data'
+import { MOCK_BRAIN_ENTRIES, MOCK_FOLDERS } from '@/lib/brain/mock-data'
 import { WeightSegmentedControl } from '@/components/brain/WeightSegmentedControl'
 import { TagInput } from '@/components/brain/TagInput'
 import { DynamicListSection } from '@/components/brain/DynamicListSection'
@@ -26,7 +27,7 @@ import type {
   AIContextWeight,
 } from '@/lib/brain/brain-types'
 
-export function WriteTab() {
+export function WriteTab({ preFolderId }: { preFolderId?: string }) {
   const router = useRouter()
   const toast = useToast()
   const [step, setStep] = useState<'input' | 'loading' | 'preview'>('input')
@@ -45,6 +46,7 @@ export function WriteTab() {
     aiContextWeight: demo.aiContextWeight as AIContextWeight,
     tags: [...demo.tags],
     effectiveDate: demo.effectiveDate || '',
+    folderId: preFolderId || '',
   }))
 
   function handleStructure() {
@@ -69,40 +71,34 @@ export function WriteTab() {
     return (
       <div className="space-y-4">
         <div>
-          <Label className="text-sm font-medium text-slate-700">
-            Describe your operational knowledge in plain language
-          </Label>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Don&apos;t worry about format. Explain it the way you&apos;d tell a new employee.
-          </p>
+          <p className="text-sm text-[#0F172A]">Describe any rule, policy, constraint, or process in plain language.</p>
+          <p className="text-xs text-[#94A3B8] mt-0.5">Write it the way you&apos;d explain it to a new hire. Don&apos;t worry about format.</p>
         </div>
 
         <div className="relative">
           <Textarea
             value={nlInput}
             onChange={(e) => setNlInput(e.target.value)}
-            placeholder={`For example:\n\n"We never place a PO with any single supplier for more than 40% of our category spend. This is a hard rule — no exceptions without CEO approval. It came from a painful experience in 2021 when our main plastics supplier had a factory fire and we had 78% concentration with them."`}
-            className="min-h-48 resize-y text-base rounded-xl p-4"
+            placeholder={`For example:\n\n"We never place a PO with any single supplier for more than 40% of our category spend. This is a hard rule — no exceptions without CEO approval. It came from a bad experience in 2021 when our main plastics supplier had a factory fire and we had 78% concentration with them."`}
+            className="min-h-[180px] resize-y text-sm rounded-xl p-4 border-[#E2E8F0]"
             disabled={step === 'loading'}
           />
-          <span className="absolute bottom-3 right-3 text-xs text-slate-400">
-            {nlInput.length} chars
-          </span>
+          <span className="absolute bottom-3 right-3 text-xs text-[#94A3B8]">{nlInput.length}</span>
         </div>
 
         {step === 'loading' ? (
           <div className="flex flex-col items-center py-8 gap-3">
-            <Loader2 className="w-6 h-6 text-orange-500 animate-spin" />
-            <p className="text-sm text-slate-500">Structuring your operational knowledge...</p>
-            <div className="w-48 h-1 bg-slate-100 rounded-full overflow-hidden">
-              <div className="h-full bg-orange-500 rounded-full animate-pulse w-2/3" />
-            </div>
+            <Loader2 className="w-5 h-5 text-[#EA580C] animate-spin" />
+            <p className="text-sm text-[#475569]">Structuring your knowledge...</p>
           </div>
         ) : (
           <div className="flex justify-end">
-            <Button onClick={handleStructure} disabled={nlInput.trim().length < 20} className="gap-1.5">
-              <Sparkles className="w-4 h-4" />
-              Structure with AI
+            <Button
+              onClick={handleStructure}
+              disabled={nlInput.trim().length < 20}
+              className="bg-[#0F172A] hover:bg-[#1E293B] text-white text-sm"
+            >
+              ✦ Structure with AI →
             </Button>
           </div>
         )}
@@ -112,87 +108,60 @@ export function WriteTab() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:divide-x md:divide-[#E2E8F0]">
         <div>
-          <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-            Your input
-          </Label>
-          <div className="mt-2 bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm text-slate-500 min-h-40">
+          <p className="text-xs font-medium text-[#94A3B8] uppercase tracking-wide mb-2">Your input</p>
+          <div className="bg-slate-50 border border-[#E2E8F0] rounded-lg p-4 text-xs text-[#94A3B8] italic min-h-[120px]">
             {nlInput}
           </div>
-          <button onClick={() => setStep('input')} className="text-sm text-orange-600 hover:underline mt-2">
-            &larr; Edit
-          </button>
+          <button onClick={() => setStep('input')} className="text-xs text-[#94A3B8] hover:text-[#475569] mt-2">← Edit</button>
         </div>
 
-        <div className="space-y-4">
-          <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-            Structured by AI — review and edit
-          </Label>
+        <div className="md:pl-6 space-y-3">
+          <p className="text-xs font-medium text-[#94A3B8] uppercase tracking-wide mb-2">Structured by AI</p>
 
-          <div className="space-y-3 mt-2">
-            <div className="grid grid-cols-2 gap-3">
-              <FieldSelect
-                label="Type *"
-                value={form.type}
-                onChange={(v) => setForm((f) => ({ ...f, type: v as BrainEntryType }))}
-                options={Object.keys(TYPE_CONFIG).map((k) => ({ value: k, label: TYPE_CONFIG[k as BrainEntryType].label }))}
-              />
-              <FieldSelect
-                label="Domain *"
-                value={form.domain}
-                onChange={(v) => setForm((f) => ({ ...f, domain: v as BrainEntryDomain }))}
-                options={Object.keys(DOMAIN_LABELS).map((k) => ({ value: k, label: DOMAIN_LABELS[k as BrainEntryDomain] }))}
-              />
-            </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FieldSelect label="Type" value={form.type} onChange={(v) => setForm((f) => ({ ...f, type: v as BrainEntryType }))} options={Object.entries(TYPE_CONFIG).map(([k, v]) => ({ value: k, label: v.label }))} />
+            <FieldSelect label="Domain" value={form.domain} onChange={(v) => setForm((f) => ({ ...f, domain: v as BrainEntryDomain }))} options={Object.entries(DOMAIN_LABELS).map(([k, v]) => ({ value: k, label: v }))} />
+          </div>
 
-            <FieldInput
-              label="Title *"
-              value={form.title}
-              maxLength={80}
-              onChange={(v) => setForm((f) => ({ ...f, title: v }))}
-            />
-            <FieldTextarea
-              label="Summary *"
-              value={form.summary}
-              maxLength={200}
-              rows={2}
-              onChange={(v) => setForm((f) => ({ ...f, summary: v }))}
-            />
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-500">Body</Label>
-              <Textarea
-                value={form.body}
-                onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
-                rows={5}
-                className="rounded-lg font-mono text-sm"
-              />
-            </div>
+          <FieldWithCounter label="Title" value={form.title} max={80} onChange={(v) => setForm((f) => ({ ...f, title: v }))} />
+          <FieldWithCounter label="Summary" value={form.summary} max={200} onChange={(v) => setForm((f) => ({ ...f, summary: v }))} textarea rows={2} />
 
-            <DynamicListSection title="Conditions" items={form.conditions} onChange={(items) => setForm((f) => ({ ...f, conditions: items }))} />
-            <DynamicListSection title="Actions" items={form.actions} onChange={(items) => setForm((f) => ({ ...f, actions: items }))} />
-            <DynamicListSection title="Exceptions" items={form.exceptions} onChange={(items) => setForm((f) => ({ ...f, exceptions: items }))} />
+          <div className="space-y-1">
+            <Label className="text-xs text-[#475569]">Body</Label>
+            <Textarea value={form.body} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} rows={4} className="rounded-lg font-mono text-xs" />
+          </div>
 
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-500">AI Context Weight</Label>
-              <WeightSegmentedControl value={form.aiContextWeight} onChange={(w) => setForm((f) => ({ ...f, aiContextWeight: w }))} />
-            </div>
+          <DynamicListSection title="Conditions" items={form.conditions} onChange={(items) => setForm((f) => ({ ...f, conditions: items }))} />
+          <DynamicListSection title="Actions" items={form.actions} onChange={(items) => setForm((f) => ({ ...f, actions: items }))} />
+          <DynamicListSection title="Exceptions" items={form.exceptions} onChange={(items) => setForm((f) => ({ ...f, exceptions: items }))} />
 
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-500">Tags</Label>
-              <TagInput tags={form.tags} onChange={(tags) => setForm((f) => ({ ...f, tags }))} />
-            </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-[#475569]">AI Context Weight</Label>
+            <WeightSegmentedControl value={form.aiContextWeight} onChange={(w) => setForm((f) => ({ ...f, aiContextWeight: w }))} />
+          </div>
 
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-500">Effective Date</Label>
-              <Input type="date" value={form.effectiveDate} onChange={(e) => setForm((f) => ({ ...f, effectiveDate: e.target.value }))} className="rounded-lg" />
-            </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-[#475569]">Tags</Label>
+            <TagInput tags={form.tags} onChange={(tags) => setForm((f) => ({ ...f, tags }))} />
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-xs text-[#475569]">Folder</Label>
+            <Select value={form.folderId} onValueChange={(v) => setForm((f) => ({ ...f, folderId: v }))}>
+              <SelectTrigger className="rounded-lg"><SelectValue placeholder="Select folder..." /></SelectTrigger>
+              <SelectContent>
+                {MOCK_FOLDERS.map((f) => (
+                  <SelectItem key={f.id} value={f.id}>{DOMAIN_LABELS[f.domain]} / {f.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </div>
 
-      <div className="flex items-center justify-between pt-4 border-t border-slate-200">
-        <Button variant="ghost" onClick={() => setStep('input')}>&larr; Back to input</Button>
+      <div className="flex items-center justify-end gap-2 pt-4 border-t border-[#E2E8F0]">
         <SaveButtons onSave={handleSave} />
       </div>
     </div>
@@ -202,7 +171,7 @@ export function WriteTab() {
 function FieldSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
   return (
     <div className="space-y-1">
-      <Label className="text-xs text-slate-500">{label}</Label>
+      <Label className="text-xs text-[#475569]">{label}</Label>
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger className="rounded-lg"><SelectValue /></SelectTrigger>
         <SelectContent>
@@ -213,26 +182,18 @@ function FieldSelect({ label, value, onChange, options }: { label: string; value
   )
 }
 
-function FieldInput({ label, value, maxLength, onChange }: { label: string; value: string; maxLength: number; onChange: (v: string) => void }) {
+function FieldWithCounter({ label, value, max, onChange, textarea, rows }: { label: string; value: string; max: number; onChange: (v: string) => void; textarea?: boolean; rows?: number }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <Label className="text-xs text-slate-500">{label}</Label>
-        <span className="text-xs text-slate-400">{value.length}/{maxLength}</span>
+        <Label className="text-xs text-[#475569]">{label}</Label>
+        <span className="text-xs text-[#94A3B8]">{value.length}/{max}</span>
       </div>
-      <Input value={value} onChange={(e) => onChange(e.target.value.slice(0, maxLength))} className="rounded-lg" />
-    </div>
-  )
-}
-
-function FieldTextarea({ label, value, maxLength, rows, onChange }: { label: string; value: string; maxLength: number; rows: number; onChange: (v: string) => void }) {
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between">
-        <Label className="text-xs text-slate-500">{label}</Label>
-        <span className="text-xs text-slate-400">{value.length}/{maxLength}</span>
-      </div>
-      <Textarea value={value} onChange={(e) => onChange(e.target.value.slice(0, maxLength))} rows={rows} className="rounded-lg" />
+      {textarea ? (
+        <Textarea value={value} onChange={(e) => onChange(e.target.value.slice(0, max))} rows={rows} className="rounded-lg text-sm" />
+      ) : (
+        <Input value={value} onChange={(e) => onChange(e.target.value.slice(0, max))} className="rounded-lg text-sm" />
+      )}
     </div>
   )
 }
@@ -240,8 +201,8 @@ function FieldTextarea({ label, value, maxLength, rows, onChange }: { label: str
 export function SaveButtons({ onSave }: { onSave: (status: 'DRAFT' | 'ACTIVE') => void }) {
   return (
     <div className="flex items-center gap-2">
-      <Button variant="outline" onClick={() => onSave('DRAFT')}>Save as Draft</Button>
-      <Button onClick={() => onSave('ACTIVE')}>Publish as Active</Button>
+      <Button variant="outline" size="sm" onClick={() => onSave('DRAFT')}>Save as Draft</Button>
+      <Button size="sm" onClick={() => onSave('ACTIVE')}>Publish as Active</Button>
     </div>
   )
 }

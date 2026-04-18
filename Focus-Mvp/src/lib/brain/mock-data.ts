@@ -232,3 +232,102 @@ function deriveStats(entries: BrainEntry[], changeRequests: ChangeRequest[]): Br
 }
 
 export const MOCK_BRAIN_STATS: BrainStats = deriveStats(MOCK_BRAIN_ENTRIES, MOCK_CHANGE_REQUESTS)
+
+// --- Folders ---
+
+export interface BrainFolder {
+  id: string
+  name: string
+  description: string
+  domain: BrainEntryDomain
+  entryIds: string[]
+  createdAt: string
+}
+
+export const MOCK_FOLDERS: BrainFolder[] = [
+  {
+    id: 'folder-001',
+    name: 'Supplier Policies',
+    description: 'Rules, constraints, and tribal knowledge governing how we select, manage, and work with suppliers.',
+    domain: 'PROCUREMENT',
+    entryIds: ['brain-001', 'brain-003'],
+    createdAt: '2024-01-01T00:00:00Z',
+  },
+  {
+    id: 'folder-002',
+    name: 'Agreements & Terms',
+    description: 'Active supplier agreements, SLAs, and commercial terms.',
+    domain: 'PROCUREMENT',
+    entryIds: ['brain-005'],
+    createdAt: '2024-01-01T00:00:00Z',
+  },
+  {
+    id: 'folder-003',
+    name: 'Reorder Rules',
+    description: 'Policies and thresholds governing when and how much inventory to reorder.',
+    domain: 'INVENTORY',
+    entryIds: ['brain-002'],
+    createdAt: '2024-01-01T00:00:00Z',
+  },
+  {
+    id: 'folder-004',
+    name: 'Escalation Processes',
+    description: 'Step-by-step procedures for handling production and customer escalations.',
+    domain: 'PRODUCTION',
+    entryIds: ['brain-004'],
+    createdAt: '2024-01-01T00:00:00Z',
+  },
+  {
+    id: 'folder-005',
+    name: 'Approval Thresholds',
+    description: 'Authorization limits and approval chains for financial decisions.',
+    domain: 'FINANCE',
+    entryIds: ['brain-006'],
+    createdAt: '2024-01-01T00:00:00Z',
+  },
+]
+
+// --- Entry Flags ---
+
+export interface EntryFlag {
+  id: string
+  entryId: string
+  note: string
+  authorId: string
+  authorName: string
+  resolved: boolean
+  createdAt: string
+}
+
+export const MOCK_FLAGS: EntryFlag[] = [
+  {
+    id: 'flag-001',
+    entryId: 'brain-001',
+    note: "This policy hasn't accounted for our new 3PL arrangement. Someone should review whether the 40% threshold still applies across our consolidated spend.",
+    authorId: 'user-002',
+    authorName: 'Marcus Rodriguez',
+    resolved: false,
+    createdAt: '2024-04-10T09:00:00Z',
+  },
+  {
+    id: 'flag-002',
+    entryId: 'brain-003',
+    note: "FastMetals completed their carrier switch in March. This may no longer be accurate — needs a check.",
+    authorId: 'user-003',
+    authorName: 'Jamie Park',
+    resolved: false,
+    createdAt: '2024-04-14T11:00:00Z',
+  },
+]
+
+export const STALE_THRESHOLD_DAYS = 180
+export const REVIEW_THRESHOLD_DAYS = 90
+
+export const MOCK_RECENT_ENTRY_IDS = ['brain-001', 'brain-003', 'brain-004']
+export const MOCK_PINNED_ENTRY_IDS = ['brain-001', 'brain-002']
+
+export const MOCK_OWNER_SUMMARY = [
+  { userId: 'user-001', name: 'Sarah Chen', initials: 'SC', entryCount: 3, domains: ['PROCUREMENT'] as BrainEntryDomain[] },
+  { userId: 'user-002', name: 'Marcus Rodriguez', initials: 'MR', entryCount: 2, domains: ['INVENTORY', 'FINANCE'] as BrainEntryDomain[] },
+  { userId: 'user-003', name: 'Jamie Park', initials: 'JP', entryCount: 1, domains: ['PRODUCTION'] as BrainEntryDomain[] },
+]

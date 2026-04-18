@@ -2,146 +2,88 @@
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { ChevronDown, ExternalLink, CheckCircle, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/toast'
 import { MOCK_CHANGE_REQUESTS } from '@/lib/brain/mock-data'
-import { formatRelativeTime } from '@/lib/brain/brain-utils'
-import { TypeBadge } from '@/components/brain/TypeBadge'
-import { UserAvatar } from '@/components/brain/UserAvatar'
-import { BrainBackLink } from '@/components/brain/BrainBackLink'
+import { BrainChangeRequestCard } from '@/components/brain/BrainChangeRequestCard'
 import type { ChangeRequest, ChangeRequestStatus } from '@/lib/brain/brain-types'
+
+type CRTab = 'PENDING' | 'APPROVED' | 'REJECTED'
+const TAB_LABELS: Record<CRTab, string> = { PENDING: 'Open', APPROVED: 'Merged', REJECTED: 'Closed' }
 
 export default function ChangeRequestsPage() {
   const toast = useToast()
-  const [activeTab, setActiveTab] = useState<ChangeRequestStatus>('PENDING')
+  const [activeTab, setActiveTab] = useState<CRTab>('PENDING')
   const [requests, setRequests] = useState<ChangeRequest[]>([...MOCK_CHANGE_REQUESTS])
-  const [expandedDiffs, setExpandedDiffs] = useState<Record<string, boolean>>({})
-  const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({})
 
-  const filtered = useMemo(() => requests.filter((cr) => cr.status === activeTab), [requests, activeTab])
-  const pendingCount = useMemo(() => requests.filter((cr) => cr.status === 'PENDING').length, [requests])
+  const counts = useMemo(() => ({
+    PENDING: requests.filter((cr) => cr.status === 'PENDING').length,
+    APPROVED: requests.filter((cr) => cr.status === 'APPROVED').length,
+    REJECTED: requests.filter((cr) => cr.status === 'REJECTED').length,
+  }), [requests])
 
-  function handleApprove(crId: string) {
-    // TODO: wire to PATCH /api/brain/change-requests/[crId]
-    setRequests((prev) => prev.map((cr) => cr.id === crId ? { ...cr, status: 'APPROVED' as const } : cr))
-    toast.success('Change applied. Entry updated.')
+  const filtered = useMemo(
+    () => requests.filter((cr) => cr.status === activeTab),
+    [requests, activeTab]
+  )
+
+  function handleMerge(crId: string) {
+    // TODO: PATCH /api/brain/change-requests/[crId] { action: 'APPROVE' }
+    setRequests((prev) => prev.map((cr) => cr.id === crId ? { ...cr, status: 'APPROVED' as ChangeRequestStatus } : cr))
+    toast.success('Changes merged. Entry updated.')
   }
 
-  function handleReject(crId: string) {
-    // TODO: wire to PATCH /api/brain/change-requests/[crId]
-    setRequests((prev) => prev.map((cr) => cr.id === crId ? { ...cr, status: 'REJECTED' as const } : cr))
-    toast.info('Change request rejected.')
+  function handleClose(crId: string) {
+    // TODO: PATCH /api/brain/change-requests/[crId] { action: 'REJECT' }
+    setRequests((prev) => prev.map((cr) => cr.id === crId ? { ...cr, status: 'REJECTED' as ChangeRequestStatus } : cr))
+    toast.info('Change request closed.')
   }
 
   return (
-    <div className="space-y-6 w-full max-w-4xl mx-auto">
-      <BrainBackLink />
-
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Change Requests</h1>
-        <p className="text-sm text-slate-500 mt-1">Review proposed changes to Brain entries</p>
+    <div className="space-y-6 max-w-3xl">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-[#94A3B8]">
+          <Link href="/brain" className="hover:text-[#475569] transition-colors">brain</Link>
+          <span className="mx-1.5">/</span>
+          <span className="font-mono text-[#0F172A]">change-requests</span>
+        </p>
+        {counts.PENDING > 0 && (
+          <span className="text-xs font-medium text-[#EA580C]">{counts.PENDING} pending</span>
+        )}
       </div>
 
-      <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 w-fit">
-        {([
-          { key: 'PENDING' as const, label: `Pending (${pendingCount})` },
-          { key: 'APPROVED' as const, label: 'Approved' },
-          { key: 'REJECTED' as const, label: 'Rejected' },
-        ]).map((tab) => (
+      <div className="flex items-center gap-4 text-sm border-b border-[#E2E8F0] pb-px">
+        {(Object.keys(TAB_LABELS) as CRTab[]).map((tab) => (
           <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
+            key={tab}
+            onClick={() => setActiveTab(tab)}
             className={cn(
-              'px-3 py-1.5 text-sm font-medium rounded-md transition-all',
-              activeTab === tab.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              'pb-2 border-b-2 transition-colors',
+              activeTab === tab
+                ? 'border-[#0F172A] text-[#0F172A] font-medium'
+                : 'border-transparent text-[#94A3B8] hover:text-[#475569]'
             )}
           >
-            {tab.label}
+            {TAB_LABELS[tab]} ({counts[tab]})
           </button>
         ))}
       </div>
 
       {filtered.length === 0 ? (
         <div className="py-16 text-center">
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-[#94A3B8]">
             {activeTab === 'PENDING'
-              ? 'No pending change requests. When team members propose changes to Brain entries, they\u2019ll appear here for your review.'
+              ? "No open change requests. When team members propose changes to Brain entries, they'll appear here for review."
               : activeTab === 'APPROVED'
-                ? 'No approved changes yet.'
-                : 'No rejected requests.'}
+                ? 'No merged changes yet.'
+                : 'No closed requests.'}
           </p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {filtered.map((cr) => {
-            const isDiffExpanded = !!expandedDiffs[cr.id]
-            return (
-              <div key={cr.id} className="bg-white border border-slate-200 rounded-xl p-5">
-                <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <TypeBadge type={cr.entryType} />
-                    <span className="text-sm text-slate-600">{cr.entryTitle}</span>
-                  </div>
-                  <Link href={`/brain/${cr.entryId}`} className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                    view entry <ExternalLink className="w-3 h-3" />
-                  </Link>
-                </div>
-
-                <div className="flex items-center gap-2 text-xs text-slate-400 mb-3">
-                  <span>Proposed by</span>
-                  <UserAvatar name={cr.requestedBy.name} size="sm" />
-                  <span className="text-slate-600">{cr.requestedBy.name}</span>
-                  <span>&middot;</span>
-                  <span>{formatRelativeTime(cr.createdAt)}</span>
-                </div>
-
-                <h4 className="text-base font-semibold text-slate-900 mb-1">{cr.title}</h4>
-                <p className="text-sm text-slate-500 mb-3">{cr.description}</p>
-
-                <button
-                  type="button"
-                  onClick={() => setExpandedDiffs((prev) => ({ ...prev, [cr.id]: !prev[cr.id] }))}
-                  className="text-sm text-blue-600 hover:underline flex items-center gap-1 mb-3"
-                >
-                  {isDiffExpanded ? 'Hide proposed changes' : 'View proposed changes'}
-                  <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', isDiffExpanded && 'rotate-180')} />
-                </button>
-
-                {isDiffExpanded && (
-                  <div className="mb-4 rounded-lg border border-slate-200 overflow-hidden text-sm">
-                    <div className="bg-green-50 px-4 py-3 text-green-800">
-                      <p className="font-mono text-xs text-green-600 mb-1">+ Proposed</p>
-                      {cr.proposedBody}
-                    </div>
-                  </div>
-                )}
-
-                {cr.status === 'PENDING' && (
-                  <div className="space-y-3 pt-3 border-t border-slate-100">
-                    <Input
-                      placeholder="Add a note (optional)..."
-                      value={reviewNotes[cr.id] || ''}
-                      onChange={(e) => setReviewNotes((prev) => ({ ...prev, [cr.id]: e.target.value }))}
-                      className="rounded-lg text-sm"
-                    />
-                    <div className="flex items-center justify-end gap-2">
-                      <Button variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => handleReject(cr.id)}>
-                        <XCircle className="w-4 h-4 mr-1.5" />
-                        Reject
-                      </Button>
-                      <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => handleApprove(cr.id)}>
-                        <CheckCircle className="w-4 h-4 mr-1.5" />
-                        Approve & Apply
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })}
+        <div className="space-y-3">
+          {filtered.map((cr) => (
+            <BrainChangeRequestCard key={cr.id} cr={cr} onMerge={handleMerge} onClose={handleClose} />
+          ))}
         </div>
       )}
     </div>

@@ -19,6 +19,7 @@ import { TYPE_CONFIG, DOMAIN_LABELS } from '@/lib/brain/brain-config'
 import { WeightSegmentedControl } from '@/components/brain/WeightSegmentedControl'
 import { TagInput } from '@/components/brain/TagInput'
 import { DynamicListSection } from '@/components/brain/DynamicListSection'
+import { MOCK_FOLDERS } from '@/lib/brain/mock-data'
 import { SaveButtons } from './WriteTab'
 import type {
   BrainEntryType,
@@ -31,15 +32,18 @@ const CURRENCIES = ['USD', 'EUR', 'GBP', 'ILS'] as const
 export function FormTab({
   preType,
   preDomain,
+  preFolderId,
 }: {
   preType?: BrainEntryType
   preDomain?: BrainEntryDomain
+  preFolderId?: string
 }) {
   const router = useRouter()
   const toast = useToast()
   const [form, setForm] = useState({
     type: preType || ('' as BrainEntryType | ''),
     domain: preDomain || ('' as BrainEntryDomain | ''),
+    folderId: preFolderId || '',
     title: '',
     summary: '',
     body: '',
@@ -96,6 +100,17 @@ export function FormTab({
               <SelectContent>
                 {(Object.keys(DOMAIN_LABELS) as BrainEntryDomain[]).map((d) => (
                   <SelectItem key={d} value={d}>{DOMAIN_LABELS[d]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-slate-600">Folder</Label>
+            <Select value={form.folderId} onValueChange={(v) => set('folderId', v)}>
+              <SelectTrigger className="rounded-lg"><SelectValue placeholder="Select folder..." /></SelectTrigger>
+              <SelectContent>
+                {MOCK_FOLDERS.map((f) => (
+                  <SelectItem key={f.id} value={f.id}>{DOMAIN_LABELS[f.domain]} / {f.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>

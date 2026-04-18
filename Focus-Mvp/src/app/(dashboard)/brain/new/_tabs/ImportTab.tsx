@@ -9,7 +9,7 @@ import { Sparkles, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/toast'
 import { MOCK_BRAIN_ENTRIES } from '@/lib/brain/mock-data'
-import { TypeBadge } from '@/components/brain/TypeBadge'
+import { BrainTypeBadge } from '@/components/brain/BrainTypeBadge'
 
 export function ImportTab() {
   const router = useRouter()
@@ -113,7 +113,7 @@ export function ImportTab() {
             />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
-                <TypeBadge type={entry.type} />
+                <BrainTypeBadge type={entry.type} />
                 <span className="text-sm font-semibold text-slate-900">{entry.title}</span>
               </div>
               <p className="text-sm text-slate-500 line-clamp-2">{entry.summary}</p>
