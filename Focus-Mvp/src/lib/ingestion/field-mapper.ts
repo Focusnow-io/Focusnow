@@ -666,6 +666,7 @@ export interface MappingConfig {
   confidence?: Record<string, MappingConfidence>;
   score?: Record<string, number>;
   columnClassification?: Record<string, ColumnClassification>;
+  importMode?: "replace" | "merge";
 }
 
 export interface MappingWithConfidence {
@@ -733,14 +734,21 @@ const FIELD_ALIASES: Record<string, string[]> = {
     "productcategory", "item_category", "department",
   ],
   unit: [
-    "unit", "uom", "unitofmeasure", "unit_of_measure", "measureunit",
+    "unit", "unitofmeasure", "unit_of_measure", "measureunit",
     "measure", "packunit", "packsize", "sellunit", "baseunit",
   ],
   unitCost: [
-    "unitcost", "unit_cost", "cost", "price", "unitprice", "unit_price",
-    "listprice", "list_price", "buyprice", "buy_price", "purchaseprice",
+    "unitcost", "unit_cost", "cost", "buyprice", "buy_price", "purchaseprice",
     "purchase_price", "standardcost", "standard_cost", "costprice",
     "cost_price", "wholesaleprice",
+  ],
+  listPrice: [
+    "listprice", "list_price", "msrp", "rrp", "recommendedretailprice",
+    "recommended_retail_price", "retailprice", "retail_price",
+  ],
+  uom: [
+    "uom", "canonicaluom", "canonical_uom", "stockuom", "stock_uom",
+    "baseuom", "base_uom", "unitmeasure", "unit_measure",
   ],
   externalId: [
     "externalid", "external_id", "extid", "ext_id", "foreignid",
@@ -1106,7 +1114,7 @@ const FIELD_ALIASES: Record<string, string[]> = {
   ],
   unitPrice: [
     "unitprice", "unit_price", "price", "sellprice", "sell_price",
-    "listprice", "list_price", "saleprice", "sale_price",
+    "saleprice", "sale_price",
   ],
   minQty: [
     "minqty", "min_qty", "minimumqty", "minimum_qty",

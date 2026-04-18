@@ -79,6 +79,7 @@ export async function POST(req: Request) {
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
   const entity = (formData.get("entity") as EntityType) || "Product";
+  const importMode = (formData.get("importMode") as "replace" | "merge" | null) ?? "merge";
   // Optional: user explicitly chose a sheet (from the inline "wrong sheet?" picker)
   const requestedSheet = formData.get("sheet") as string | null;
 
@@ -171,6 +172,7 @@ export async function POST(req: Request) {
         confidence,
         score,
         attributeKeys: [],
+        importMode,
         selectedSheet: selectedSheet ?? null,
         rawData: parsed.rows.slice(0, 10),
         rawFileBase64: buffer.toString("base64"),

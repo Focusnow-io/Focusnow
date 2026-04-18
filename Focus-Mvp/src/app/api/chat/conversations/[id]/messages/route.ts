@@ -260,6 +260,42 @@ export async function POST(
     data: { messageCount: { increment: 1 }, updatedAt: new Date() },
   });
 
+  // Check if org has any operational data before proceeding
+  const [productCount, inventoryCount, supplierCount, poCount] = await Promise.all([
+    prisma.product.count({ where: { organizationId: ctx.org.id } }),
+    prisma.inventoryItem.count({ where: { organizationId: ctx.org.id } }),
+    prisma.supplier.count({ where: { organizationId: ctx.org.id } }),
+    prisma.purchaseOrder.count({ where: { orgId: ctx.org.id } }),
+  ]);
+  const hasAnyData = productCount + inventoryCount + supplierCount + poCount > 0;
+
+  if (!hasAnyData) {
+    const noDataMessage =
+      "It looks like there's no operational data in your account yet. Please import at least one file — Products, Inventory, Suppliers, or Purchase Orders — before asking questions. You can do this from the **Import** page.";
+
+    await prisma.conversationMessage.create({
+      data: { conversationId: id, role: "ASSISTANT", content: noDataMessage },
+    });
+    await prisma.conversation.update({
+      where: { id },
+      data: { messageCount: { increment: 1 }, updatedAt: new Date() },
+    });
+
+    const encoder = new TextEncoder();
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(JSON.stringify({ type: "text", content: noDataMessage }) + "\n")
+          );
+          controller.enqueue(encoder.encode(JSON.stringify({ type: "done" }) + "\n"));
+          controller.close();
+        },
+      }),
+      { headers: { "Content-Type": "text/plain; charset=utf-8" } }
+    );
+  }
+
   // Build context
   const orgContext = await buildOrgContext(ctx.org.id);
   const contextTokens = getContextTokenEstimate(ctx.org.id);
@@ -292,6 +328,7 @@ export async function POST(
 - If query_records returns returnedCount < totalCount and totalCount ≤ 100, immediately make another query_records call with limit set to totalCount to fetch all records. Do NOT present partial results or ask the user if they want more. If totalCount > 100, show what you have and tell the user to add filters to narrow results. NEVER list, describe, or invent records not present in the rows array — only cite data you actually received.
 - When a user questions a count result, use query_records (with rawWhere if needed) to list the matching records with their key fields so they can verify the data.
 - You have up to 5 tool calls per question. Use them efficiently.
+- **Data availability gate:** Before answering any question, check the Data Summary counts below. If the question is about a specific data type (e.g., inventory, suppliers, purchase orders, locations, work orders) and that entity has 0 records, do NOT attempt to answer or speculate. Instead, tell the user that data hasn't been uploaded yet and direct them to the Import page to upload it first. Example: if inventory items = 0 and the user asks about stock levels, say "You don't have any inventory data uploaded yet. Go to the Import page and upload an Inventory file to answer questions like this."
 
 ## Current Dataset
 

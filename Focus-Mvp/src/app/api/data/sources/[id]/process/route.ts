@@ -13,6 +13,7 @@ import { checkConsistency } from "@/lib/normalization/consistency-checker";
 import { invalidateOrgContextCache } from "@/lib/chat/build-context";
 import type { ResolvableEntityType } from "@/lib/normalization/types";
 import { SNAPSHOT_ENTITIES } from "@/lib/ingestion/snapshot-config";
+import { deleteEntityData } from "@/lib/ingestion/entity-cleanup";
 
 // Null-safe numeric coercions that handle comma-formatted values ("1,500.00")
 // and return null for empty / non-numeric strings — consistent with the ODE
@@ -118,6 +119,7 @@ export async function POST(
 
   let rows = await loadRowsFromConfig(config);
   const { entity, mapping, attributeKeys = [] } = config;
+  const importMode = config.importMode ?? "merge";
 
   // Addition 2 — Fill-down sparse columns before the import loop
   if (config.columnClassification) {
@@ -133,6 +135,23 @@ export async function POST(
     where: { id },
     data: { status: "PROCESSING" },
   });
+
+  // Replace mode — wipe existing entity data and old source records before importing
+  if (importMode === "replace") {
+    console.log(`[process] replace mode — deleting existing ${entity} data for org ${ctx.org.id}`);
+    await deleteEntityData(ctx.org.id, entity);
+    // Also delete old DataSource records for the same entity (except the current one)
+    await prisma.dataSource.deleteMany({
+      where: {
+        organizationId: ctx.org.id,
+        id: { not: id },
+        mappingConfig: {
+          path: ["entity"],
+          equals: entity,
+        },
+      },
+    });
+  }
 
   let imported = 0;
   let skipped = 0;
@@ -177,6 +196,16 @@ export async function POST(
         continue;
       }
 
+      // Skip rows whose orderType doesn't match the entity being imported.
+      // Handles mixed PO+SO files — SO rows are silently ignored in a PO import and vice versa.
+      const rawOrderType = (
+        (row["orderType"] || row["order_type"] || row["Order Type"] || row["type"] || "") as string
+      ).trim().toUpperCase();
+      if (rawOrderType) {
+        if (entity === "PurchaseOrder" && rawOrderType === "SO") { skipped++; continue; }
+        if (entity === "SalesOrder" && rawOrderType === "PO") { skipped++; continue; }
+      }
+
       // Track total rows per entity type
       if (!entityTypeCounts[entity]) {
         entityTypeCounts[entity] = { totalRows: 0, importedRows: 0 };
@@ -204,7 +233,7 @@ export async function POST(
       }
 
       try {
-        const result = await upsertEntity(entity, canonical, attributes, ctx.org.id, delta);
+        const result = await upsertEntity(entity, canonical, attributes, ctx.org.id, delta, id, importMode);
         if (result === null) {
           // Validation skip — required fields missing or parent not found
           console.error(`[process] SKIP Row ${rowNum + 1} (${entity}): validation returned null — required fields missing or parent not found. canonical=`, JSON.stringify(canonical));
@@ -453,21 +482,31 @@ async function upsertEntity(
   attributes: Record<string, string>,
   orgId: string,
   delta?: Record<string, { created: number; updated: number }>,
+  sourceId?: string,
+  importMode?: string,
 ): Promise<UpsertResult> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const attrs = Object.keys(attributes).length > 0 ? (attributes as any) : undefined;
+  let attrs: any = Object.keys(attributes).length > 0 ? (attributes as any) : undefined;
 
   switch (entity) {
     case "Product": {
       if (!data.sku || !data.name) return null;
       const prodOpt = optFields(data, [
         { k: "description" }, { k: "category" }, { k: "unit" },
-        { k: "unitCost", t: "d" }, { k: "externalId" },
+        { k: "unitCost", t: "d" }, { k: "unitPrice", t: "d" },
+        { k: "externalId" }, { k: "uom" },
+        { k: "leadTimeDays", t: "i" }, { k: "safetyStock", t: "d" },
         { k: "productFamily" }, { k: "shelfLifeDays", t: "i" },
         { k: "drawingNumber" }, { k: "drawingRevision" },
         { k: "abcClass" }, { k: "productLine" },
         { k: "regulatoryClass" }, { k: "listPrice", t: "d" },
       ]);
+      const PRODUCT_TYPES = ["FINISHED_GOOD", "RAW_MATERIAL", "COMPONENT", "SUBASSEMBLY", "SERVICE"] as const;
+      const MAKE_BUY_TYPES = ["MAKE", "BUY", "OTHER"] as const;
+      const prodType = toEnum(data.type, PRODUCT_TYPES);
+      const makeBuy = toEnum(data.makeBuy, MAKE_BUY_TYPES);
+      if (prodType) prodOpt.type = prodType;
+      if (makeBuy) prodOpt.makeBuy = makeBuy;
       const existingProduct = await prisma.product.findUnique({
         where: { organizationId_sku: { organizationId: orgId, sku: data.sku } },
         select: { id: true },
@@ -506,7 +545,10 @@ async function upsertEntity(
       // carry a hold/QA quantity are still valid inventory records.
       const invQty = data.quantity || data.qtyOnHand || data.qtyOnHold;
       if (!data.sku || invQty == null || invQty === "") return null;
-      // Auto-create product stub so inventory rows are never silently dropped.
+
+      // Find or auto-create a minimal product stub so inventory rows are never
+      // silently dropped when no Product file has been imported yet.
+      // Stubs (name = sku) are excluded from product count KPIs in the apps.
       const existingProduct = await prisma.product.findUnique({
         where: { organizationId_sku: { organizationId: orgId, sku: data.sku } },
         select: { id: true },
@@ -517,10 +559,6 @@ async function upsertEntity(
             data: { organizationId: orgId, sku: data.sku, name: data.name || data.sku },
             select: { id: true },
           });
-      if (!existingProduct && delta) {
-        if (!delta.Product) delta.Product = { created: 0, updated: 0 };
-        delta.Product.created++;
-      }
 
       let locationId: string | null = null;
       if (data.locationCode) {
@@ -528,17 +566,10 @@ async function upsertEntity(
           where: { organizationId_code: { organizationId: orgId, code: data.locationCode } },
           select: { id: true },
         });
-        const loc = existingLoc
-          ? existingLoc
-          : await prisma.location.create({
-              data: { organizationId: orgId, code: data.locationCode, name: data.locationCode },
-              select: { id: true },
-            });
-        if (!existingLoc && delta) {
-          if (!delta.Location) delta.Location = { created: 0, updated: 0 };
-          delta.Location.created++;
+        if (existingLoc) {
+          locationId = existingLoc.id;
         }
-        locationId = loc.id;
+        // Do not auto-create locations — users must upload a Locations/Sites file explicitly
       }
 
       const invOpt = optFields(data, [
@@ -566,9 +597,20 @@ async function upsertEntity(
         const br = data.buyRecommendation.trim().toLowerCase();
         invOpt.buyRecommendation = br === "true" || br === "yes" || br === "1";
       }
+      // Always store the raw locationCode in attributes so null-location rows
+      // from different warehouses stay distinct (NULL ≠ NULL in PG unique constraints,
+      // but findFirst without a locationCode filter would still collapse them).
+      if (data.locationCode) attrs = { ...attrs, locationCode: data.locationCode };
+      // Tag every NEW inventory row with the source that created it.
+      // On merge updates we keep the original sourceId (row was created by the first import).
+      // This lets us delete only the rows added by a specific source when it is removed.
+      if (sourceId) attrs = { ...attrs, sourceId };
+
       // Null locationId requires special handling: PostgreSQL unique constraints
       // treat NULL ≠ NULL, so upsert/ON CONFLICT can't match null locationId.
       // Split into findFirst + create/update to avoid silent duplicates.
+      // When a locationCode is present but unresolved, include it in the lookup
+      // so two rows with the same SKU at different warehouses aren't collapsed.
       const invData = { quantity: decimal(invQty) ?? 0, ...invOpt, attributes: attrs };
       const existingInv = locationId
         ? await prisma.inventoryItem.findUnique({
@@ -582,14 +624,27 @@ async function upsertEntity(
             select: { id: true },
           })
         : await prisma.inventoryItem.findFirst({
-            where: { organizationId: orgId, productId: invProduct.id, locationId: null },
+            where: {
+              organizationId: orgId,
+              productId: invProduct.id,
+              locationId: null,
+              // Disambiguate by raw locationCode stored in attributes
+              ...(data.locationCode
+                ? { attributes: { path: ["locationCode"], equals: data.locationCode } }
+                : {}),
+            },
             select: { id: true },
           });
 
       if (existingInv) {
+        // Merge: ADD quantity, keep the original sourceId (row belongs to its creator).
+        // Replace: overwrite everything including sourceId (fresh import owns all rows).
+        const { quantity: _qty, attributes: _attrs, ...invDataCore } = invData;
         await prisma.inventoryItem.update({
           where: { id: existingInv.id },
-          data: invData,
+          data: importMode === "merge"
+            ? { ...invDataCore, quantity: { increment: decimal(invQty) ?? 0 } }
+            : invData,
           select: { id: true },
         });
       } else {

@@ -109,8 +109,8 @@ export async function GET(_req: Request) {
   const woList = workOrders
     .filter((wo) => wo.status !== "COMPLETED" && wo.status !== "CLOSED" && wo.status !== "CANCELLED")
     .map((wo) => {
-      const planned = Number(wo.qtyPlanned || wo.plannedQty || 0);
-      const produced = Number(wo.qtyProduced || wo.actualQty || 0);
+      const planned = Number(wo.plannedQty ?? 0);
+      const produced = Number(wo.actualQty ?? 0);
       const progressPct = planned > 0 ? Math.round((produced / planned) * 100) : 0;
       const dueDate = wo.dueDate ?? wo.scheduledEnd;
       const isOverdue = dueDate ? new Date(dueDate) < now : false;

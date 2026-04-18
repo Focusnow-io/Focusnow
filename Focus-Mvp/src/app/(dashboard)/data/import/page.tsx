@@ -18,8 +18,8 @@
  *  • "Extra fields as metadata" lives behind an Advanced toggle.
  */
 
-import { useState, useRef, useCallback, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useRef, useCallback, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -42,7 +42,6 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowLeft,
-  Layers,
   Save,
   ChevronDown,
   ChevronUp,
@@ -465,11 +464,22 @@ function plural(n: number, noun: string) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ImportPage() {
+  return (
+    <Suspense>
+      <ImportPageInner />
+    </Suspense>
+  );
+}
+
+function ImportPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ── Core wizard state ─────────────────────────────────────────────────────
-  const [step, setStep] = useState<Step>("select");
+  // If a resume ID is present, skip the hub and show a loading state until data arrives
+  const resumeId = searchParams.get("resume");
+  const [step, setStep] = useState<Step>(resumeId ? "upload" : "select");
   const [file, setFile] = useState<File | null>(null);
   const [entity, setEntity] = useState<EntityType>("Product");
   const [uploading, setUploading] = useState(false);
@@ -492,9 +502,6 @@ export default function ImportPage() {
   // ── Registry mapping UI state ─────────────────────────────────────────────
   // Columns the user has explicitly flagged as missing from the registry.
   const [flaggedColumns, setFlaggedColumns] = useState<string[]>([]);
-  // Whether the user acknowledged proceeding with unmapped required fields.
-  const [acknowledgedUnmapped, setAcknowledgedUnmapped] = useState(false);
-
   // ── Sheet escape hatch ────────────────────────────────────────────────────
   const [showSheetPicker, setShowSheetPicker] = useState(false);
 
@@ -538,6 +545,10 @@ export default function ImportPage() {
   const [parentSourceId, setParentSourceId] = useState<string | null>(null);
   const [addingPass, setAddingPass] = useState(false);
 
+  // ── Re-upload mode ────────────────────────────────────────────────────────
+  const [importMode, setImportMode] = useState<"replace" | "merge">("merge");
+  const [reuploadModal, setReuploadModal] = useState<{ entity: EntityType; label: string } | null>(null);
+
   // ── Supply chain hub: coverage data (all 16 entity types via DataSource) ──
   const [coverageMap, setCoverageMap] = useState<Record<string, CoverageEntry>>({});
   const [freshnessLoading, setFreshnessLoading] = useState(true);
@@ -551,6 +562,26 @@ export default function ImportPage() {
       .catch(() => {/* non-critical — coverage display degrades gracefully */})
       .finally(() => setFreshnessLoading(false));
   }, [freshnessVersion]);
+
+  // ── Resume a previously started import ───────────────────────────────────
+  useEffect(() => {
+    const resumeId = searchParams.get("resume");
+    if (!resumeId) return;
+
+    fetch(`/api/data/sources/${resumeId}`)
+      .then((r) => r.json())
+      .then((data: UploadResult & { attributeKeys?: string[] }) => {
+        setUploadResult(data);
+        setMapping(data.suggestedMapping ?? {});
+        setScore(data.score ?? {});
+        setAttributeKeys(data.attributeKeys ?? []);
+        setStep("map");
+      })
+      .catch(() => {
+        // If the source can't be loaded, stay on select screen
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Derived values ────────────────────────────────────────────────────────
   const fields = uploadResult
@@ -610,6 +641,7 @@ export default function ImportPage() {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("entity", entity);
+    fd.append("importMode", importMode);
     if (overrideSheet) fd.append("sheet", overrideSheet);
 
     let data: UploadResult;
@@ -984,7 +1016,6 @@ export default function ImportPage() {
     setShowSheetPicker(false);
     setDismissedErrorBanner(false);
     setFlaggedColumns([]);
-    setAcknowledgedUnmapped(false);
     setMultiEntityProgress(null);
     setAggregatedDelta({});
     setSnapshotPreview(null);
@@ -1034,7 +1065,6 @@ export default function ImportPage() {
     });
 
     // Reset acknowledgement if user changes the mapping
-    setAcknowledgedUnmapped(false);
   }
 
   /** Flag a source column as missing from the registry and POST to the API. */
@@ -1154,7 +1184,14 @@ export default function ImportPage() {
                 </div>
               </div>
               <button
-                onClick={() => { setEntity(type); setStep("upload"); }}
+                onClick={() => {
+                  if (hasData) {
+                    setReuploadModal({ entity: type, label: ENTITY_LABELS[type] });
+                  } else {
+                    setEntity(type);
+                    setStep("upload");
+                  }
+                }}
                 className="shrink-0 text-xs font-medium px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50 transition-colors"
               >
                 {hasData ? "Re-upload" : "Upload"}
@@ -1242,7 +1279,17 @@ export default function ImportPage() {
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* STEP: Upload                                                       */}
       {/* ────────────────────────────────────────────────────────────────── */}
-      {step === "upload" && (
+      {step === "upload" && resumeId && !uploadResult && (
+        <div className="flex items-center justify-center py-24 text-gray-400 text-sm gap-2">
+          <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+          </svg>
+          Loading import…
+        </div>
+      )}
+
+      {step === "upload" && !(resumeId && !uploadResult) && (
         <div className="space-y-4">
           {/* Back button — outside the card */}
           <button
@@ -1495,8 +1542,6 @@ export default function ImportPage() {
           mapping={mapping}
           appliedTemplate={appliedTemplate}
           flaggedColumns={flaggedColumns}
-          acknowledgedUnmapped={acknowledgedUnmapped}
-          onAcknowledgeUnmapped={setAcknowledgedUnmapped}
           onSourceColumnMapping={handleSourceColumnMapping}
           showAdvanced={showAdvanced}
           onToggleAdvanced={() => setShowAdvanced((v) => !v)}
@@ -1722,7 +1767,7 @@ export default function ImportPage() {
                               <p>{plural(counts.created, `new ${noun}`)} added</p>
                             )}
                             {counts.updated > 0 && (
-                              <p>{plural(counts.updated, `${noun}`)} {counts.created > 0 ? "merged (duplicate rows)" : "updated"}</p>
+                              <p>{plural(counts.updated, `${noun}`)} updated</p>
                             )}
                             {(counts as { deactivated?: number }).deactivated != null && (counts as { deactivated?: number }).deactivated! > 0 && (
                               <p className="text-amber-600">
@@ -1865,35 +1910,6 @@ export default function ImportPage() {
                 </div>
               )}
 
-            {/* Multi-pass: map another entity from the same file */}
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <Layers className="w-4 h-4 text-slate-400 shrink-0" />
-                <p className="text-sm font-medium text-slate-700">
-                  Does this file also contain other data?
-                </p>
-              </div>
-              <p className="text-xs text-gray-400 -mt-1">
-                No re-upload needed — reuse the same file.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {ENTITY_OPTIONS.filter(
-                  ([e]) => e !== uploadResult.entity
-                ).map(([e, label]) => (
-                  <Button
-                    key={e}
-                    size="sm"
-                    variant="outline"
-                    disabled={addingPass}
-                    onClick={() => handleAddPass(e)}
-                    className="text-xs h-8"
-                  >
-                    {addingPass ? "…" : `Also import ${label}`}
-                  </Button>
-                ))}
-              </div>
-            </div>
-
             <div className="flex gap-3">
               <Button
                 variant="outline"
@@ -1909,6 +1925,59 @@ export default function ImportPage() {
           </CardContent>
         </Card>
       )}
+      {/* ── Re-upload mode modal ─────────────────────────────────────────── */}
+      {reuploadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6 space-y-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-base font-semibold text-gray-900">Re-upload {reuploadModal.label}</p>
+                <p className="text-sm text-gray-500 mt-1">You already have data for this entity. How would you like to handle it?</p>
+              </div>
+              <button
+                onClick={() => setReuploadModal(null)}
+                className="text-gray-400 hover:text-gray-600 shrink-0 mt-0.5"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid gap-3">
+              {/* Replace option */}
+              <button
+                onClick={() => {
+                  setImportMode("replace");
+                  setEntity(reuploadModal.entity);
+                  setReuploadModal(null);
+                  setStep("upload");
+                }}
+                className="w-full text-left rounded-xl border-2 border-gray-200 hover:border-red-400 hover:bg-red-50/40 px-4 py-4 transition-colors group"
+              >
+                <p className="text-sm font-semibold text-gray-900 group-hover:text-red-700">Start fresh</p>
+                <p className="text-xs text-gray-500 mt-0.5 group-hover:text-red-600">
+                  Delete all existing {reuploadModal.label.toLowerCase()} records and import only the new file.
+                </p>
+              </button>
+
+              {/* Merge option */}
+              <button
+                onClick={() => {
+                  setImportMode("merge");
+                  setEntity(reuploadModal.entity);
+                  setReuploadModal(null);
+                  setStep("upload");
+                }}
+                className="w-full text-left rounded-xl border-2 border-gray-200 hover:border-emerald-400 hover:bg-emerald-50/40 px-4 py-4 transition-colors group"
+              >
+                <p className="text-sm font-semibold text-gray-900 group-hover:text-emerald-700">Add &amp; update</p>
+                <p className="text-xs text-gray-500 mt-0.5 group-hover:text-emerald-600">
+                  Keep existing records — new rows are added, matching rows are updated.
+                </p>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1920,8 +1989,6 @@ interface RegistryMapStepProps {
   mapping: Record<string, string>;
   appliedTemplate: MappingTemplate | null;
   flaggedColumns: string[];
-  acknowledgedUnmapped: boolean;
-  onAcknowledgeUnmapped: (v: boolean) => void;
   onSourceColumnMapping: (sourceCol: string, value: string) => void;
   showAdvanced: boolean;
   onToggleAdvanced: () => void;
@@ -1943,8 +2010,6 @@ function RegistryMapStep({
   mapping,
   appliedTemplate,
   flaggedColumns,
-  acknowledgedUnmapped,
-  onAcknowledgeUnmapped,
   onSourceColumnMapping,
   showAdvanced,
   onToggleAdvanced,
@@ -1976,7 +2041,7 @@ function RegistryMapStep({
   const unmappedRequired = entityFields.filter(
     (f) => f.required && !mapping[f.field]
   );
-  const canProceed = unmappedRequired.length === 0 || acknowledgedUnmapped;
+  const canProceed = unmappedRequired.length === 0;
 
   // Sort headers: mapped first (sorted by confidence), then unmapped, then flagged
   const sortedHeaders = [...uploadResult.headers].sort((a, b) => {
@@ -2173,15 +2238,6 @@ function RegistryMapStep({
                 <li key={f.field}>{f.label}</li>
               ))}
             </ul>
-            <label className="flex items-center gap-2 text-xs text-red-600 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={acknowledgedUnmapped}
-                onChange={(e) => onAcknowledgeUnmapped(e.target.checked)}
-                className="accent-red-600"
-              />
-              I understand, proceed anyway
-            </label>
           </div>
         )}
 

@@ -58,6 +58,7 @@ export default async function SettingsPage() {
         <DangerZoneSection
           workspaceName={org.name}
           userEmail={session.user.email!}
+          userRole={member.role}
         />
       </div>
     </div>
