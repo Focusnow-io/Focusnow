@@ -1,729 +1,615 @@
-"use client";
+'use client'
 
-import { useState, useCallback, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from '@/components/ui/select'
 import {
-  Brain,
-  Sparkles,
   ArrowLeft,
-  ArrowUp,
+  Sparkles,
   Loader2,
-  AlertTriangle,
+  Plus,
+  X,
   CheckCircle,
-  Eye,
-  MessageCircle,
-  PenLine,
-  ChevronRight,
-} from "lucide-react";
-import {
-  CATEGORIES,
-  ENTITIES,
-  OPERATORS,
-  ENTITY_FIELDS,
-} from "../_lib/constants";
-import { flattenSample } from "../_lib/helpers";
-import { getRelevantPrompts } from "../_lib/example-prompts";
-import InteractiveSummary from "../_components/InteractiveSummary";
+  Lock,
+  GitBranch,
+  Lightbulb,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { useToast } from '@/components/ui/toast'
+import { TYPE_CONFIG, DOMAIN_LABELS, WEIGHT_CONFIG } from '@/lib/brain/brain-config'
+import { MOCK_BRAIN_ENTRIES } from '@/lib/brain/mock-data'
+import type {
+  BrainEntryType,
+  BrainEntryDomain,
+  AIContextWeight,
+} from '@/lib/brain/brain-types'
 
-// ── Types ───────────────────────────────────────────────────
+type TabId = 'write' | 'form' | 'import'
 
-type FlowStep = "input" | "loading" | "clarify" | "review";
+export default function NewEntryPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const toast = useToast()
+  const [activeTab, setActiveTab] = useState<TabId>('write')
 
-interface PreviewData {
-  matchCount: number;
-  totalCount: number;
-  samples: Record<string, unknown>[];
-}
-
-// ── Component ───────────────────────────────────────────────
-
-export default function NewRulePage() {
-  const router = useRouter();
-
-  // Flow state
-  const [step, setStep] = useState<FlowStep>("input");
-  const [nlPrompt, setNlPrompt] = useState("");
-  const [aiError, setAiError] = useState("");
-  const [clarifyingQuestion, setClarifyingQuestion] = useState("");
-  const [suggestedAnswers, setSuggestedAnswers] = useState<string[]>([]);
-  const [selectedOption, setSelectedOption] = useState<number | null>(null);
-  const [clarificationAnswer, setClarificationAnswer] = useState("");
-  const [showOtherInput, setShowOtherInput] = useState(false);
-  const [clarifyLoading, setClarifyLoading] = useState(false);
-
-  // Structured form state
-  const [form, setForm] = useState({
-    name: "",
-    description: "",
-    category: "THRESHOLD",
-    entity: "InventoryItem",
-    tags: "",
-    condField: "quantity",
-    condOperator: "lt",
-    condValue: "100",
-    commitMessage: "",
-  });
-
-  // Preview state
-  const [preview, setPreview] = useState<PreviewData | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Save state
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
-
-  // Data-aware example prompts
-  const [examplePrompts, setExamplePrompts] = useState<string[]>([]);
-
-  // Textarea ref for auto-resize
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    fetch("/api/brain/entities")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.entities) {
-          const names = data.entities.map((e: { name: string }) => e.name);
-          setExamplePrompts(getRelevantPrompts(names));
-        } else {
-          setExamplePrompts(getRelevantPrompts([]));
-        }
-      })
-      .catch(() => setExamplePrompts(getRelevantPrompts([])));
-  }, []);
-
-  // ── Helpers ─────────────────────────────────────────────────
-
-  function set(key: keyof typeof form, val: string) {
-    setForm((f) => ({ ...f, [key]: val }));
-  }
-
-  function handleTextareaChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    setNlPrompt(e.target.value);
-    const el = e.target;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-  }
-
-  // ── AI Parse ────────────────────────────────────────────────
-
-  async function handleParse(prompt: string) {
-    setStep("loading");
-    setAiError("");
-    setClarifyingQuestion("");
-
-    try {
-      const res = await fetch("/api/brain/rules/parse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to parse rule");
-      }
-
-      const parsed = await res.json();
-
-      // Pre-fill form from AI response
-      setForm((f) => ({
-        ...f,
-        name: parsed.name || f.name,
-        description: parsed.description || f.description,
-        category: CATEGORIES.includes(parsed.category) ? parsed.category : f.category,
-        entity: ENTITIES.includes(parsed.entity) ? parsed.entity : f.entity,
-        condField: parsed.condition?.field || f.condField,
-        condOperator: parsed.condition?.operator || f.condOperator,
-        condValue: String(parsed.condition?.value ?? f.condValue),
-      }));
-
-      if (parsed.clarifyingQuestion) {
-        setClarifyingQuestion(parsed.clarifyingQuestion);
-        setSuggestedAnswers(
-          Array.isArray(parsed.suggestedAnswers) ? parsed.suggestedAnswers : []
-        );
-        setSelectedOption(null);
-        setClarificationAnswer("");
-        setShowOtherInput(false);
-        setStep("clarify");
-      } else {
-        setStep("review");
-      }
-    } catch (err) {
-      setAiError(err instanceof Error ? err.message : "An unexpected error occurred");
-      setStep("input");
-    }
-  }
-
-  // ── Clarification Re-parse ─────────────────────────────────
-
-  async function handleClarify() {
-    setClarifyLoading(true);
-    setAiError("");
-
-    try {
-      const res = await fetch("/api/brain/rules/parse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: nlPrompt,
-          clarification: clarificationAnswer,
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to parse rule");
-      }
-
-      const parsed = await res.json();
-
-      setForm((f) => ({
-        ...f,
-        name: parsed.name || f.name,
-        description: parsed.description || f.description,
-        category: CATEGORIES.includes(parsed.category)
-          ? parsed.category
-          : f.category,
-        entity: ENTITIES.includes(parsed.entity) ? parsed.entity : f.entity,
-        condField: parsed.condition?.field || f.condField,
-        condOperator: parsed.condition?.operator || f.condOperator,
-        condValue: String(parsed.condition?.value ?? f.condValue),
-      }));
-
-      if (parsed.clarifyingQuestion) {
-        setClarifyingQuestion(parsed.clarifyingQuestion);
-        setSuggestedAnswers(
-          Array.isArray(parsed.suggestedAnswers) ? parsed.suggestedAnswers : []
-        );
-        setSelectedOption(null);
-        setClarificationAnswer("");
-        setShowOtherInput(false);
-      } else {
-        setClarifyingQuestion("");
-        setStep("review");
-      }
-    } catch (err) {
-      setAiError(
-        err instanceof Error ? err.message : "An unexpected error occurred"
-      );
-    } finally {
-      setClarifyLoading(false);
-    }
-  }
-
-  // ── Live Preview ────────────────────────────────────────────
-
-  const fetchPreview = useCallback(async () => {
-    setPreviewLoading(true);
-    try {
-      const res = await fetch("/api/brain/rules/preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          entity: form.entity,
-          condition: {
-            field: form.condField,
-            operator: form.condOperator,
-            value: isNaN(Number(form.condValue))
-              ? form.condValue
-              : Number(form.condValue),
-          },
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setPreview(data);
-      } else {
-        setPreview(null);
-      }
-    } catch {
-      setPreview(null);
-    } finally {
-      setPreviewLoading(false);
-    }
-  }, [form.entity, form.condField, form.condOperator, form.condValue]);
-
-  // Debounced preview on condition change
-  useEffect(() => {
-    if (step !== "review") return;
-
-    if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
-    previewTimerRef.current = setTimeout(() => {
-      fetchPreview();
-    }, 500);
-
-    return () => {
-      if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
-    };
-  }, [step, fetchPreview]);
-
-  // ── Save ────────────────────────────────────────────────────
-
-  async function handleSave() {
-    setSaveError("");
-    setSaving(true);
-
-    const payload = {
-      name: form.name,
-      description: form.description || undefined,
-      category: form.category,
-      entity: form.entity,
-      tags: form.tags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
-      condition: {
-        field: form.condField,
-        operator: form.condOperator,
-        value: isNaN(Number(form.condValue))
-          ? form.condValue
-          : Number(form.condValue),
-        entity: form.entity,
-      },
-      commitMessage: form.commitMessage || "Rule created",
-    };
-
-    try {
-      const res = await fetch("/api/brain/rules", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error?.formErrors?.[0] || "Failed to create rule");
-      }
-
-      router.push(`/brain/${data.id}`);
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to create rule");
-      setSaving(false);
-    }
-  }
-
-  // ── Render: Step 1 — Natural Language Input ─────────────────
-
-  if (step === "input" || step === "loading") {
-    return (
-      <div className="flex -m-6 h-[calc(100vh-3.25rem)] flex-col">
-        {/* Header bar */}
-        <div
-          className="h-12 px-4 flex items-center gap-2 shrink-0 bg-white"
-          style={{ borderBottom: "1px solid #e8e8e8" }}
-        >
-          <button
-            onClick={() => router.push("/brain")}
-            className="w-7 h-7 rounded-md flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <Brain className="w-4 h-4 text-gray-400" />
-          <span className="text-sm font-medium text-gray-700">New Rule</span>
-        </div>
-
-        {/* Centered content */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="flex flex-col items-center justify-center min-h-[70vh] gap-8 px-4 py-12">
-            {/* Hero */}
-            <div className="text-center max-w-lg">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center mx-auto mb-5 shadow-lg shadow-blue-500/20">
-                <Brain className="w-6 h-6 text-white" />
-              </div>
-              <h1 className="text-xl font-semibold text-gray-900">
-                Describe a rule in your own words.
-              </h1>
-              <p className="text-sm text-gray-500 mt-2 leading-relaxed max-w-md mx-auto">
-                Don&apos;t worry about structure or format. Just explain it the
-                way you&apos;d explain it to a new hire. Focus will do the rest.
-              </p>
-            </div>
-
-            {/* Suggested prompts */}
-            {examplePrompts.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-xl">
-                {examplePrompts.map((prompt) => (
-                  <button
-                    key={prompt}
-                    type="button"
-                    className="text-left px-4 py-3 rounded-xl border border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50 text-sm text-gray-700 transition-colors disabled:opacity-40"
-                    onClick={() => {
-                      setNlPrompt(prompt);
-                      handleParse(prompt);
-                    }}
-                    disabled={step === "loading"}
-                  >
-                    {prompt}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Error message */}
-            {aiError && (
-              <div className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm bg-red-50 border border-red-200 text-red-700 max-w-xl w-full">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                {aiError}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Input area — pinned to bottom like chat */}
-        <div className="shrink-0 px-4 pb-4 pt-2">
-          <div className="max-w-xl mx-auto">
-            <div className="rounded-2xl border-2 border-blue-400 bg-white shadow-sm focus-within:border-blue-500 transition-colors">
-              <textarea
-                ref={textareaRef}
-                rows={1}
-                placeholder="e.g. &quot;Stock should not fall below reorder point for any SKU&quot;"
-                value={nlPrompt}
-                onChange={handleTextareaChange}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && nlPrompt.trim()) {
-                    e.preventDefault();
-                    handleParse(nlPrompt);
-                  }
-                }}
-                disabled={step === "loading"}
-                className="w-full px-4 pt-4 pb-2 text-sm bg-transparent resize-none focus:outline-none placeholder:text-gray-400 disabled:opacity-60 text-gray-900 leading-relaxed"
-                style={{ minHeight: "44px", maxHeight: "160px" }}
-              />
-              <div className="flex items-center justify-between px-4 pb-3">
-                <button
-                  type="button"
-                  className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
-                  onClick={() => setStep("review")}
-                >
-                  Create manually instead
-                </button>
-                <button
-                  onClick={() => nlPrompt.trim() && handleParse(nlPrompt)}
-                  disabled={!nlPrompt.trim() || step === "loading"}
-                  className="w-8 h-8 rounded-full bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
-                >
-                  {step === "loading" ? (
-                    <Loader2 className="w-3.5 h-3.5 text-white animate-spin" />
-                  ) : (
-                    <ArrowUp className="w-3.5 h-3.5 text-white" />
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Render: Step 1.5 — Clarify ──────────────────────────────
-
-  if (step === "clarify") {
-    return (
-      <div className="flex -m-6 h-[calc(100vh-3.25rem)] flex-col">
-        {/* Header bar */}
-        <div
-          className="h-12 px-4 flex items-center gap-2 shrink-0 bg-white"
-          style={{ borderBottom: "1px solid #e8e8e8" }}
-        >
-          <button
-            onClick={() => setStep("input")}
-            className="w-7 h-7 rounded-md flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <Brain className="w-4 h-4 text-gray-400" />
-          <span className="text-sm font-medium text-gray-700">Clarify Rule</span>
-        </div>
-
-        {/* Messages area */}
-        <div className="flex-1 overflow-y-auto py-8">
-          <div className="max-w-xl mx-auto px-4 space-y-5">
-            {/* User's original prompt — right aligned bubble */}
-            <div className="flex justify-end">
-              <div className="max-w-[80%] bg-gray-900 text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed">
-                {nlPrompt}
-              </div>
-            </div>
-
-            {/* AI's understanding — left aligned */}
-            <div className="space-y-3">
-              <div className="flex items-start gap-3">
-                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shrink-0 mt-0.5">
-                  <Brain className="w-3.5 h-3.5 text-white" />
-                </div>
-                <div className="space-y-3 flex-1 min-w-0">
-                  <div className="text-sm text-gray-800 leading-relaxed">
-                    <p className="font-medium text-gray-900 mb-1.5">Here&apos;s what I understood:</p>
-                    <div className="bg-blue-50/70 border border-blue-100 rounded-xl px-4 py-3">
-                      <InteractiveSummary
-                        entity={form.entity}
-                        condField={form.condField}
-                        condOperator={form.condOperator}
-                        condValue={form.condValue}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Clarifying question */}
-                  <div className="flex items-start gap-2 text-sm text-gray-700">
-                    <MessageCircle className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" />
-                    <p>{clarifyingQuestion}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Suggested answers */}
-            <div className="pl-10 space-y-2">
-              {suggestedAnswers.map((answer, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  disabled={clarifyLoading}
-                  onClick={() => {
-                    setSelectedOption(i);
-                    setClarificationAnswer(answer);
-                    setShowOtherInput(false);
-                  }}
-                  className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all duration-150 ${
-                    selectedOption === i
-                      ? "border-blue-400 bg-blue-50 text-blue-900 shadow-sm"
-                      : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50"
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
-                        selectedOption === i
-                          ? "border-blue-500"
-                          : "border-gray-300"
-                      }`}
-                    >
-                      {selectedOption === i && (
-                        <div className="w-2 h-2 rounded-full bg-blue-500" />
-                      )}
-                    </div>
-                    {answer}
-                  </div>
-                </button>
-              ))}
-
-              {/* Other — free text option */}
-              <button
-                type="button"
-                disabled={clarifyLoading}
-                onClick={() => {
-                  setSelectedOption(null);
-                  setShowOtherInput(true);
-                  setClarificationAnswer("");
-                }}
-                className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all duration-150 ${
-                  showOtherInput
-                    ? "border-blue-400 bg-blue-50 text-blue-900 shadow-sm"
-                    : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
-                      showOtherInput ? "border-blue-500" : "border-gray-300"
-                    }`}
-                  >
-                    {showOtherInput && (
-                      <div className="w-2 h-2 rounded-full bg-blue-500" />
-                    )}
-                  </div>
-                  <PenLine className="w-3.5 h-3.5 shrink-0" />
-                  Other...
-                </div>
-              </button>
-
-              {showOtherInput && (
-                <div className="pl-7">
-                  <Textarea
-                    placeholder="Type your answer..."
-                    value={clarificationAnswer}
-                    onChange={(e) => setClarificationAnswer(e.target.value)}
-                    rows={2}
-                    autoFocus
-                    disabled={clarifyLoading}
-                    className="text-sm rounded-xl"
-                    onKeyDown={(e) => {
-                      if (
-                        e.key === "Enter" &&
-                        !e.shiftKey &&
-                        clarificationAnswer.trim()
-                      ) {
-                        e.preventDefault();
-                        handleClarify();
-                      }
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Error */}
-            {aiError && (
-              <div className="pl-10 flex items-center gap-2 px-4 py-3 rounded-xl text-sm bg-red-50 border border-red-200 text-red-700">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                {aiError}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Bottom actions */}
-        <div className="shrink-0 px-4 pb-4 pt-2">
-          <div className="max-w-xl mx-auto flex gap-3">
-            <Button
-              onClick={handleClarify}
-              disabled={!clarificationAnswer.trim() || clarifyLoading}
-              className="gap-2"
-            >
-              {clarifyLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Refining...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  Continue
-                </>
-              )}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setClarifyingQuestion("");
-                setStep("review");
-              }}
-              disabled={clarifyLoading}
-            >
-              Skip — use this interpretation
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Render: Step 2 — Review & Adjust Structured Form ────────
+  const preType = (searchParams.get('type') as BrainEntryType) || undefined
+  const preDomain = (searchParams.get('domain') as BrainEntryDomain) || undefined
 
   return (
-    <div className="flex -m-6 h-[calc(100vh-3.25rem)] flex-col">
-      {/* Header bar */}
-      <div
-        className="h-12 px-4 flex items-center gap-2 shrink-0 bg-white"
-        style={{ borderBottom: "1px solid #e8e8e8" }}
+    <div className="space-y-6 w-full max-w-4xl mx-auto">
+      {/* Back link */}
+      <Link
+        href="/brain"
+        className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors"
       >
-        <button
-          onClick={() => setStep("input")}
-          className="w-7 h-7 rounded-md flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-        </button>
-        <Eye className="w-4 h-4 text-gray-400" />
-        <span className="text-sm font-medium text-gray-700">Review Rule</span>
-        <span className="text-xs text-gray-400 ml-1">Verify and adjust before saving</span>
+        <ArrowLeft className="w-4 h-4" />
+        Operational Brain
+      </Link>
+
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">
+          Add to Operational Brain
+        </h1>
+        <p className="text-sm text-slate-500 mt-1">
+          Capture any rule, policy, constraint, process, or knowledge your team
+          operates by.
+        </p>
       </div>
 
-      {/* Scrollable form */}
-      <div className="flex-1 overflow-y-auto py-6">
-        <div className="max-w-2xl mx-auto px-4 space-y-5">
-          {/* Interactive plain-English summary */}
-          <div className="bg-blue-50/60 border border-blue-100 rounded-xl px-5 py-4">
-            <div className="flex items-start gap-3">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shrink-0 mt-0.5">
-                <Sparkles className="w-3.5 h-3.5 text-white" />
+      {/* Tab bar */}
+      <div className="border-b border-slate-200">
+        <div className="flex gap-6">
+          {([
+            { id: 'write', label: 'Write' },
+            { id: 'form', label: 'Form' },
+            { id: 'import', label: 'Import' },
+          ] as const).map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                'pb-2.5 text-sm font-medium border-b-2 transition-colors',
+                activeTab === tab.id
+                  ? 'border-orange-500 text-orange-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {activeTab === 'write' && <WriteTab />}
+      {activeTab === 'form' && (
+        <FormTab preType={preType} preDomain={preDomain} />
+      )}
+      {activeTab === 'import' && <ImportTab />}
+    </div>
+  )
+}
+
+// ─── Tab 1: Write ───────────────────────────────────────────────
+
+function WriteTab() {
+  const router = useRouter()
+  const toast = useToast()
+  const [step, setStep] = useState<'input' | 'loading' | 'preview'>('input')
+  const [nlInput, setNlInput] = useState('')
+
+  // Structured form state (pre-filled after "AI" parse)
+  const demo = MOCK_BRAIN_ENTRIES[0]
+  const [form, setForm] = useState({
+    type: demo.type as BrainEntryType,
+    domain: demo.domain as BrainEntryDomain,
+    title: demo.title,
+    summary: demo.summary,
+    body: demo.body,
+    conditions: [...demo.conditions],
+    actions: [...demo.actions],
+    exceptions: [...demo.exceptions],
+    aiContextWeight: demo.aiContextWeight as AIContextWeight,
+    tags: [...demo.tags],
+    effectiveDate: demo.effectiveDate || '',
+  })
+
+  function handleStructure() {
+    if (nlInput.trim().length < 20) return
+    setStep('loading')
+    // TODO: replace with actual API call to /api/brain/ai-parse
+    setTimeout(() => setStep('preview'), 1500)
+  }
+
+  async function handleSave(status: 'DRAFT' | 'ACTIVE') {
+    // TODO: wire to API — POST /api/brain
+    const payload = { ...form, status }
+    console.log('Save payload:', payload)
+    toast.success(
+      status === 'DRAFT'
+        ? 'Entry saved as Draft (demo mode — not persisted)'
+        : 'Entry published (demo mode — not persisted)'
+    )
+    router.push('/brain/brain-001')
+  }
+
+  if (step === 'input' || step === 'loading') {
+    return (
+      <div className="space-y-4">
+        <div>
+          <Label className="text-sm font-medium text-slate-700">
+            Describe your operational knowledge in plain language
+          </Label>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Don&apos;t worry about format. Explain it the way you&apos;d tell a
+            new employee.
+          </p>
+        </div>
+
+        <div className="relative">
+          <Textarea
+            value={nlInput}
+            onChange={(e) => setNlInput(e.target.value)}
+            placeholder={`For example:\n\n"We never place a PO with any single supplier for more than 40% of our category spend. This is a hard rule — no exceptions without CEO approval. It came from a painful experience in 2021 when our main plastics supplier had a factory fire and we had 78% concentration with them."`}
+            className="min-h-48 resize-y text-base rounded-xl p-4"
+            disabled={step === 'loading'}
+          />
+          <span className="absolute bottom-3 right-3 text-xs text-slate-400">
+            {nlInput.length} chars
+          </span>
+        </div>
+
+        {step === 'loading' ? (
+          <div className="flex flex-col items-center py-8 gap-3">
+            <Loader2 className="w-6 h-6 text-orange-500 animate-spin" />
+            <p className="text-sm text-slate-500">
+              Structuring your operational knowledge...
+            </p>
+            <div className="w-48 h-1 bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-full bg-orange-500 rounded-full animate-pulse w-2/3" />
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-end">
+            <Button
+              onClick={handleStructure}
+              disabled={nlInput.trim().length < 20}
+              className="gap-1.5"
+            >
+              <Sparkles className="w-4 h-4" />
+              Structure with AI
+            </Button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Step 2: Structured Preview
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Left: Original input */}
+        <div>
+          <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+            Your input
+          </Label>
+          <div className="mt-2 bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm text-slate-500 min-h-40">
+            {nlInput}
+          </div>
+          <button
+            onClick={() => setStep('input')}
+            className="text-sm text-orange-600 hover:underline mt-2"
+          >
+            &larr; Edit
+          </button>
+        </div>
+
+        {/* Right: Structured result */}
+        <div className="space-y-4">
+          <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+            Structured by AI — review and edit
+          </Label>
+
+          <div className="space-y-3 mt-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-500">Type *</Label>
+                <Select
+                  value={form.type}
+                  onValueChange={(v) =>
+                    setForm((f) => ({ ...f, type: v as BrainEntryType }))
+                  }
+                >
+                  <SelectTrigger className="rounded-lg">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(TYPE_CONFIG) as BrainEntryType[]).map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {TYPE_CONFIG[t].label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <InteractiveSummary
-                entity={form.entity}
-                condField={form.condField}
-                condOperator={form.condOperator}
-                condValue={form.condValue}
-                interactive
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-500">Domain *</Label>
+                <Select
+                  value={form.domain}
+                  onValueChange={(v) =>
+                    setForm((f) => ({ ...f, domain: v as BrainEntryDomain }))
+                  }
+                >
+                  <SelectTrigger className="rounded-lg">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(DOMAIN_LABELS) as BrainEntryDomain[]).map(
+                      (d) => (
+                        <SelectItem key={d} value={d}>
+                          {DOMAIN_LABELS[d]}
+                        </SelectItem>
+                      )
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-slate-500">Title *</Label>
+                <span className="text-xs text-slate-400">
+                  {form.title.length}/80
+                </span>
+              </div>
+              <Input
+                value={form.title}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, title: e.target.value.slice(0, 80) }))
+                }
+                className="rounded-lg"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-slate-500">Summary *</Label>
+                <span className="text-xs text-slate-400">
+                  {form.summary.length}/200
+                </span>
+              </div>
+              <Textarea
+                value={form.summary}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    summary: e.target.value.slice(0, 200),
+                  }))
+                }
+                rows={2}
+                className="rounded-lg"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-500">Body</Label>
+              <Textarea
+                value={form.body}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, body: e.target.value }))
+                }
+                rows={5}
+                className="rounded-lg font-mono text-sm"
+              />
+            </div>
+
+            {/* Collapsible sections */}
+            <DynamicListSection
+              title="Conditions"
+              items={form.conditions}
+              onChange={(items) => setForm((f) => ({ ...f, conditions: items }))}
+            />
+            <DynamicListSection
+              title="Actions"
+              items={form.actions}
+              onChange={(items) => setForm((f) => ({ ...f, actions: items }))}
+            />
+            <DynamicListSection
+              title="Exceptions"
+              items={form.exceptions}
+              onChange={(items) => setForm((f) => ({ ...f, exceptions: items }))}
+            />
+
+            {/* AI Context Weight */}
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-500">AI Context Weight</Label>
+              <WeightSegmentedControl
+                value={form.aiContextWeight}
+                onChange={(w) =>
+                  setForm((f) => ({ ...f, aiContextWeight: w }))
+                }
+              />
+            </div>
+
+            {/* Tags */}
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-500">Tags</Label>
+              <TagInput
+                tags={form.tags}
+                onChange={(tags) => setForm((f) => ({ ...f, tags }))}
+              />
+            </div>
+
+            {/* Effective Date */}
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-500">Effective Date</Label>
+              <Input
+                type="date"
+                value={form.effectiveDate}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, effectiveDate: e.target.value }))
+                }
+                className="rounded-lg"
               />
             </div>
           </div>
+        </div>
+      </div>
 
-          {/* Rule definition */}
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-900">Rule definition</h3>
+      {/* Footer buttons */}
+      <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+        <Button variant="ghost" onClick={() => setStep('input')}>
+          &larr; Back to input
+        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => handleSave('DRAFT')}>
+            Save as Draft
+          </Button>
+          <Button onClick={() => handleSave('ACTIVE')}>Publish as Active</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Tab 2: Form ────────────────────────────────────────────────
+
+function FormTab({
+  preType,
+  preDomain,
+}: {
+  preType?: BrainEntryType
+  preDomain?: BrainEntryDomain
+}) {
+  const router = useRouter()
+  const toast = useToast()
+  const [form, setForm] = useState({
+    type: preType || ('' as BrainEntryType | ''),
+    domain: preDomain || ('' as BrainEntryDomain | ''),
+    title: '',
+    summary: '',
+    body: '',
+    conditions: [''],
+    actions: [''],
+    exceptions: [''],
+    steps: [''],
+    counterparty: '',
+    leadTime: '',
+    moq: '',
+    moqCurrency: 'USD',
+    paymentTerms: '',
+    aiContextWeight: 'MEDIUM' as AIContextWeight,
+    effectiveDate: '',
+    expiryDate: '',
+    noExpiry: true,
+    tags: [] as string[],
+  })
+
+  function set<K extends keyof typeof form>(key: K, val: (typeof form)[K]) {
+    setForm((f) => ({ ...f, [key]: val }))
+  }
+
+  const showRuleFields = form.type === 'RULE' || form.type === 'CONSTRAINT'
+  const showProcessFields = form.type === 'PROCESS'
+  const showAgreementFields = form.type === 'AGREEMENT'
+
+  async function handleSave(status: 'DRAFT' | 'ACTIVE') {
+    // TODO: wire to API — POST /api/brain
+    console.log('Form save:', { ...form, status })
+    toast.success(
+      status === 'DRAFT'
+        ? 'Entry saved as Draft (demo mode — not persisted)'
+        : 'Entry published (demo mode — not persisted)'
+    )
+    router.push('/brain')
+  }
+
+  return (
+    <div className="space-y-8">
+      {/* Section: Identity */}
+      <FormSection title="Identity">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-slate-600">Type *</Label>
+            <Select
+              value={form.type}
+              onValueChange={(v) => set('type', v as BrainEntryType)}
+            >
+              <SelectTrigger className="rounded-lg">
+                <SelectValue placeholder="Select type..." />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(TYPE_CONFIG) as BrainEntryType[]).map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {TYPE_CONFIG[t].label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-slate-600">
+              Domain *
+            </Label>
+            <Select
+              value={form.domain}
+              onValueChange={(v) => set('domain', v as BrainEntryDomain)}
+            >
+              <SelectTrigger className="rounded-lg">
+                <SelectValue placeholder="Select domain..." />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(DOMAIN_LABELS) as BrainEntryDomain[]).map((d) => (
+                  <SelectItem key={d} value={d}>
+                    {DOMAIN_LABELS[d]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </FormSection>
+
+      {/* Section: Content */}
+      <FormSection title="Content">
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-medium text-slate-600">
+                Title *
+              </Label>
+              <span className="text-xs text-slate-400">
+                {form.title.length}/80
+              </span>
             </div>
-            <div className="px-5 py-4 space-y-4">
+            <Input
+              value={form.title}
+              onChange={(e) => set('title', e.target.value.slice(0, 80))}
+              placeholder="Short, descriptive title"
+              className="rounded-lg"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-medium text-slate-600">
+                Summary *
+              </Label>
+              <span className="text-xs text-slate-400">
+                {form.summary.length}/200
+              </span>
+            </div>
+            <Textarea
+              value={form.summary}
+              onChange={(e) => set('summary', e.target.value.slice(0, 200))}
+              placeholder="One sentence about what this means in practice"
+              rows={2}
+              className="rounded-lg"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-slate-600">Body</Label>
+            <Textarea
+              value={form.body}
+              onChange={(e) => set('body', e.target.value)}
+              placeholder="Full description in plain language or Markdown"
+              rows={6}
+              className="rounded-lg"
+            />
+          </div>
+        </div>
+      </FormSection>
+
+      {/* Section: Structure — conditional */}
+      {showRuleFields && (
+        <FormSection title="Structure">
+          <div className="space-y-4">
+            <DynamicListSection
+              title="Conditions"
+              subtitle="When does this apply?"
+              items={form.conditions}
+              onChange={(items) => set('conditions', items)}
+            />
+            <DynamicListSection
+              title="Actions"
+              subtitle="What must happen?"
+              items={form.actions}
+              onChange={(items) => set('actions', items)}
+            />
+            <DynamicListSection
+              title="Exceptions"
+              subtitle="When does this NOT apply?"
+              items={form.exceptions}
+              onChange={(items) => set('exceptions', items)}
+            />
+          </div>
+        </FormSection>
+      )}
+
+      {showProcessFields && (
+        <FormSection title="Steps">
+          <OrderedListBuilder
+            items={form.steps}
+            onChange={(items) => set('steps', items)}
+          />
+        </FormSection>
+      )}
+
+      {showAgreementFields && (
+        <FormSection title="Agreement Details">
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">
+                Counterparty
+              </Label>
+              <Input
+                value={form.counterparty}
+                onChange={(e) => set('counterparty', e.target.value)}
+                placeholder="Supplier or partner name"
+                className="rounded-lg"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium text-gray-600">Rule name</Label>
+                <Label className="text-xs font-medium text-slate-600">
+                  Lead Time (days)
+                </Label>
                 <Input
-                  placeholder="e.g. Low stock reorder threshold"
-                  value={form.name}
-                  onChange={(e) => set("name", e.target.value)}
-                  required
+                  type="number"
+                  value={form.leadTime}
+                  onChange={(e) => set('leadTime', e.target.value)}
                   className="rounded-lg"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium text-gray-600">Description</Label>
-                <Textarea
-                  placeholder="What operational logic does this rule capture?"
-                  value={form.description}
-                  onChange={(e) => set("description", e.target.value)}
-                  rows={2}
-                  className="rounded-lg"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5" id="field-entity">
-                  <Label className="text-xs font-medium text-gray-600">Entity</Label>
+                <Label className="text-xs font-medium text-slate-600">MOQ</Label>
+                <div className="flex gap-1">
+                  <Input
+                    type="number"
+                    value={form.moq}
+                    onChange={(e) => set('moq', e.target.value)}
+                    className="rounded-lg flex-1"
+                  />
                   <Select
-                    value={form.entity}
-                    onValueChange={(v) => {
-                      set("entity", v);
-                      const fields = ENTITY_FIELDS[v] ?? [];
-                      if (fields.length > 0) set("condField", fields[0]);
-                    }}
+                    value={form.moqCurrency}
+                    onValueChange={(v) => set('moqCurrency', v)}
                   >
-                    <SelectTrigger className="rounded-lg">
+                    <SelectTrigger className="w-20 rounded-lg">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {ENTITIES.map((e) => (
-                        <SelectItem key={e} value={e}>
-                          {e}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-gray-600">Category</Label>
-                  <Select
-                    value={form.category}
-                    onValueChange={(v) => set("category", v)}
-                  >
-                    <SelectTrigger className="rounded-lg">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CATEGORIES.map((c) => (
+                      {['USD', 'EUR', 'GBP', 'ILS'].map((c) => (
                         <SelectItem key={c} value={c}>
                           {c}
                         </SelectItem>
@@ -733,215 +619,481 @@ export default function NewRulePage() {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium text-gray-600">Tags (comma-separated)</Label>
+                <Label className="text-xs font-medium text-slate-600">
+                  Payment Terms
+                </Label>
                 <Input
-                  placeholder="reorder, inventory, critical"
-                  value={form.tags}
-                  onChange={(e) => set("tags", e.target.value)}
+                  value={form.paymentTerms}
+                  onChange={(e) => set('paymentTerms', e.target.value)}
+                  placeholder="e.g. Net-30"
                   className="rounded-lg"
                 />
               </div>
             </div>
           </div>
+        </FormSection>
+      )}
 
-          {/* Condition */}
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-900">Condition</h3>
+      {/* Section: Governance */}
+      <FormSection title="Governance">
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-slate-600">
+              AI Context Weight
+            </Label>
+            <WeightSegmentedControl
+              value={form.aiContextWeight}
+              onChange={(w) => set('aiContextWeight', w)}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">
+                Effective Date
+              </Label>
+              <Input
+                type="date"
+                value={form.effectiveDate}
+                onChange={(e) => set('effectiveDate', e.target.value)}
+                className="rounded-lg"
+              />
             </div>
-            <div className="px-5 py-4">
-              <div className="flex items-end gap-3">
-                <div className="flex-1 space-y-1.5" id="field-condField">
-                  <Label className="text-xs font-medium text-gray-600">Field</Label>
-                  <Select
-                    value={form.condField}
-                    onValueChange={(v) => set("condField", v)}
-                  >
-                    <SelectTrigger className="rounded-lg">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(ENTITY_FIELDS[form.entity] ?? []).map((f) => (
-                        <SelectItem key={f} value={f}>
-                          {f}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex-1 space-y-1.5" id="field-condOperator">
-                  <Label className="text-xs font-medium text-gray-600">Operator</Label>
-                  <Select
-                    value={form.condOperator}
-                    onValueChange={(v) => set("condOperator", v)}
-                  >
-                    <SelectTrigger className="rounded-lg">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {OPERATORS.map((op) => (
-                        <SelectItem key={op.value} value={op.value}>
-                          {op.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="w-28 space-y-1.5" id="field-condValue">
-                  <Label className="text-xs font-medium text-gray-600">Value</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">
+                Expiry Date
+              </Label>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs text-slate-500">
+                  <input
+                    type="checkbox"
+                    checked={form.noExpiry}
+                    onChange={(e) => set('noExpiry', e.target.checked)}
+                    className="rounded"
+                  />
+                  No expiry
+                </label>
+                {!form.noExpiry && (
                   <Input
-                    value={form.condValue}
-                    onChange={(e) => set("condValue", e.target.value)}
+                    type="date"
+                    value={form.expiryDate}
+                    onChange={(e) => set('expiryDate', e.target.value)}
                     className="rounded-lg"
                   />
-                </div>
+                )}
               </div>
             </div>
           </div>
-
-          {/* Live Preview */}
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2">
-              <Eye className="w-4 h-4 text-gray-400" />
-              <h3 className="text-sm font-semibold text-gray-900">Live Preview</h3>
-            </div>
-            <div className="px-5 py-4">
-              {previewLoading ? (
-                <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Checking against your data...
-                </div>
-              ) : preview ? (
-                <div className="space-y-3">
-                  {/* Match count */}
-                  <div className="flex items-center gap-2">
-                    {preview.matchCount === 0 ? (
-                      <AlertTriangle className="w-4 h-4 text-amber-500" />
-                    ) : (
-                      <CheckCircle className="w-4 h-4 text-green-500" />
-                    )}
-                    <span className="text-sm font-medium text-gray-800">
-                      This rule currently matches{" "}
-                      <strong>{preview.matchCount}</strong> of{" "}
-                      <strong>{preview.totalCount}</strong> items
-                    </span>
-                  </div>
-
-                  {/* Warnings */}
-                  {preview.matchCount === 0 && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
-                      No items currently match this rule. The rule will still be
-                      saved and will apply when conditions are met.
-                    </div>
-                  )}
-                  {preview.totalCount > 0 &&
-                    preview.matchCount === preview.totalCount && (
-                      <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
-                        This rule matches all items. Check your threshold value.
-                      </div>
-                    )}
-
-                  {/* Sample table */}
-                  {preview.samples.length > 0 && (
-                    <div className="overflow-x-auto rounded-lg border border-gray-100">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="bg-gray-50 text-left text-gray-500">
-                            {Object.keys(flattenSample(preview.samples[0])).map(
-                              (key) => (
-                                <th key={key} className="px-3 py-2 font-medium whitespace-nowrap">
-                                  {key}
-                                </th>
-                              )
-                            )}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {preview.samples.map((sample, i) => {
-                            const flat = flattenSample(sample);
-                            return (
-                              <tr key={i} className="border-t border-gray-100 even:bg-gray-50/50">
-                                {Object.values(flat).map((val, j) => (
-                                  <td key={j} className="px-3 py-2 text-gray-700">
-                                    {val}
-                                  </td>
-                                ))}
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p className="text-sm text-gray-400 py-2">
-                  Preview will appear once the condition is set.
-                </p>
-              )}
-            </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-slate-600">Tags</Label>
+            <TagInput
+              tags={form.tags}
+              onChange={(tags) => set('tags', tags)}
+            />
           </div>
-
-          {/* Commit message */}
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-            <div className="px-5 py-4 space-y-2">
-              <Label className="text-xs font-medium text-gray-600">Add a note about this rule (optional)</Label>
-              <Input
-                placeholder="e.g. Initial safety stock threshold"
-                value={form.commitMessage}
-                onChange={(e) => set("commitMessage", e.target.value)}
-                className="rounded-lg"
-              />
-              <p className="text-xs text-gray-400">
-                Like a git commit message — describe this version of the rule
-              </p>
-            </div>
-          </div>
-
-          {saveError && (
-            <div className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm bg-red-50 border border-red-200 text-red-700">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              {saveError}
-            </div>
-          )}
         </div>
-      </div>
+      </FormSection>
 
-      {/* Bottom action bar */}
-      <div
-        className="shrink-0 px-4 py-3 bg-white"
-        style={{ borderTop: "1px solid #e8e8e8" }}
-      >
-        <div className="max-w-2xl mx-auto flex gap-3">
-          <Button onClick={handleSave} disabled={saving || !form.name.trim()} className="gap-2">
-            {saving ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <CheckCircle className="w-4 h-4" />
-                Save Rule
-              </>
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setStep("input")}
-          >
-            Back
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => router.push("/brain")}
-          >
-            Cancel
-          </Button>
-        </div>
+      {/* Footer */}
+      <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200">
+        <Button variant="outline" onClick={() => handleSave('DRAFT')}>
+          Save as Draft
+        </Button>
+        <Button onClick={() => handleSave('ACTIVE')}>Publish as Active</Button>
       </div>
     </div>
-  );
+  )
+}
+
+// ─── Tab 3: Import ──────────────────────────────────────────────
+
+function ImportTab() {
+  const router = useRouter()
+  const toast = useToast()
+  const [pasteContent, setPasteContent] = useState('')
+  const [step, setStep] = useState<'input' | 'loading' | 'results'>('input')
+  const [selected, setSelected] = useState<Record<string, boolean>>({
+    'brain-001': true,
+    'brain-002': true,
+    'brain-003': true,
+  })
+
+  const mockExtracted = MOCK_BRAIN_ENTRIES.slice(0, 3)
+
+  function handleExtract() {
+    if (!pasteContent.trim()) return
+    setStep('loading')
+    // TODO: wire to API — POST /api/brain/import
+    setTimeout(() => setStep('results'), 2000)
+  }
+
+  const selectedCount = Object.values(selected).filter(Boolean).length
+
+  function handleImport() {
+    // TODO: wire to API — POST /api/brain/import
+    toast.success(`${selectedCount} entries imported as Draft`)
+    router.push('/brain')
+  }
+
+  if (step === 'input' || step === 'loading') {
+    return (
+      <div className="space-y-4">
+        <div>
+          <Label className="text-sm font-medium text-slate-700">
+            Import from a document, email, or spreadsheet
+          </Label>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Paste any content below — a policy doc, an email thread, meeting
+            notes, a spreadsheet export. Focus AI will identify and extract
+            individual knowledge entries.
+          </p>
+        </div>
+
+        <Textarea
+          value={pasteContent}
+          onChange={(e) => setPasteContent(e.target.value)}
+          placeholder="Paste content here..."
+          className="min-h-64 font-mono text-sm rounded-xl p-4"
+          disabled={step === 'loading'}
+        />
+
+        {step === 'loading' ? (
+          <div className="flex flex-col items-center py-8 gap-3">
+            <Loader2 className="w-6 h-6 text-orange-500 animate-spin" />
+            <p className="text-sm text-slate-500">
+              Scanning for knowledge entries...
+            </p>
+          </div>
+        ) : (
+          <div className="flex justify-end">
+            <Button
+              onClick={handleExtract}
+              disabled={!pasteContent.trim()}
+              className="gap-1.5"
+            >
+              <Sparkles className="w-4 h-4" />
+              Extract Entries
+            </Button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Results
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              checked={selectedCount === mockExtracted.length}
+              onChange={(e) => {
+                const val = e.target.checked
+                const next: Record<string, boolean> = {}
+                mockExtracted.forEach((entry) => {
+                  next[entry.id] = val
+                })
+                setSelected(next)
+              }}
+              className="rounded"
+            />
+            Select all
+          </label>
+          <span className="text-sm text-slate-400">
+            {mockExtracted.length} entries found
+          </span>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {mockExtracted.map((entry) => {
+          const config = TYPE_CONFIG[entry.type]
+          const Icon =
+            entry.type === 'CONSTRAINT'
+              ? Lock
+              : entry.type === 'RULE'
+                ? GitBranch
+                : Lightbulb
+          return (
+            <label
+              key={entry.id}
+              className={cn(
+                'flex items-start gap-3 p-4 border rounded-xl cursor-pointer transition-all',
+                selected[entry.id]
+                  ? 'border-orange-300 bg-orange-50/50'
+                  : 'border-slate-200 bg-white'
+              )}
+            >
+              <input
+                type="checkbox"
+                checked={!!selected[entry.id]}
+                onChange={(e) =>
+                  setSelected((s) => ({ ...s, [entry.id]: e.target.checked }))
+                }
+                className="mt-1 rounded"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span
+                    className={cn(
+                      'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border',
+                      config.tailwindBg,
+                      config.tailwindText,
+                      config.tailwindBorder
+                    )}
+                  >
+                    <Icon className="w-3 h-3" />
+                    {config.label}
+                  </span>
+                  <span className="text-sm font-semibold text-slate-900">
+                    {entry.title}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-500 line-clamp-2">
+                  {entry.summary}
+                </p>
+              </div>
+            </label>
+          )
+        })}
+      </div>
+
+      <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+        <Button variant="ghost" onClick={() => setStep('input')}>
+          &larr; Back
+        </Button>
+        <Button onClick={handleImport} disabled={selectedCount === 0}>
+          Import Selected ({selectedCount})
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Shared Components ──────────────────────────────────────────
+
+function FormSection({
+  title,
+  children,
+}: {
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-slate-100">
+        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+      </div>
+      <div className="px-5 py-4">{children}</div>
+    </div>
+  )
+}
+
+function DynamicListSection({
+  title,
+  subtitle,
+  items,
+  onChange,
+}: {
+  title: string
+  subtitle?: string
+  items: string[]
+  onChange: (items: string[]) => void
+}) {
+  const [open, setOpen] = useState(items.some((i) => i.length > 0))
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 text-xs font-semibold text-slate-500 uppercase tracking-wide"
+      >
+        <span className={cn('transition-transform', open && 'rotate-90')}>
+          &#9656;
+        </span>
+        {title}
+        {subtitle && (
+          <span className="font-normal normal-case tracking-normal text-slate-400 ml-1">
+            — {subtitle}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-1.5">
+          {items.map((item, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Input
+                value={item}
+                onChange={(e) => {
+                  const next = [...items]
+                  next[i] = e.target.value
+                  onChange(next)
+                }}
+                placeholder={`${title} ${i + 1}`}
+                className="rounded-lg flex-1 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const next = items.filter((_, j) => j !== i)
+                  onChange(next.length > 0 ? next : [''])
+                }}
+                className="text-slate-400 hover:text-red-500 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => onChange([...items, ''])}
+            className="text-xs text-orange-600 hover:underline flex items-center gap-1"
+          >
+            <Plus className="w-3 h-3" />
+            Add
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function OrderedListBuilder({
+  items,
+  onChange,
+}: {
+  items: string[]
+  onChange: (items: string[]) => void
+}) {
+  return (
+    <div className="space-y-1.5">
+      {items.map((item, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <span className="text-xs font-mono text-slate-400 w-5 text-right shrink-0">
+            {i + 1}.
+          </span>
+          <span className="text-slate-300 cursor-grab">&#8801;</span>
+          <Input
+            value={item}
+            onChange={(e) => {
+              const next = [...items]
+              next[i] = e.target.value
+              onChange(next)
+            }}
+            placeholder={`Step ${i + 1}`}
+            className="rounded-lg flex-1 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              const next = items.filter((_, j) => j !== i)
+              onChange(next.length > 0 ? next : [''])
+            }}
+            className="text-slate-400 hover:text-red-500 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => onChange([...items, ''])}
+        className="text-xs text-orange-600 hover:underline flex items-center gap-1 ml-10"
+      >
+        <Plus className="w-3 h-3" />
+        Add step
+      </button>
+    </div>
+  )
+}
+
+function WeightSegmentedControl({
+  value,
+  onChange,
+}: {
+  value: AIContextWeight
+  onChange: (w: AIContextWeight) => void
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex rounded-lg overflow-hidden border border-slate-200">
+        {(['HIGH', 'MEDIUM', 'LOW'] as AIContextWeight[]).map((w) => (
+          <button
+            key={w}
+            type="button"
+            onClick={() => onChange(w)}
+            className={cn(
+              'flex-1 px-3 py-2 text-sm font-medium transition-all',
+              value === w
+                ? 'bg-orange-500 text-white'
+                : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+            )}
+            title={WEIGHT_CONFIG[w].description}
+          >
+            {WEIGHT_CONFIG[w].label}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-slate-400 italic">
+        {WEIGHT_CONFIG[value].description}
+      </p>
+    </div>
+  )
+}
+
+function TagInput({
+  tags,
+  onChange,
+}: {
+  tags: string[]
+  onChange: (tags: string[]) => void
+}) {
+  const [input, setInput] = useState('')
+
+  function addTag(value: string) {
+    const trimmed = value.trim().toLowerCase()
+    if (trimmed && !tags.includes(trimmed)) {
+      onChange([...tags, trimmed])
+    }
+    setInput('')
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5">
+        {tags.map((tag) => (
+          <span
+            key={tag}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-orange-50 text-orange-700 border border-orange-200"
+          >
+            {tag}
+            <button
+              type="button"
+              onClick={() => onChange(tags.filter((t) => t !== tag))}
+              className="hover:text-red-500"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+      <Input
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.key === 'Enter' || e.key === ',') && input.trim()) {
+            e.preventDefault()
+            addTag(input)
+          }
+        }}
+        onBlur={() => {
+          if (input.trim()) addTag(input)
+        }}
+        placeholder="Type and press Enter to add tags"
+        className="rounded-lg text-sm"
+      />
+    </div>
+  )
 }

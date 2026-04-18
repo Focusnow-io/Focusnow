@@ -158,7 +158,18 @@ export function Sidebar({ userName, orgName, userRole, permissions }: SidebarPro
             <NavItem icon={Brain} label="Brain" expandable sectionId="brain" />
             {expandedSections.brain && (
               <div className="pl-4 space-y-px">
-                <NavItem href="/brain" icon={Brain} label="Rules" />
+                {/* TODO: wire to GET /api/brain/stats */}
+                <Link
+                  href="/brain"
+                  className={cn(itemBase, isActive("/brain") && !pathname.startsWith("/brain/change-requests") ? itemActive : itemInactive)}
+                >
+                  <Brain className={cn("w-[15px] h-[15px] shrink-0", isActive("/brain") ? "opacity-100" : "opacity-50")} />
+                  Rules
+                  <span className="ml-auto flex items-center gap-1.5">
+                    <span className="text-[11px] bg-[hsl(var(--surface-nav-hover))] px-1.5 py-0.5 rounded-md opacity-70">5</span>
+                    <span className="w-2 h-2 rounded-full bg-orange-500 shrink-0" title="Pending change requests" />
+                  </span>
+                </Link>
               </div>
             )}
           </div>
