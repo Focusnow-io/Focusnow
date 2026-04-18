@@ -36,9 +36,9 @@ async function queryEntity(
     const where = {
       organizationId: orgId,
       deletedAt: null,
-      ...(q && { OR: [{ sku: { contains: q, ...ci } }, { name: { contains: q, ...ci } }, { category: { contains: q, ...ci } }] }),
+      ...(q && { OR: [{ sku: { contains: q, ...ci } }, { name: { contains: q, ...ci } }, { productFamily: { contains: q, ...ci } }, { productLine: { contains: q, ...ci } }] }),
     };
-    const sel = { sku: true, name: true, category: true, unit: true, type: true, unitCost: true, uom: true, active: true, productFamily: true, abcClass: true, productLine: true, shelfLifeDays: true, listPrice: true } as const;
+    const sel = { sku: true, name: true, type: true, makeBuy: true, uom: true, unitCost: true, listPrice: true, leadTimeDays: true, productFamily: true, abcClass: true, productLine: true, shelfLifeDays: true, drawingNumber: true, regulatoryClass: true, active: true } as const;
     const [total, rows] = await Promise.all([
       prisma.product.count({ where }),
       prisma.product.findMany({ where, select: sel, skip, take: PAGE_SIZE, orderBy: { sku: "asc" } }),
@@ -46,14 +46,15 @@ async function queryEntity(
     return {
       columns: [
         { key: "sku", label: "SKU" }, { key: "name", label: "Name" },
-        { key: "category", label: "Category" }, { key: "unit", label: "Unit" },
-        { key: "type", label: "Type" }, { key: "unitCost", label: "Unit Cost" },
-        { key: "listPrice", label: "List Price" }, { key: "uom", label: "UOM" },
+        { key: "type", label: "Type" }, { key: "makeBuy", label: "Make/Buy" },
+        { key: "uom", label: "UOM" }, { key: "unitCost", label: "Unit Cost" },
+        { key: "listPrice", label: "List Price" }, { key: "leadTimeDays", label: "Lead Time (days)" },
         { key: "productFamily", label: "Family" }, { key: "abcClass", label: "ABC Class" },
         { key: "productLine", label: "Product Line" }, { key: "shelfLifeDays", label: "Shelf Life (days)" },
+        { key: "drawingNumber", label: "Drawing #" }, { key: "regulatoryClass", label: "Reg. Class" },
         { key: "active", label: "Active" },
       ],
-      rows: rows.map(r => ({ sku: r.sku, name: r.name, category: s(r.category), unit: s(r.unit), type: s(r.type), unitCost: s(r.unitCost), listPrice: s(r.listPrice), uom: r.uom || null, productFamily: s(r.productFamily), abcClass: s(r.abcClass), productLine: s(r.productLine), shelfLifeDays: s(r.shelfLifeDays), active: r.active ? "Yes" : "No" })),
+      rows: rows.map(r => ({ sku: r.sku, name: r.name, type: s(r.type), makeBuy: s(r.makeBuy), uom: r.uom || null, unitCost: s(r.unitCost), listPrice: s(r.listPrice), leadTimeDays: s(r.leadTimeDays), productFamily: s(r.productFamily), abcClass: s(r.abcClass), productLine: s(r.productLine), shelfLifeDays: s(r.shelfLifeDays), drawingNumber: s(r.drawingNumber), regulatoryClass: s(r.regulatoryClass), active: r.active ? "Yes" : "No" })),
       total,
     };
   }

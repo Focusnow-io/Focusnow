@@ -139,6 +139,14 @@ export default function ExplorePage() {
   const [refreshing, setRefreshing] = useState(false);
   const [counts, setCounts] = useState<Record<string, number>>({});
 
+  // Keep latest fetch params in a ref so the visibilitychange handler is never stale.
+  // The handler is set up once per pathname change but entity/page/search can change
+  // via URL query params without the pathname changing — this ref bridges that gap.
+  const latestParamsRef = useRef({ entity: entityParam, page: pageParam, q: debouncedSearch });
+  useEffect(() => {
+    latestParamsRef.current = { entity: entityParam, page: pageParam, q: debouncedSearch };
+  }, [entityParam, pageParam, debouncedSearch]);
+
   const fetchCounts = useCallback(() => {
     fetch("/api/data/explore?counts=1", { cache: "no-store" })
       .then(r => r.json())
@@ -178,11 +186,11 @@ export default function ExplorePage() {
   // so existing data stays visible and doesn't flash empty.
   useEffect(() => {
     fetchCounts();
-    fetchData(entityParam, pageParam, debouncedSearch, /* background */ true);
+    fetchData(latestParamsRef.current.entity, latestParamsRef.current.page, latestParamsRef.current.q, /* background */ true);
     const handleVisible = () => {
       if (document.visibilityState === "visible") {
         fetchCounts();
-        fetchData(entityParam, pageParam, debouncedSearch, /* background */ true);
+        fetchData(latestParamsRef.current.entity, latestParamsRef.current.page, latestParamsRef.current.q, /* background */ true);
       }
     };
     document.addEventListener("visibilitychange", handleVisible);

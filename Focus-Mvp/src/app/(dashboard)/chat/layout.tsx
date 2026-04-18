@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolvePermissions } from "@/lib/permissions";
 
-export default async function DataLayout({ children }: { children: React.ReactNode }) {
+export default async function ChatLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
@@ -16,7 +16,7 @@ export default async function DataLayout({ children }: { children: React.ReactNo
     member?.permissions as Record<string, unknown> | null,
   );
 
-  if (!permissions.sources && !permissions.explorer) redirect("/dashboard");
+  if (!permissions.chat) redirect("/dashboard");
 
   return <>{children}</>;
 }

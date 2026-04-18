@@ -493,12 +493,20 @@ async function upsertEntity(
       if (!data.sku || !data.name) return null;
       const prodOpt = optFields(data, [
         { k: "description" }, { k: "category" }, { k: "unit" },
-        { k: "unitCost", t: "d" }, { k: "externalId" },
+        { k: "unitCost", t: "d" }, { k: "unitPrice", t: "d" },
+        { k: "externalId" }, { k: "uom" },
+        { k: "leadTimeDays", t: "i" }, { k: "safetyStock", t: "d" },
         { k: "productFamily" }, { k: "shelfLifeDays", t: "i" },
         { k: "drawingNumber" }, { k: "drawingRevision" },
         { k: "abcClass" }, { k: "productLine" },
         { k: "regulatoryClass" }, { k: "listPrice", t: "d" },
       ]);
+      const PRODUCT_TYPES = ["FINISHED_GOOD", "RAW_MATERIAL", "COMPONENT", "SUBASSEMBLY", "SERVICE"] as const;
+      const MAKE_BUY_TYPES = ["MAKE", "BUY", "OTHER"] as const;
+      const prodType = toEnum(data.type, PRODUCT_TYPES);
+      const makeBuy = toEnum(data.makeBuy, MAKE_BUY_TYPES);
+      if (prodType) prodOpt.type = prodType;
+      if (makeBuy) prodOpt.makeBuy = makeBuy;
       const existingProduct = await prisma.product.findUnique({
         where: { organizationId_sku: { organizationId: orgId, sku: data.sku } },
         select: { id: true },

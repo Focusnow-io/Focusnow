@@ -171,7 +171,7 @@ export function Sidebar({ userName, orgName, userRole, permissions }: SidebarPro
             {expandedSections.apps && (
               <div className="pl-4 space-y-px">
                 {permissions?.apps  && <NavItem href="/apps"      icon={LayoutGrid}    label="App Gallery" />}
-                {permissions?.chat  && <NavItem href="/apps/chat"  icon={MessageSquare} label="Data Chat" />}
+                {permissions?.chat  && <NavItem href="/chat"  icon={MessageSquare} label="Data Chat" />}
               </div>
             )}
           </div>

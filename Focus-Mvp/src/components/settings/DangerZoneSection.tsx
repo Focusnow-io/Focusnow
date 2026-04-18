@@ -18,9 +18,11 @@ import { AlertTriangle, Download, Trash2 } from "lucide-react";
 interface DangerZoneProps {
   workspaceName: string;
   userEmail: string;
+  userRole?: string | null;
 }
 
-export function DangerZoneSection({ workspaceName, userEmail }: DangerZoneProps) {
+export function DangerZoneSection({ workspaceName, userEmail, userRole }: DangerZoneProps) {
+  if (userRole !== "OWNER") return null;
   const { success, error } = useToast();
   const [exportOpen, setExportOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
