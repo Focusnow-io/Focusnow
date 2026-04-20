@@ -593,9 +593,9 @@ async function upsertEntity(
       // String / boolean fields that optFields doesn't cover
       if (data.uom) invOpt.uom = data.uom;
       if (data.lotId) invOpt.lotId = data.lotId;
-      if (data.buyRecommendation) {
-        const br = data.buyRecommendation.trim().toLowerCase();
-        invOpt.buyRecommendation = br === "true" || br === "yes" || br === "1";
+      if (data.buyRecommendation != null && data.buyRecommendation !== "") {
+        const value = String(data.buyRecommendation).trim();
+        invOpt.buyRecommendation = value === "Y" || value === "y" ? true : false;
       }
       // Always store the raw locationCode in attributes so null-location rows
       // from different warehouses stay distinct (NULL ≠ NULL in PG unique constraints,

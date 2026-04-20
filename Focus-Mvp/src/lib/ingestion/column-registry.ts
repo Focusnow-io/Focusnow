@@ -832,7 +832,7 @@ const REGISTRY: Record<string, RegistryField[]> = {
       tier: "optional",
       dataType: "boolean",
       aliases: [
-        "buyrecommendation", "buy_recommendation",
+        "buyrecommendation", "buy_recommendation", "buy recommendation", "buyrec",
       ],
       example: "true",
     },
