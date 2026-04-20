@@ -56,7 +56,6 @@ import {
 } from "lucide-react";
 import {
   CANONICAL_FIELDS,
-  AUTO_MAP_THRESHOLD,
   suggestMappingWithConfidence,
   type EntityType,
   type MappingConfidence,
@@ -509,6 +508,13 @@ function ImportPageInner() {
   // ── AI mapping for columns the alias matcher missed ──────────────────────
   const [aiMapping, setAiMapping] = useState(false);
   const [aiMappingResult, setAiMappingResult] = useState<AiMappingResult | null>(null);
+  // Canonical fields whose source column was supplied by Claude (not by the
+  // alias matcher) — drives the blue "AI-rescued" pill colour on the summary.
+  const [aiRescuedFields, setAiRescuedFields] = useState<Set<string>>(new Set());
+  // True when the user navigated to the map step from the summary via the
+  // "Review field mapping" escape hatch. Controls the map header variant and
+  // enables the "Back to summary" button.
+  const [mapEscapeHatch, setMapEscapeHatch] = useState(false);
 
   // ── Mapping state ─────────────────────────────────────────────────────────
   // Active mapping and scores — may differ from suggestedMapping if a template
@@ -718,76 +724,88 @@ function ImportPageInner() {
     setAttributeKeys(activeAttributeKeys);
     setAppliedTemplate(matched);
     setAiMappingResult(null);
+    setAiRescuedFields(new Set());
+    setMapEscapeHatch(false);
 
-    // Always go straight to mapping for the entity the user selected.
-    // We never auto-split into multiple entities — reference columns (e.g.
-    // Supplier ID inside a PO Lines file) should not trigger a secondary import.
-    setStep("map");
-
-    // ── Non-blocking AI pass over any columns the alias matcher missed ─────
+    // ── AI pass over any columns the alias matcher missed (blocking) ─────
     // Template merge may have already resolved some of the originally
-    // unmapped columns, so filter by whatever's still outside activeMapping.
+    // unmapped columns, so filter by whatever is still outside activeMapping.
+    // We await this BEFORE routing to confirm/map so the step decision uses
+    // the final mapping (post AI rescue) instead of the alias-only mapping.
     const mappedSet = new Set(Object.values(activeMapping).filter(Boolean));
     const columnsForAi = (data.unmappedColumns ?? []).filter(
-      (c) => !mappedSet.has(c.header)
+      (c) => !mappedSet.has(c.header),
     );
-    if (columnsForAi.length === 0) return;
 
-    setAiMapping(true);
-    try {
-      const aiRes = await fetch("/api/data/ai-map", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceId: data.sourceId,
-          entityType: data.entity,
-          unmappedColumns: columnsForAi,
-        }),
-      });
-      if (aiRes.ok) {
-        const aiData = (await aiRes.json()) as AiMappingResult;
-        setAiMappingResult(aiData);
+    let finalMapping = activeMapping;
+    let finalScore = activeScore;
+    let finalAttributeKeys = activeAttributeKeys;
+    let rescuedFieldKeys: string[] = [];
 
-        // Compute the final mapping + attributeKeys eagerly so we can
-        // persist them to the DataSource immediately — otherwise a user who
-        // clicks Confirm before this promise resolves would save the
-        // pre-AI state and lose every custom field on the way to /process.
-        const nextMapping: Record<string, string> = { ...aiData.canonicalMappings, ...activeMapping };
-        const nextAttributeKeys = Array.from(
-          new Set([
-            ...activeAttributeKeys,
-            ...aiData.customFields.map((f) => f.sourceColumn),
-          ]),
-        );
+    if (columnsForAi.length > 0) {
+      setAiMapping(true);
+      try {
+        const aiRes = await fetch("/api/data/ai-map", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sourceId: data.sourceId,
+            entityType: data.entity,
+            unmappedColumns: columnsForAi,
+          }),
+        });
+        if (aiRes.ok) {
+          const aiData = (await aiRes.json()) as AiMappingResult;
+          setAiMappingResult(aiData);
 
-        if (Object.keys(aiData.canonicalMappings).length > 0) {
-          setMapping(nextMapping);
-          setScore((prev) => {
-            const next = { ...prev };
-            for (const f of Object.keys(aiData.canonicalMappings)) {
-              if (next[f] == null) next[f] = 0.9;
+          const canonicalKeys = Object.keys(aiData.canonicalMappings);
+          if (canonicalKeys.length > 0) {
+            finalMapping = { ...aiData.canonicalMappings, ...finalMapping };
+            finalScore = { ...finalScore };
+            for (const f of canonicalKeys) {
+              if (finalScore[f] == null) finalScore[f] = 0.9;
             }
-            return next;
-          });
+            rescuedFieldKeys = canonicalKeys;
+            setMapping(finalMapping);
+            setScore(finalScore);
+            setAiRescuedFields(new Set(canonicalKeys));
+          }
+          if (aiData.customFields.length > 0) {
+            finalAttributeKeys = Array.from(
+              new Set([
+                ...finalAttributeKeys,
+                ...aiData.customFields.map((f) => f.sourceColumn),
+              ]),
+            );
+            setAttributeKeys(finalAttributeKeys);
+          }
         }
-        if (aiData.customFields.length > 0) {
-          setAttributeKeys(nextAttributeKeys);
-        }
-
-        // Persist the AI-enriched mapping so a fast Confirm click can't
-        // drop custom fields on the floor.
-        try {
-          await saveMapping(data.sourceId, data.entity, nextMapping, nextAttributeKeys);
-        } catch (err) {
-          console.error("[import] saveMapping after ai-map failed:", err);
-        }
+      } catch (err) {
+        // Never let the AI pass block an import — surface via console only.
+        console.error("[import] ai-map failed:", err);
+      } finally {
+        setAiMapping(false);
       }
-    } catch (err) {
-      // Never let the AI pass block an import — surface via console only.
-      console.error("[import] ai-map failed:", err);
-    } finally {
-      setAiMapping(false);
     }
+
+    // Persist the final mapping regardless of whether the AI pass ran, so
+    // /process sees it no matter how quickly the user clicks through.
+    try {
+      await saveMapping(data.sourceId, data.entity, finalMapping, finalAttributeKeys);
+    } catch (err) {
+      console.error("[import] saveMapping failed:", err);
+    }
+
+    // ── Route: skip the map step when every required field is already
+    // mapped (green path). Only show the dropdown UI when something is
+    // actually missing — non-technical users shouldn't see it otherwise.
+    const requiredFields =
+      CANONICAL_FIELDS[data.entity as EntityType]?.filter((f) => f.required) ?? [];
+    const allRequiredMapped = requiredFields.every((f) => !!finalMapping[f.field]);
+    setStep(allRequiredMapped ? "confirm" : "map");
+    // Mark the rescued fields (used by pill colour logic even if the state
+    // update above has not settled yet).
+    void rescuedFieldKeys;
   }
 
   // ── Save mapping (fire-and-forget or awaited) ─────────────────────────────
@@ -1618,6 +1636,11 @@ function ImportPageInner() {
           onConfirm={handleConfirmMapping}
           aiMapping={aiMapping}
           aiMappingResult={aiMappingResult}
+          isEscapeHatch={mapEscapeHatch}
+          onBackToSummary={() => {
+            setMapEscapeHatch(false);
+            setStep("confirm");
+          }}
         />
       )}
 
@@ -1656,20 +1679,27 @@ function ImportPageInner() {
               <div className="flex flex-wrap gap-1.5 pt-0.5">
                 {mappedFields.map(({ field, label }) => {
                   const s = score[field] ?? 0;
+                  const rescued = aiRescuedFields.has(field);
+                  // Three-tier confidence: green = solid auto-match, blue =
+                  // AI-rescued or fuzzy match, amber = review suggested.
+                  let tone: "green" | "blue" | "amber";
+                  if (rescued) tone = "blue";
+                  else if (s >= 0.95) tone = "green";
+                  else if (s >= 0.8) tone = "blue";
+                  else tone = "amber";
+                  const toneClass =
+                    tone === "green"
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                      : tone === "blue"
+                      ? "bg-blue-50 border-blue-200 text-blue-700"
+                      : "bg-amber-50 border-amber-200 text-amber-700";
                   return (
                     <span
                       key={field}
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium border ${
-                        s >= 1.0
-                          ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                          : s >= AUTO_MAP_THRESHOLD
-                          ? "bg-blue-50 border-blue-200 text-blue-700"
-                          : "bg-amber-50 border-amber-200 text-amber-700"
-                      }`}
+                      title={rescued ? "Matched by AI" : undefined}
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium border ${toneClass}`}
                     >
-                      {s >= 1.0 ? (
-                        <CheckCircle className="w-2.5 h-2.5" />
-                      ) : null}
+                      {tone === "green" ? <CheckCircle className="w-2.5 h-2.5" /> : null}
                       {label}
                     </span>
                   );
@@ -1761,6 +1791,22 @@ function ImportPageInner() {
               result={aiMappingResult}
               loadingCount={(uploadResult.unmappedColumns ?? []).length}
             />
+
+            {/* Escape hatch — lets a power user drop into the dropdown UI
+                to inspect or override the auto-mapping. Hidden from
+                non-technical users as a subtle link. */}
+            <div>
+              <button
+                type="button"
+                onClick={() => {
+                  setMapEscapeHatch(true);
+                  setStep("map");
+                }}
+                className="text-xs text-slate-600 hover:text-slate-900 underline underline-offset-2"
+              >
+                Review field mapping →
+              </button>
+            </div>
 
             {/* Advanced section (collapsed by default on Confirm screen) */}
             <AdvancedSection
@@ -2063,6 +2109,8 @@ interface RegistryMapStepProps {
   onConfirm: () => void;
   aiMapping: boolean;
   aiMappingResult: AiMappingResult | null;
+  isEscapeHatch?: boolean;
+  onBackToSummary?: () => void;
 }
 
 function RegistryMapStep({
@@ -2081,6 +2129,8 @@ function RegistryMapStep({
   onConfirm,
   aiMapping,
   aiMappingResult,
+  isEscapeHatch = false,
+  onBackToSummary,
 }: RegistryMapStepProps) {
   // Use CANONICAL_FIELDS as the single source of truth for dropdown options
   const entityFields = CANONICAL_FIELDS[uploadResult.entity] ?? [];
@@ -2117,17 +2167,40 @@ function RegistryMapStep({
   return (
     <Card>
       <CardContent className="p-6 space-y-5">
-        {/* Header */}
-        <div>
-          <p className="text-base font-semibold text-gray-900">
-            Map your columns
-          </p>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Match each column from your file to a{" "}
-            <strong className="text-gray-700">{ENTITY_LABELS[uploadResult.entity]}</strong>{" "}
-            field. {uploadResult.rowCount.toLocaleString()} rows detected.
-          </p>
-        </div>
+        {/* Header — variant changes when the user navigated here from the
+            Confirm summary via "Review field mapping". */}
+        {isEscapeHatch && onBackToSummary ? (
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={onBackToSummary}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Back to summary
+            </button>
+            <div>
+              <p className="text-base font-semibold text-gray-900">
+                Review field mapping
+              </p>
+              <p className="text-sm text-gray-500 mt-0.5">
+                All required fields are already mapped. You can adjust
+                assignments below or go back to the import summary.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p className="text-base font-semibold text-gray-900">
+              Map your columns
+            </p>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Match each column from your file to a{" "}
+              <strong className="text-gray-700">{ENTITY_LABELS[uploadResult.entity]}</strong>{" "}
+              field. {uploadResult.rowCount.toLocaleString()} rows detected.
+            </p>
+          </div>
+        )}
 
         {appliedTemplate && (
           <div className="flex items-center gap-1.5 text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-2">
