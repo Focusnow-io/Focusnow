@@ -193,8 +193,8 @@ async function buildContextInternal(orgId: string): Promise<string> {
 
 IMPORTANT: For inventory stock levels, ALWAYS use the "quantity" field (current stock). Do NOT use qtyOnHand/qtyAllocated/qtyAvailable — those fields are empty. For work orders, use "plannedQty" and "actualQty" — NOT qtyPlanned/qtyProduced. For inventory VALUE calculations, use inventory.unitCost (set during import) multiplied by quantity — do NOT use product.unitCost which may be empty for auto-created product stubs.
 
-- **product**: sku, name, type, category, unitCost, makeBuy, active, unit, productFamily, abcClass, productLine, shelfLifeDays, listPrice
-- **inventory** (model: inventoryItem): productId, locationId, quantity (current stock — USE THIS), reservedQty, reorderPoint, reorderQty, uom, unitCost, daysOfSupply, demandPerDay, demandCurrentMonth, demandNextMonth, demandMonth3, qtyOnHold, totalValue, moq, orderMultiple, leadTimeDays
+- **product**: sku, name, type (exact enum values: FINISHED_GOOD | RAW_MATERIAL | COMPONENT | SUBASSEMBLY | SERVICE — always uppercase with underscores, never 'Finished Good' or 'finished_good'), category, unitCost, makeBuy (exact enum values: MAKE | BUY | OTHER), active, unit, productFamily, abcClass, productLine, shelfLifeDays, listPrice
+- **inventory** (model: inventoryItem): productId, locationId, quantity (current stock — USE THIS), reservedQty, reorderPoint, reorderQty, uom, unitCost, daysOfSupply, demandPerDay, demandCurrentMonth, demandNextMonth, demandMonth3, qtyOnHold, totalValue, moq, orderMultiple, leadTimeDays. To filter inventory by product type (e.g. "finished goods stock"): use a nested product filter — \`{ entity: "inventory", filters: { product: { type: "FINISHED_GOOD" } }, include: { product: { select: { sku: true, name: true, type: true } } } }\`. To list finished-good products themselves (no stock): query the product entity directly with \`{ type: "FINISHED_GOOD" }\`.
 - **supplier**: code, name, country, city, leadTimeDays, active, status, qualityRating, onTimePct, certifications, paymentTerms, currency
 - **customer**: code, name, country, currency, isActive, type, city, vatNumber
 - **purchase_order**: poNumber, supplierId, status — EXACT enum values: DRAFT | SENT | CONFIRMED | PARTIAL | RECEIVED | CLOSED | CANCELLED. 'Open' orders = { in: ['SENT','CONFIRMED','PARTIAL'] }. 'Closed' = RECEIVED or CLOSED. Never filter on 'Open' — that value does not exist. Other fields: totalAmount, currency, expectedDate, confirmedETA, orderDate, poType
@@ -223,7 +223,7 @@ Alternatively, the **product.productFamily** field may already contain the FG gr
 When using rawWhere for cross-column comparisons, column names must be double-quoted camelCase matching Prisma field names exactly:
 - InventoryItem: "quantity", "reorderPoint", "daysOfSupply", "demandPerDay", "qtyOnHold", "reservedQty", "unitCost", "totalValue"
 - Product: "sku", "name", "unitCost"
-- Common patterns: \`"quantity" < "reorderPoint"\` (below ROP), \`"daysOfSupply" <= 10\` (low supply)
+- Common patterns: \`"quantity" < "reorderPoint"\` (strictly below ROP), \`"daysOfSupply" < 10\` ("fewer than 10 days"), \`"daysOfSupply" <= 10\` ("10 days or fewer" — inclusive). Match the user's wording: "fewer/less than" → \`<\`; "at most / or fewer / or less" → \`<=\`.
 `);
 
   // ── Brain Rules ──────────────────────────────────────────────────────────

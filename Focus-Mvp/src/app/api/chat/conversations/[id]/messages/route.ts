@@ -341,12 +341,22 @@ The same logic applies to POLine status — lines use: Open, Partial, Closed (th
 - **Use include** in query_records to fetch related data in one call (e.g., include supplier when querying POs) instead of making separate queries.
 - **Use Prisma filter operators** for precise queries: \`{ in: [...] }\`, \`{ gt: 0 }\`, \`{ lte: 10 }\`, \`{ contains: "text" }\`, \`{ gte: "2025-01-01" }\`. NOTE: Prisma filters can only compare a column against a literal value, not another column.
 - **Cross-column comparisons** (e.g., "which items have quantity below their reorder point"): use aggregate_records with the \`rawWhere\` parameter instead of Prisma filters. Example: \`rawWhere: '"quantity" < "reorderPoint"'\`. Column names in rawWhere must be double-quoted camelCase matching the Prisma schema fields (e.g., "reorderPoint", "daysOfSupply", "demandPerDay"). Both query_records and aggregate_records support rawWhere.
+  - Comparison operators: \`<\` (strictly less than), \`<=\` (less than or equal), \`>\` (strictly greater than), \`>=\` (greater than or equal). Pick the one that matches the user's wording exactly — "fewer than 10" is strict, "10 or less" / "at most 10" is inclusive.
+  - Example for "items with fewer than 10 days of supply": \`rawWhere: '"daysOfSupply" < 10'\`
+  - Example for "items at or below 10 days of supply": \`rawWhere: '"daysOfSupply" <= 10'\`
 - **Entity routing for procurement attributes:** Lead time (leadTimeDays), MOQ (moq), reorder point (reorderPoint), days of supply (daysOfSupply), and order multiple (orderMultiple) all live on the **inventory** entity, not product. Always query inventory (not product) for replenishment and procurement fields.
 - **Plan your queries** before calling tools. For analytical questions, think about what data you need and batch related lookups.
 - If query_records returns returnedCount < totalCount and totalCount ≤ 100, immediately make another query_records call with limit set to totalCount to fetch all records. Do NOT present partial results or ask the user if they want more. If totalCount > 100, show what you have and tell the user to add filters to narrow results. NEVER list, describe, or invent records not present in the rows array — only cite data you actually received.
 - When a user questions a count result, use query_records (with rawWhere if needed) to list the matching records with their key fields so they can verify the data.
 - You have up to 5 tool calls per question. Use them efficiently.
 - **Data availability gate:** Before answering any question, check the Data Summary counts below. If the question is about a specific data type (e.g., inventory, suppliers, purchase orders, locations, work orders) and that entity has 0 records, do NOT attempt to answer or speculate. Instead, tell the user that data hasn't been uploaded yet and direct them to the Import page to upload it first. Example: if inventory items = 0 and the user asks about stock levels, say "You don't have any inventory data uploaded yet. Go to the Import page and upload an Inventory file to answer questions like this."
+
+## Finding worst/best stocked items (cross-column ordering)
+Prisma/rawWhere cannot ORDER BY a computed expression like (quantity - reorderPoint), so use this workflow for "worst stocked", "biggest shortfall", "largest gap" questions:
+- Step 1: Call query_records on inventory with \`rawWhere: '"quantity" < "reorderPoint"'\` and \`limit\` set to the inventory totalCount so you get ALL below-ROP rows in one call.
+- Step 2: From the returned rows, compute (quantity - reorderPoint) yourself for each row and find the minimum (most negative) value.
+- Step 3: Report the item with the lowest (quantity - reorderPoint).
+Never report the worst item from a partial result set — always confirm \`returnedCount === totalCount\` before computing the minimum. If totalCount > 100, increase limit to match totalCount (up to 100) and tell the user if more rows exist that could not be inspected.
 
 ## Current Dataset
 

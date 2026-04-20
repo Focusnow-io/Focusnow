@@ -87,7 +87,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
         rawWhere: {
           type: "string",
           description:
-            'Raw SQL WHERE clause for cross-column comparisons or complex conditions that Prisma filters cannot express. Examples: \'"quantity" < "reorderPoint"\', \'"daysOfSupply" <= 10\'. Column names must be double-quoted camelCase matching the Prisma schema. This is ANDed with org scoping and any Prisma filters.',
+            'Raw SQL WHERE clause for cross-column comparisons or complex conditions that Prisma filters cannot express. Comparison operators: < (strict), <= (inclusive), > (strict), >= (inclusive) — pick the one matching the user\'s wording. Examples: \'"quantity" < "reorderPoint"\' (strictly below ROP); \'"daysOfSupply" < 10\' for "fewer than 10 days"; \'"daysOfSupply" <= 10\' for "10 days or less". Column names must be double-quoted camelCase matching the Prisma schema. This is ANDed with org scoping and any Prisma filters.',
         },
         include: {
           type: "object",
@@ -141,7 +141,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
         rawWhere: {
           type: "string",
           description:
-            'Raw SQL WHERE clause for cross-column comparisons that Prisma filters cannot express. Examples: \'"quantity" < "reorderPoint"\', \'"daysOfSupply" <= 10\'. Column names must be double-quoted camelCase matching the Prisma schema. This is ANDed with org scoping. Supports COUNT, SUM, and AVG metrics (no groupBy).',
+            'Raw SQL WHERE clause for cross-column comparisons that Prisma filters cannot express. Comparison operators: < (strict), <= (inclusive), > (strict), >= (inclusive) — pick the one matching the user\'s wording. Examples: \'"quantity" < "reorderPoint"\' (strictly below ROP); \'"daysOfSupply" < 10\' for "fewer than 10 days"; \'"daysOfSupply" <= 10\' for "10 days or less". Column names must be double-quoted camelCase matching the Prisma schema. This is ANDed with org scoping. Supports COUNT, SUM, and AVG metrics (no groupBy).',
         },
       },
       required: ["entity", "metric"],
