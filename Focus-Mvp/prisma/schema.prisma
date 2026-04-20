@@ -35,6 +35,7 @@ model Organization {
   dataSources              DataSource[]
   mappingTemplates         MappingTemplate[]
   flaggedColumns           FlaggedColumn[]
+  customFieldSchemas       CustomFieldSchema[]
   products                 Product[]
   suppliers                Supplier[]
   locations                Location[]
@@ -1626,6 +1627,28 @@ model FlaggedColumn {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([entityType, status])
+}
+
+// Per-org registry of user-defined custom fields that live inside the
+// `attributes` JSONB blob on canonical entities. The registry makes those
+// fields queryable and AI-readable by recording key, label, inferred type
+// and a few sample values from the first import that created them.
+model CustomFieldSchema {
+  id             String   @id @default(cuid())
+  organizationId String
+  entityType     String // "InventoryItem" | "Supplier" | "Product" | "PurchaseOrder" | "POLine"
+  fieldKey       String // normalised key stored in the attributes JSONB, e.g. "on_time_delivery_pct"
+  displayLabel   String // human-readable, e.g. "On-Time Delivery %"
+  dataType       String // "number" | "text" | "date" | "boolean"
+  sampleValues   String[] // up to 5 sample values from first import — helps AI understand the field
+  sourceColumn   String? // original CSV column header, e.g. "On-Time Delivery %"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, entityType, fieldKey])
+  @@index([organizationId, entityType])
 }
 
 // ── CANONICAL MODEL ─────────────────────────────────────────────
