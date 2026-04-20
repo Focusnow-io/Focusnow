@@ -37,10 +37,11 @@ function toEnum<T extends string>(value: string | undefined, allowed: readonly T
   return (allowed as readonly string[]).includes(upper) ? (upper as T) : undefined;
 }
 
-// Broad set of truthy string tokens a user may export for boolean fields.
-// Anything outside this set (and non-empty) is treated as false — matches the
-// "Y/N", "1/0", "true/false", "yes/no", "x/blank" conventions seen in ERP exports.
+// Truthy / falsy token sets for boolean CSV fields. Values outside both sets
+// (e.g. a typo or unexpected label) are left unwritten so we never force a
+// `false` onto a field the user intended to leave unset.
 const BOOL_TRUE_TOKENS = new Set(["y", "yes", "true", "1", "x"]);
+const BOOL_FALSE_TOKENS = new Set(["n", "no", "false", "0", ""]);
 
 /** Build an object of optional DB fields from mapped user data.
  *  Only includes fields that the user actually provided a non-empty value for.
@@ -59,7 +60,14 @@ function optFields(
       case "d":  { const n = decimal(v); if (n !== null) out[k] = n; break; }
       case "i":  { const n = int(v);     if (n !== null) out[k] = n; break; }
       case "dt": { const d = new Date(v); if (!isNaN(d.getTime())) out[k] = d; break; }
-      case "b":  { out[k] = BOOL_TRUE_TOKENS.has(String(v).trim().toLowerCase()); break; }
+      case "b":  {
+        const lower = String(v).trim().toLowerCase();
+        if (BOOL_TRUE_TOKENS.has(lower)) out[k] = true;
+        else if (BOOL_FALSE_TOKENS.has(lower)) out[k] = false;
+        // Unrecognised boolean token — don't write anything, so an existing
+        // value isn't clobbered by a typo.
+        break;
+      }
       default:   out[k] = v;
     }
   }
@@ -515,12 +523,30 @@ async function upsertEntity(
       if (makeBuy) prodOpt.makeBuy = makeBuy;
       const existingProduct = await prisma.product.findUnique({
         where: { organizationId_sku: { organizationId: orgId, sku: data.sku } },
-        select: { id: true },
+        select: { id: true, attributes: true },
       });
+
+      // Merge existing attributes (possibly { isStub: true, createdBySourceId }
+      // from a BOM or inventory import that auto-created this SKU) with
+      // anything the real Product row carries — new keys win, and the stub
+      // markers are dropped because a real Product row is now being ingested.
+      const existingProdAttrs =
+        (existingProduct?.attributes as Record<string, unknown> | null) ?? {};
+      const incomingProdAttrs = (attrs as Record<string, unknown> | undefined) ?? {};
+      const mergedProdAttrs: Record<string, unknown> = { ...existingProdAttrs, ...incomingProdAttrs };
+      delete mergedProdAttrs.isStub;
+      delete mergedProdAttrs.createdBySourceId;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const prodUpdateAttrs: any =
+        Object.keys(mergedProdAttrs).length > 0 ? mergedProdAttrs : null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const prodCreateAttrs: any =
+        Object.keys(incomingProdAttrs).length > 0 ? incomingProdAttrs : undefined;
+
       const product = await prisma.product.upsert({
         where: { organizationId_sku: { organizationId: orgId, sku: data.sku } },
-        create: { organizationId: orgId, sku: data.sku, name: data.name, ...prodOpt, attributes: attrs },
-        update: { name: data.name, ...prodOpt, attributes: attrs },
+        create: { organizationId: orgId, sku: data.sku, name: data.name, ...prodOpt, attributes: prodCreateAttrs },
+        update: { name: data.name, ...prodOpt, attributes: prodUpdateAttrs },
         select: { id: true },
       });
       return { entityType: "Product", id: product.id, wasUpdate: !!existingProduct };
@@ -548,6 +574,7 @@ async function upsertEntity(
       const incomingAttrs = (attrs as Record<string, unknown> | undefined) ?? {};
       const mergedAttrs: Record<string, unknown> = { ...existingAttrs, ...incomingAttrs };
       delete mergedAttrs.isStub;
+      delete mergedAttrs.createdBySourceId;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const updateAttrs: any =
         Object.keys(mergedAttrs).length > 0 ? mergedAttrs : null;
@@ -965,8 +992,12 @@ async function upsertEntity(
         update: {},
         select: { id: true },
       });
-      const isActiveBOM = data.isActive ? data.isActive.toLowerCase() !== "false" && data.isActive !== "0" : false;
+      // isActive is routed through the "b" coercion so Y/N/yes/no/true/false/1/0
+      // all resolve correctly. If the user didn't provide a value, the DB
+      // default (true) takes effect on create and the field is left untouched
+      // on update.
       const bhOpt = optFields(data, [
+        { k: "isActive", t: "b" },
         { k: "effectiveFrom", t: "dt" }, { k: "effectiveTo", t: "dt" },
         { k: "yieldPct", t: "d" }, { k: "notes" }, { k: "status" },
         { k: "totalComponents", t: "i" }, { k: "totalBomCost", t: "d" },
@@ -979,8 +1010,8 @@ async function upsertEntity(
       });
       await prisma.bOMHeader.upsert({
         where: { orgId_productId_version: { orgId, productId: bomProduct.id, version: data.version } },
-        create: { orgId, productId: bomProduct.id, version: data.version, isActive: isActiveBOM, ...bhOpt, attributes: attrs },
-        update: { isActive: isActiveBOM, ...bhOpt, attributes: attrs },
+        create: { orgId, productId: bomProduct.id, version: data.version, ...bhOpt, attributes: attrs },
+        update: { ...bhOpt, attributes: attrs },
         select: { id: true },
       });
       return existingBh ? UPSERTED_UPDATE : UPSERTED_CREATE;

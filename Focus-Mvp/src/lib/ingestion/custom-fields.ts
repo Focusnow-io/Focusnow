@@ -19,12 +19,13 @@ export async function upsertCustomFieldSchemas(
 ): Promise<void> {
   // If the Prisma client was generated before the CustomFieldSchema migration
   // was applied (or if migrations didn't run at all), this delegate is
-  // literally undefined at runtime. Fail loud — a silent no-op here would
-  // mean custom fields disappear with no trace in the logs.
+  // literally undefined at runtime. Log loudly and bail — throwing would
+  // mask any subsequent upsert failures in the same request.
   if (!prisma.customFieldSchema) {
-    throw new Error(
-      "Prisma client missing customFieldSchema delegate — run `npx prisma generate` after applying the CustomFieldSchema migration.",
+    console.error(
+      "[custom-fields] prisma.customFieldSchema is undefined — run `npx prisma generate` after applying the CustomFieldSchema migration.",
     );
+    return;
   }
 
   for (const field of fields) {
@@ -55,15 +56,14 @@ export async function upsertCustomFieldSchemas(
           sourceColumn: field.sourceColumn,
         },
       });
+      console.log(`[custom-fields] upserted fieldKey: ${fieldKey} (${entityType}, ${dataType})`);
     } catch (err) {
-      // Log then rethrow so the caller can decide whether to propagate — the
-      // ai-map route already catches at the top-level so a single bad field
-      // will not block the rest of the import.
+      // Log and keep going — a single bad field shouldn't prevent the rest
+      // of the batch from being registered.
       console.error(
         `[custom-fields] upsert failed for ${entityType}.${fieldKey} (source="${field.sourceColumn}", type=${dataType})`,
         err instanceof Error ? err.stack ?? err.message : err,
       );
-      throw err;
     }
   }
 }

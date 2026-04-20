@@ -199,12 +199,17 @@ export async function POST(req: Request) {
   );
 
   if (customFields.length > 0) {
+    console.log(
+      `[ai-map] upserting ${customFields.length} custom field(s) to CustomFieldSchema:`,
+      customFields.map((f) => f.sourceColumn),
+    );
     try {
       await upsertCustomFieldSchemas(
         ctx.org.id,
         entityType,
         customFields.map((f) => ({ sourceColumn: f.sourceColumn, sampleValues: f.sampleValues })),
       );
+      console.log("[ai-map] upsert complete");
     } catch (err) {
       // Log and continue — the import must not be blocked on a schema write.
       console.error(
