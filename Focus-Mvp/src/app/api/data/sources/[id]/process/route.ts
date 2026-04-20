@@ -95,6 +95,64 @@ function friendlyError(e: unknown, rowHint?: string): string {
 
 const PO_STATUSES = ["DRAFT", "SENT", "CONFIRMED", "PARTIAL", "RECEIVED", "CANCELLED"] as const;
 const SO_STATUSES = ["DRAFT", "CONFIRMED", "IN_PRODUCTION", "SHIPPED", "DELIVERED", "CANCELLED"] as const;
+
+/** Translate common plain-English PO status labels ("Open", "Approved",
+ *  "Partially Received", "Closed", …) into the strict POStatus enum values
+ *  before we hand them to Prisma. Unknown labels fall back to undefined so
+ *  the caller can default the row to DRAFT instead of dying on a Prisma
+ *  enum-validation error for one misspelled cell. */
+function normalisePOStatus(
+  raw: string | undefined,
+): typeof PO_STATUSES[number] | undefined {
+  if (!raw) return undefined;
+  // Prisma's POStatus enum has no CLOSED member — "Closed" / "Completed" /
+  // "Received" all collapse onto RECEIVED, which is the terminal state.
+  const map: Record<string, typeof PO_STATUSES[number]> = {
+    open: "SENT",
+    sent: "SENT",
+    approved: "CONFIRMED",
+    confirmed: "CONFIRMED",
+    partial: "PARTIAL",
+    "partially received": "PARTIAL",
+    "partially delivered": "PARTIAL",
+    closed: "RECEIVED",
+    complete: "RECEIVED",
+    completed: "RECEIVED",
+    received: "RECEIVED",
+    cancelled: "CANCELLED",
+    canceled: "CANCELLED",
+    draft: "DRAFT",
+  };
+  const lower = raw.toLowerCase().trim();
+  if (map[lower]) return map[lower];
+  const upper = raw.toUpperCase().trim().replace(/[\s-]+/g, "_");
+  return (PO_STATUSES as readonly string[]).includes(upper)
+    ? (upper as typeof PO_STATUSES[number])
+    : undefined;
+}
+
+/** POLine.status is a free-form String? (not enum) but we still
+ *  canonicalise to Open | Partial | Closed | Cancelled so the chat's
+ *  "open lines" filter `{ status: { in: ["Open","Partial"] } }` actually
+ *  hits the right rows. Unknown labels pass through unchanged. */
+function normalisePOLineStatus(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const map: Record<string, string> = {
+    open: "Open",
+    sent: "Open",
+    partial: "Partial",
+    "partially received": "Partial",
+    "partially delivered": "Partial",
+    closed: "Closed",
+    complete: "Closed",
+    completed: "Closed",
+    received: "Closed",
+    cancelled: "Cancelled",
+    canceled: "Cancelled",
+  };
+  const lower = raw.toLowerCase().trim();
+  return map[lower] ?? raw.trim();
+}
 const WO_STATUSES = ["PLANNED", "RELEASED", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
 
 /** Sensible defaults for non-identity required fields when missing from source data.
@@ -890,7 +948,10 @@ async function upsertEntity(
         update: {},
         select: { id: true },
       });
-      const poStatus = toEnum(data.status, PO_STATUSES);
+      // Use the English-label-aware mapper instead of bare toEnum so CSVs
+      // that export "Open" / "Partially received" / "Closed" land on the
+      // right POStatus enum value instead of falling through to DRAFT.
+      const poStatus = normalisePOStatus(data.status);
       const poOpt = optFields(data, [
         { k: "totalAmount", t: "d" }, { k: "expectedDate", t: "dt" },
         { k: "notes" }, { k: "orderDate", t: "dt" }, { k: "totalLines", t: "i" },
@@ -934,8 +995,12 @@ async function upsertEntity(
       const polOpt = optFields(data, [
         { k: "qtyReceived", t: "d" }, { k: "qtyOpen", t: "d" },
         { k: "expectedDate", t: "dt" }, { k: "confirmedETA", t: "dt" },
-        { k: "lineValue", t: "d" }, { k: "status" }, { k: "notes" },
+        { k: "lineValue", t: "d" }, { k: "notes" },
       ]);
+      // Canonicalise POLine status separately so "Open" / "Partially received"
+      // land as "Open" / "Partial" in the DB.
+      const polStatus = normalisePOLineStatus(data.status);
+      if (polStatus) polOpt.status = polStatus;
       const existingPol = await prisma.pOLine.findUnique({
         where: { id: `${po.id}_${lineNumber}` },
         select: { id: true },
