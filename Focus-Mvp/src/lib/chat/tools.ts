@@ -7,8 +7,18 @@ import type Anthropic from "@anthropic-ai/sdk";
 
 interface EntityConfig {
   model: string;
-  orgField: "organizationId" | "orgId";
-  /** Fields that are safe to expose (null = all fields). */
+  /** Column on this model that stores orgId. Null for child tables whose org
+   *  scope is resolved via a parent relation (see `orgParent`). */
+  orgField: "organizationId" | "orgId" | null;
+  /** For child tables (PO/SO/BOM lines) org scope is applied through the
+   *  parent via a nested Prisma relation filter. rawWhere queries use the
+   *  `foreignKey → parentTable` pair to build a subquery. */
+  orgParent?: {
+    relation: string;
+    foreignKey: string;
+    parentTable: string;
+    parentOrgField: "orgId" | "organizationId";
+  };
   displayName: string;
 }
 
@@ -18,22 +28,39 @@ const ENTITY_MAP: Record<string, EntityConfig> = {
   supplier:        { model: "supplier",        orgField: "organizationId", displayName: "Supplier" },
   customer:        { model: "customer",        orgField: "orgId",          displayName: "Customer" },
   purchase_order:  { model: "purchaseOrder",   orgField: "orgId",          displayName: "Purchase Order" },
-  po_line:         { model: "pOLine",          orgField: null as unknown as "orgId", displayName: "PO Line" },
+  po_line:         { model: "pOLine",          orgField: null, displayName: "PO Line",
+                    orgParent: { relation: "purchaseOrder", foreignKey: "purchaseOrderId", parentTable: "PurchaseOrder", parentOrgField: "orgId" } },
   sales_order:     { model: "salesOrder",      orgField: "orgId",          displayName: "Sales Order" },
-  so_line:         { model: "sOLine",          orgField: null as unknown as "orgId", displayName: "SO Line" },
+  so_line:         { model: "sOLine",          orgField: null, displayName: "SO Line",
+                    orgParent: { relation: "salesOrder", foreignKey: "salesOrderId", parentTable: "SalesOrder", parentOrgField: "orgId" } },
   work_order:      { model: "workOrder",       orgField: "organizationId", displayName: "Work Order" },
   location:        { model: "location",        orgField: "organizationId", displayName: "Location" },
   bom_header:      { model: "bOMHeader",       orgField: "orgId",          displayName: "BOM Header" },
-  bom_line:        { model: "bOMLine",         orgField: null as unknown as "orgId", displayName: "BOM Line" },
+  bom_line:        { model: "bOMLine",         orgField: null, displayName: "BOM Line",
+                    orgParent: { relation: "bomHeader", foreignKey: "bomHeaderId", parentTable: "BOMHeader", parentOrgField: "orgId" } },
   lot:             { model: "lot",             orgField: "orgId",          displayName: "Lot" },
   equipment:       { model: "equipment",       orgField: "orgId",          displayName: "Equipment" },
   order:           { model: "order",           orgField: "organizationId", displayName: "Order (legacy)" },
   work_center:     { model: "workCenter",      orgField: "organizationId", displayName: "Work Center" },
-  ncr:             { model: "ncr",             orgField: null as unknown as "orgId", displayName: "NCR" },
-  capa:            { model: "capa",            orgField: null as unknown as "orgId", displayName: "CAPA" },
-  serial_number:   { model: "serialNumber",    orgField: null as unknown as "orgId", displayName: "Serial Number" },
-  shipment:        { model: "shipment",        orgField: null as unknown as "orgId", displayName: "Shipment" },
+  ncr:             { model: "ncr",             orgField: null,             displayName: "NCR" },
+  capa:            { model: "capa",            orgField: null,             displayName: "CAPA" },
+  serial_number:   { model: "serialNumber",    orgField: null,             displayName: "Serial Number" },
+  shipment:        { model: "shipment",        orgField: null,             displayName: "Shipment" },
 };
+
+/** Build the org-scope predicate for a rawWhere SQL query. For top-level
+ *  entities this is `"orgId" = $1`; for child tables it is a subquery against
+ *  the parent. Uses $1 — the caller must pass orgId as the first parameter. */
+function buildRawOrgClause(config: EntityConfig): string | null {
+  if (config.orgField) {
+    return `"${config.orgField}" = $1`;
+  }
+  if (config.orgParent) {
+    const { foreignKey, parentTable, parentOrgField } = config.orgParent;
+    return `"${foreignKey}" IN (SELECT id FROM "${parentTable}" WHERE "${parentOrgField}" = $1)`;
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Tool definitions for the Anthropic API
@@ -204,10 +231,15 @@ async function executeQueryRecords(
   const orderByField = input.orderBy as string | undefined;
   const rawWhere = input.rawWhere as string | undefined;
 
-  // Build where clause with org scoping
+  // Build where clause with org scoping.
+  // Child tables (po_line / so_line / bom_line) scope via a nested relation
+  // filter on the parent table that carries the orgId — required for both
+  // correctness and multi-tenant isolation.
   const where: Record<string, unknown> = { ...filters };
   if (config.orgField) {
     where[config.orgField] = orgId;
+  } else if (config.orgParent) {
+    where[config.orgParent.relation] = { [config.orgParent.parentOrgField]: orgId };
   }
 
   // Build orderBy
@@ -231,19 +263,22 @@ async function executeQueryRecords(
       }
 
       const tableName = config.model.charAt(0).toUpperCase() + config.model.slice(1);
-      const orgCol = config.orgField ?? "organizationId";
       const orderClause = orderByField
         ? `ORDER BY "${orderByField.replace(/^-/, "")}" ${orderByField.startsWith("-") ? "DESC" : "ASC"}`
         : "";
+      const orgClause = buildRawOrgClause(config);
+      if (!orgClause) {
+        return { error: `Entity ${entityName} has no org scope configured — rawWhere not supported` };
+      }
 
       // Get total count + limited IDs in parallel
       const [countResult, idResult] = await Promise.all([
         prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
-          `SELECT COUNT(*)::bigint as count FROM "${tableName}" WHERE "${orgCol}" = $1 AND (${rawWhere})`,
+          `SELECT COUNT(*)::bigint as count FROM "${tableName}" WHERE ${orgClause} AND (${rawWhere})`,
           orgId
         ),
         prisma.$queryRawUnsafe<Array<{ id: string }>>(
-          `SELECT id FROM "${tableName}" WHERE "${orgCol}" = $1 AND (${rawWhere}) ${orderClause} LIMIT ${limit}`,
+          `SELECT id FROM "${tableName}" WHERE ${orgClause} AND (${rawWhere}) ${orderClause} LIMIT ${limit}`,
           orgId
         ),
       ]);
@@ -305,6 +340,8 @@ async function executeAggregateRecords(
   const where: Record<string, unknown> = { ...filters };
   if (config.orgField) {
     where[config.orgField] = orgId;
+  } else if (config.orgParent) {
+    where[config.orgParent.relation] = { [config.orgParent.parentOrgField]: orgId };
   }
 
   try {
@@ -317,7 +354,10 @@ async function executeAggregateRecords(
 
       // Prisma model name = PG table name (no @@map on core models)
       const tableName = config.model.charAt(0).toUpperCase() + config.model.slice(1);
-      const orgCol = config.orgField ?? "organizationId";
+      const orgClause = buildRawOrgClause(config);
+      if (!orgClause) {
+        return { error: `Entity ${entityName} has no org scope configured — rawWhere not supported` };
+      }
 
       // Build SELECT based on metric
       let selectExpr: string;
@@ -332,7 +372,7 @@ async function executeAggregateRecords(
       }
 
       const result: Array<{ value: bigint | number }> = await prisma.$queryRawUnsafe(
-        `SELECT ${selectExpr} FROM "${tableName}" WHERE "${orgCol}" = $1 AND (${rawWhere})`,
+        `SELECT ${selectExpr} FROM "${tableName}" WHERE ${orgClause} AND (${rawWhere})`,
         orgId
       );
 
@@ -566,13 +606,25 @@ async function executeGetEntityById(
     const model = (prisma as any)[config.model];
     if (!model) return { error: `Model ${config.model} not found` };
 
-    // Try to find by primary key
-    const record = await model.findUnique({ where: { id } });
+    // Try to find by primary key — include parent relation when we need to
+    // verify org scope through it (po_line / so_line / bom_line).
+    const findArgs: Record<string, unknown> = { where: { id } };
+    if (!config.orgField && config.orgParent) {
+      findArgs.include = { [config.orgParent.relation]: { select: { [config.orgParent.parentOrgField]: true } } };
+    }
+    const record = await model.findUnique(findArgs);
     if (!record) return { error: `${config.displayName} with id=${id} not found` };
 
-    // Verify org ownership if the model has an org field
-    if (config.orgField && record[config.orgField] !== orgId) {
-      return { error: `${config.displayName} with id=${id} not found` };
+    // Verify org ownership either directly or through the parent relation.
+    if (config.orgField) {
+      if (record[config.orgField] !== orgId) {
+        return { error: `${config.displayName} with id=${id} not found` };
+      }
+    } else if (config.orgParent) {
+      const parent = record[config.orgParent.relation] as Record<string, unknown> | null;
+      if (!parent || parent[config.orgParent.parentOrgField] !== orgId) {
+        return { error: `${config.displayName} with id=${id} not found` };
+      }
     }
 
     return record;
