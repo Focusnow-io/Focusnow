@@ -639,6 +639,8 @@ async function upsertEntity(
         { k: "moq", t: "i" }, { k: "orderMultiple", t: "i" }, { k: "leadTimeDays", t: "i" },
         // Cost fields
         { k: "unitCost", t: "d" }, { k: "totalValue", t: "d" },
+        // Shelf-life
+        { k: "expiryDate", t: "dt" },
         // Expected: after importing a CSV with "Buy Recommendation" = "Y",
         // InventoryItem.buyRecommendation must be true (Boolean), not "Y" (String).
         { k: "buyRecommendation", t: "b" },
