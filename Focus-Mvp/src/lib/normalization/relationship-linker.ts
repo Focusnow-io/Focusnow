@@ -49,14 +49,16 @@ function extractLocationCode(attributes: unknown): string | null {
   return null;
 }
 
+const NULL_LIKE_RE = /^(#n\/a|n\/a|na|#na|#null!|null|none|#value!|#ref!|#div\/0!|#name\?|#num!|#error!|-{1,2}|—)$/i;
+
 function safeDecimal(val: string | undefined): number | undefined {
-  if (!val) return undefined;
-  const n = parseFloat(val);
+  if (!val || NULL_LIKE_RE.test(val.trim())) return undefined;
+  const n = parseFloat(val.replace(/,/g, ""));
   return isNaN(n) ? undefined : n;
 }
 
 function safeInt(val: string | undefined): number | undefined {
-  if (!val) return undefined;
+  if (!val || NULL_LIKE_RE.test(val.trim())) return undefined;
   const n = parseInt(val, 10);
   return isNaN(n) ? undefined : n;
 }
@@ -224,7 +226,7 @@ async function pass3ResolvePendingBOMLines(
           data: {
             bomHeaderId:       header.id,
             componentId:       product.id,
-            qty:               parseFloat(row.qty),
+            qty:               safeDecimal(row.qty) ?? 1,
             uom:               row.uom,
             wasteFactorPct:    safeDecimal(row.wasteFactorPct),
             isPhantom:         row.isPhantom === "true",
@@ -305,7 +307,7 @@ async function pass3ResolvePendingPOLines(
             purchaseOrderId: po.id,
             productId:       product.id,
             lineNumber,
-            qtyOrdered:      parseFloat(row.qty),
+            qtyOrdered:      safeDecimal(row.qty) ?? 0,
             unitCost:        safeDecimal(row.unitCost) ?? 0,
             uom:             row.uom ?? "",
           },

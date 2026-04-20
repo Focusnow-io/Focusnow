@@ -968,6 +968,8 @@ const FIELD_ALIASES: Record<string, string[]> = {
   purchaseOrderId: [
     "purchaseorderid", "purchase_order_id", "ponumber", "po_number",
     "po", "orderid", "order_id",
+    "poheadernumber", "po_header_number", "poheader", "po_header",
+    "headernumber", "header_number", "poref", "po_ref",
   ],
   qtyOrdered: [
     "qtyordered", "qty_ordered", "quantityordered", "quantity_ordered",

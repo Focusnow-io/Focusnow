@@ -17,6 +17,17 @@ interface ValidationError {
   message: string;
 }
 
+// Spreadsheet null-like placeholders that should be treated as "no value"
+// rather than a type error. These are coerced to null during processing.
+const NULL_LIKE_VALUES = new Set([
+  "#n/a", "n/a", "na", "#na", "#null!", "null", "none",
+  "#value!", "#ref!", "#div/0!", "#name?", "#num!", "#error!",
+  "-", "--", "—",
+]);
+function isNullLike(v: string): boolean {
+  return NULL_LIKE_VALUES.has(v.trim().toLowerCase());
+}
+
 // Required fields per entity
 const REQUIRED_FIELDS: Record<EntityType, string[]> = {
   Product: ["sku", "name"],
@@ -158,10 +169,12 @@ export async function POST(
       }
     }
 
-    // Numeric type check
+    // Numeric type check — skip null-like placeholders (#N/A, N/A, null, etc.)
+    // that spreadsheets emit for missing values; they're coerced to null during
+    // processing and don't represent a real data-quality issue.
     for (const field of numericFields) {
       const val = canonical[field];
-      if (val && isNaN(Number(val.replace(/,/g, "")))) {
+      if (val && !isNullLike(val) && isNaN(Number(val.replace(/,/g, "")))) {
         rowErrors.push({
           row: i + 1,
           field,
