@@ -226,6 +226,49 @@ When using rawWhere for cross-column comparisons, column names must be double-qu
 - Common patterns: \`"quantity" < "reorderPoint"\` (strictly below ROP), \`"daysOfSupply" < 10\` ("fewer than 10 days"), \`"daysOfSupply" <= 10\` ("10 days or fewer" — inclusive). Match the user's wording: "fewer/less than" → \`<\`; "at most / or fewer / or less" → \`<=\`.
 `);
 
+  // ── Custom field registry (per-org attributes-JSONB definitions) ─────────
+  try {
+    const customFieldSchemas = await prisma.customFieldSchema.findMany({
+      where: { organizationId: orgId },
+      orderBy: [{ entityType: "asc" }, { fieldKey: "asc" }],
+    });
+
+    if (customFieldSchemas.length > 0) {
+      const byEntity = new Map<string, typeof customFieldSchemas>();
+      for (const s of customFieldSchemas) {
+        const bucket = byEntity.get(s.entityType) ?? [];
+        bucket.push(s);
+        byEntity.set(s.entityType, bucket);
+      }
+
+      const parts: string[] = [
+        "## Custom Fields (org-specific data — stored in attributes JSONB)",
+        "These fields were imported from this org's files and are not part of the",
+        "standard schema. They are stored in the `attributes` JSONB column on each",
+        "entity and surface in query_records results with a `custom:` prefix",
+        "(e.g. `custom:on_time_delivery_pct`). Use the `query_custom_field` tool",
+        "to filter or aggregate by them — Prisma filters can't reach JSONB keys.",
+        "",
+      ];
+
+      for (const [entityType, fields] of byEntity) {
+        parts.push(`### ${entityType} custom fields:`);
+        for (const f of fields) {
+          const examples = f.sampleValues.slice(0, 3).join(", ");
+          parts.push(
+            `- fieldKey: "${f.fieldKey}" | label: "${f.displayLabel}" | type: ${f.dataType}` +
+              (examples ? `\n  example values: ${examples}` : "")
+          );
+        }
+        parts.push("");
+      }
+
+      sections.push(parts.join("\n"));
+    }
+  } catch (err) {
+    console.error("[CHAT] context builder: custom field schemas failed:", err);
+  }
+
   // ── Brain Rules ──────────────────────────────────────────────────────────
   // Include active rules so the AI can reference the user's operational logic.
 

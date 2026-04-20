@@ -186,6 +186,45 @@ export const toolDefinitions: Anthropic.Tool[] = [
       required: ["entity", "id"],
     },
   },
+  {
+    name: "query_custom_field",
+    description:
+      "Query records by a custom field value stored in the attributes JSONB. " +
+      "Use this tool when the user asks about a field that appears in the Custom Fields " +
+      "section of the context — fields that are not in the standard schema but were " +
+      "imported from this org's files.\n\n" +
+      "Examples of when to use this:\n" +
+      "- 'which suppliers have OTD below 90%' → if on_time_delivery_pct is a custom supplier field\n" +
+      "- 'show me items with certification ISO 13485' → if certification is a custom inventory field\n" +
+      "- 'how many products are in the Premium product line' → if product_line is custom",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        entity: {
+          type: "string",
+          description: "Entity to query: product, inventory, supplier, purchase_order, po_line",
+        },
+        fieldKey: {
+          type: "string",
+          description: "The fieldKey from the Custom Fields context, e.g. 'on_time_delivery_pct'",
+        },
+        operator: {
+          type: "string",
+          enum: ["eq", "lt", "lte", "gt", "gte", "contains", "exists"],
+          description: "Comparison operator. Use 'exists' to find all records that have this field.",
+        },
+        value: {
+          type: "string",
+          description: "Value to compare against (as a string — will be cast based on dataType)",
+        },
+        limit: {
+          type: "number",
+          description: "Max records to return (default 50, max 100)",
+        },
+      },
+      required: ["entity", "fieldKey", "operator"],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -206,6 +245,8 @@ export async function executeTool(
       return executeTraceability(input, orgId);
     case "get_entity_by_id":
       return executeGetEntityById(input, orgId);
+    case "query_custom_field":
+      return executeQueryCustomField(input, orgId);
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -631,5 +672,145 @@ async function executeGetEntityById(
   } catch (err) {
     // Some models use non-standard primary keys (e.g., ncrId, capaId)
     return { error: `Lookup failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// query_custom_field
+// ---------------------------------------------------------------------------
+
+/** Prisma model → Postgres table name. Only the entities whose Prisma model
+ *  has an `attributes` JSONB column are listed here; anything else returns a
+ *  clean error because there is nowhere to store the custom field. */
+const MODEL_TO_TABLE: Record<string, string> = {
+  product: "Product",
+  inventoryItem: "InventoryItem",
+  supplier: "Supplier",
+  customer: "Customer",
+  purchaseOrder: "PurchaseOrder",
+  salesOrder: "SalesOrder",
+};
+
+const CUSTOM_FIELD_SQL_OP: Record<string, string> = {
+  eq: "=",
+  lt: "<",
+  lte: "<=",
+  gt: ">",
+  gte: ">=",
+  contains: "ILIKE",
+};
+
+/** fieldKey values must already be normalised (lower-snake), but we re-validate
+ *  before interpolating into SQL — $queryRawUnsafe doesn't parameterise it. */
+const FIELD_KEY_REGEX = /^[a-z0-9_]+$/;
+
+async function executeQueryCustomField(
+  input: Record<string, unknown>,
+  orgId: string,
+): Promise<unknown> {
+  const entityName = String(input.entity ?? "").toLowerCase();
+  const fieldKey = String(input.fieldKey ?? "");
+  const operator = String(input.operator ?? "eq");
+  const rawValue = typeof input.value === "string" ? input.value : input.value != null ? String(input.value) : "";
+  const limit = Math.min(Math.max(Number(input.limit) || 50, 1), 100);
+
+  const config = ENTITY_MAP[entityName];
+  if (!config) return { error: `Unknown entity: ${entityName}` };
+  if (!FIELD_KEY_REGEX.test(fieldKey)) {
+    return { error: `Invalid fieldKey: "${fieldKey}" — must match ${FIELD_KEY_REGEX}` };
+  }
+  const tableName = MODEL_TO_TABLE[config.model];
+  if (!tableName) {
+    return { error: `Cannot query custom fields on ${entityName} — no attributes column on this entity.` };
+  }
+  if (operator !== "exists" && operator !== "contains" && !(operator in CUSTOM_FIELD_SQL_OP)) {
+    return { error: `Unsupported operator: ${operator}` };
+  }
+
+  // Pull the CustomFieldSchema so we know how to cast the stored string value.
+  const schema = await prisma.customFieldSchema.findFirst({
+    where: { organizationId: orgId, entityType: tableName, fieldKey },
+    select: { dataType: true, displayLabel: true },
+  });
+  const dataType = schema?.dataType ?? "text";
+
+  // JSONB values are stored as TEXT; cast to numeric for comparison only when
+  // the schema says this field is numeric. `exists` and `contains` always
+  // compare as text.
+  const castExpr =
+    dataType === "number"
+      ? `(attributes->>'${fieldKey}')::numeric`
+      : `(attributes->>'${fieldKey}')`;
+
+  // Entities without a direct orgField are child tables scoped via a parent
+  // relation; those can't participate here because the raw SQL targets the
+  // child table directly. Fall back to the direct orgField only.
+  if (!config.orgField) {
+    return { error: `Cannot query custom fields on ${entityName} — entity is not org-scoped directly.` };
+  }
+  const orgFieldQuoted = `"${config.orgField}"`;
+
+  try {
+    if (operator === "exists") {
+      const rows = await prisma.$queryRawUnsafe<unknown[]>(
+        `SELECT * FROM "${tableName}" WHERE ${orgFieldQuoted} = $1 AND attributes ? $2 LIMIT $3`,
+        orgId,
+        fieldKey,
+        limit,
+      );
+      return {
+        entity: entityName,
+        fieldKey,
+        displayLabel: schema?.displayLabel ?? fieldKey,
+        operator: "exists",
+        returnedCount: rows.length,
+        rows,
+      };
+    }
+
+    if (operator === "contains") {
+      const rows = await prisma.$queryRawUnsafe<unknown[]>(
+        `SELECT * FROM "${tableName}" WHERE ${orgFieldQuoted} = $1 AND ${castExpr} ILIKE $2 LIMIT $3`,
+        orgId,
+        `%${rawValue}%`,
+        limit,
+      );
+      return {
+        entity: entityName,
+        fieldKey,
+        displayLabel: schema?.displayLabel ?? fieldKey,
+        operator,
+        value: rawValue,
+        returnedCount: rows.length,
+        rows,
+      };
+    }
+
+    const sqlOp = CUSTOM_FIELD_SQL_OP[operator];
+    const sqlValue: string | number =
+      dataType === "number" ? Number(rawValue) : rawValue;
+    if (dataType === "number" && Number.isNaN(sqlValue as number)) {
+      return { error: `Value "${rawValue}" is not numeric, but field ${fieldKey} is typed as number.` };
+    }
+
+    const rows = await prisma.$queryRawUnsafe<unknown[]>(
+      `SELECT * FROM "${tableName}" WHERE ${orgFieldQuoted} = $1 AND ${castExpr} ${sqlOp} $2 LIMIT $3`,
+      orgId,
+      sqlValue,
+      limit,
+    );
+
+    return {
+      entity: entityName,
+      fieldKey,
+      displayLabel: schema?.displayLabel ?? fieldKey,
+      operator,
+      value: rawValue,
+      returnedCount: rows.length,
+      rows,
+      note: `Filtered ${entityName} records where custom field '${fieldKey}' ${operator} ${rawValue}`,
+    };
+  } catch (err) {
+    return { error: `Custom field query failed: ${err instanceof Error ? err.message : String(err)}` };
   }
 }

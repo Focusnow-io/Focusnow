@@ -39,6 +39,9 @@ function compactNumeric(v: unknown): unknown {
 }
 
 function slimRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  // `attributes` stays in STRIP_KEYS so it isn't emitted as a nested blob —
+  // we flatten it into `custom:<key>` entries below so the AI can read the
+  // org's custom fields inline with the rest of the row.
   const STRIP_KEYS = new Set([
     "id", "organizationId", "productId", "locationId", "lotId",
     "attributes", "updatedAt",
@@ -63,6 +66,15 @@ function slimRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
         slim[key] = nested;
       } else {
         slim[key] = compactNumeric(value);
+      }
+    }
+    // Flatten the attributes JSONB into `custom:<key>` entries so the AI can
+    // reason over this org's custom fields without a separate tool call.
+    const attrs = row.attributes;
+    if (attrs && typeof attrs === "object" && !Array.isArray(attrs)) {
+      for (const [k, v] of Object.entries(attrs as Record<string, unknown>)) {
+        if (v === null || v === undefined) continue;
+        slim[`custom:${k}`] = compactNumeric(v);
       }
     }
     return slim;
@@ -363,6 +375,14 @@ The same logic applies to POLine status — lines use: Open, Partial, Closed (th
 - When a user questions a count result, use query_records (with rawWhere if needed) to list the matching records with their key fields so they can verify the data.
 - You have up to 5 tool calls per question. Use them efficiently.
 - **Data availability gate:** Before answering any question, check the Data Summary counts below. If the question is about a specific data type (e.g., inventory, suppliers, purchase orders, locations, work orders) and that entity has 0 records, do NOT attempt to answer or speculate. Instead, tell the user that data hasn't been uploaded yet and direct them to the Import page to upload it first. Example: if inventory items = 0 and the user asks about stock levels, say "You don't have any inventory data uploaded yet. Go to the Import page and upload an Inventory file to answer questions like this."
+
+## Custom fields
+Some records have custom fields specific to this org, prefixed with \`custom:\` in query results (e.g., \`custom:on_time_delivery_pct\`, \`custom:certification\`). These come from the Custom Fields section of the context, which lists the exact fieldKey, human label, and dataType for each one.
+
+When a user asks about a custom field:
+1. First check if query_records already returns records with that \`custom:\` field populated. If so, answer from those results directly — no extra tool call needed.
+2. For filtering or counting by a custom field value, use the \`query_custom_field\` tool. Example: user asks "suppliers with OTD below 90%" → \`query_custom_field({ entity: "supplier", fieldKey: "on_time_delivery_pct", operator: "lt", value: "90" })\`.
+3. Always cite the \`fieldKey\` and \`displayLabel\` together so the user knows which field you're referring to (e.g. "On-Time Delivery % (on_time_delivery_pct)").
 
 ## Finding worst/best stocked items (cross-column ordering)
 Prisma/rawWhere cannot ORDER BY a computed expression like (quantity - reorderPoint), so use this workflow for "worst stocked", "biggest shortfall", "largest gap" questions:
