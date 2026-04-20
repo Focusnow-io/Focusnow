@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { getSessionOrg, unauthorized, forbidden, notFound } from "@/lib/api-helpers";
 import { resolvePermissions } from "@/lib/permissions";

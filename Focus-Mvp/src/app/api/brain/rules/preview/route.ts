@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { getSessionOrg, unauthorized, badRequest } from "@/lib/api-helpers";

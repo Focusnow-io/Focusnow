@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 /**
  * GET  /api/connectors   — list all connectors for the org
  * POST /api/connectors   — create a new connector

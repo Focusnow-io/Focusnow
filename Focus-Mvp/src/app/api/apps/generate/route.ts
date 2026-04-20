@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { getSessionOrg, unauthorized, badRequest } from "@/lib/api-helpers";
 import { prisma } from "@/lib/prisma";
 import Anthropic from "@anthropic-ai/sdk";

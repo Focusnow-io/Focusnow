@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 /**
  * Multi-pass mapping: clone an existing DataSource to map the same raw file
  * against a different entity type.

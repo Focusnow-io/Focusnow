@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 /**
  * Dry-run validation — scan all rows for missing required fields and type
  * errors without writing anything to the database.
