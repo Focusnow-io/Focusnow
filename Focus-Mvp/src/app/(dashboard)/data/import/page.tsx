@@ -382,6 +382,25 @@ interface DetectedEntity {
   requiredFieldsMatched: number;
 }
 
+interface UnmappedColumn {
+  header: string;
+  sampleValues: string[];
+  columnType: string;
+}
+
+interface AiCustomField {
+  sourceColumn: string;
+  fieldKey: string;
+  displayLabel: string;
+  dataType: string;
+  sampleValues: string[];
+}
+
+interface AiMappingResult {
+  canonicalMappings: Record<string, string>;
+  customFields: AiCustomField[];
+}
+
 interface UploadResult {
   sourceId: string;
   headers: string[];
@@ -390,6 +409,7 @@ interface UploadResult {
   score: Record<string, number>;
   sampleValues: Record<string, string[]>;
   columnTypes: Record<string, string>;
+  unmappedColumns?: UnmappedColumn[];
   previewRows: Record<string, string>[];
   rowCount: number;
   entity: EntityType;
@@ -485,6 +505,10 @@ function ImportPageInner() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
+
+  // ── AI mapping for columns the alias matcher missed ──────────────────────
+  const [aiMapping, setAiMapping] = useState(false);
+  const [aiMappingResult, setAiMappingResult] = useState<AiMappingResult | null>(null);
 
   // ── Mapping state ─────────────────────────────────────────────────────────
   // Active mapping and scores — may differ from suggestedMapping if a template
@@ -589,10 +613,6 @@ function ImportPageInner() {
     : CANONICAL_FIELDS[entity];
 
   const mappedFields = fields.filter((f) => mapping[f.field]);
-  const mappedSourceCols = new Set(Object.values(mapping).filter(Boolean));
-  const unmappedSourceCols = uploadResult
-    ? uploadResult.headers.filter((h) => !mappedSourceCols.has(h))
-    : [];
 
   // Step indicator: always shows Upload → Confirm → Done (3 pills).
   // The Map sub-step is not a named milestone — it's just what happens before Confirm.
@@ -697,11 +717,63 @@ function ImportPageInner() {
     setScore(activeScore);
     setAttributeKeys(activeAttributeKeys);
     setAppliedTemplate(matched);
+    setAiMappingResult(null);
 
     // Always go straight to mapping for the entity the user selected.
     // We never auto-split into multiple entities — reference columns (e.g.
     // Supplier ID inside a PO Lines file) should not trigger a secondary import.
     setStep("map");
+
+    // ── Non-blocking AI pass over any columns the alias matcher missed ─────
+    // Template merge may have already resolved some of the originally
+    // unmapped columns, so filter by whatever's still outside activeMapping.
+    const mappedSet = new Set(Object.values(activeMapping).filter(Boolean));
+    const columnsForAi = (data.unmappedColumns ?? []).filter(
+      (c) => !mappedSet.has(c.header)
+    );
+    if (columnsForAi.length === 0) return;
+
+    setAiMapping(true);
+    try {
+      const aiRes = await fetch("/api/data/ai-map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceId: data.sourceId,
+          entityType: data.entity,
+          unmappedColumns: columnsForAi,
+        }),
+      });
+      if (aiRes.ok) {
+        const aiData = (await aiRes.json()) as AiMappingResult;
+        setAiMappingResult(aiData);
+        // Fold canonical matches returned by Claude into the live mapping.
+        if (Object.keys(aiData.canonicalMappings).length > 0) {
+          setMapping((prev) => ({ ...aiData.canonicalMappings, ...prev }));
+          setScore((prev) => {
+            const next = { ...prev };
+            for (const f of Object.keys(aiData.canonicalMappings)) {
+              if (next[f] == null) next[f] = 0.9;
+            }
+            return next;
+          });
+        }
+        // Classified custom fields must be flagged as attribute keys so the
+        // ingestion pipeline writes their values into the attributes JSONB.
+        if (aiData.customFields.length > 0) {
+          setAttributeKeys((prev) => {
+            const merged = new Set(prev);
+            for (const f of aiData.customFields) merged.add(f.sourceColumn);
+            return Array.from(merged);
+          });
+        }
+      }
+    } catch (err) {
+      // Never let the AI pass block an import — surface via console only.
+      console.error("[import] ai-map failed:", err);
+    } finally {
+      setAiMapping(false);
+    }
   }
 
   // ── Save mapping (fire-and-forget or awaited) ─────────────────────────────
@@ -1010,12 +1082,6 @@ function ImportPageInner() {
   }, []);
 
   // ── Inline helpers ────────────────────────────────────────────────────────
-  function toggleAttributeKey(col: string) {
-    setAttributeKeys((prev) =>
-      prev.includes(col) ? prev.filter((k) => k !== col) : [...prev, col]
-    );
-  }
-
   /**
    * Handle the source-column-centric mapping dropdown in the new map UI.
    * value = canonicalKey, "__ignore__", or "__flag__"
@@ -1530,17 +1596,14 @@ function ImportPageInner() {
           onSourceColumnMapping={handleSourceColumnMapping}
           showAdvanced={showAdvanced}
           onToggleAdvanced={() => setShowAdvanced((v) => !v)}
-          setMapping={setMapping}
-          setScore={setScore}
-          unmappedSourceCols={unmappedSourceCols}
-          attributeKeys={attributeKeys}
-          onToggleAttributeKey={toggleAttributeKey}
           templateName={templateName}
           setTemplateName={setTemplateName}
           savingTemplate={savingTemplate}
           onSaveTemplate={handleSaveTemplate}
           allTemplates={allTemplates}
           onConfirm={handleConfirmMapping}
+          aiMapping={aiMapping}
+          aiMappingResult={aiMappingResult}
         />
       )}
 
@@ -1677,17 +1740,18 @@ function ImportPageInner() {
               </div>
             )}
 
+            {/* AI-discovered extras — shows above the template panel. */}
+            <AiFieldsNotice
+              entity={uploadResult.entity}
+              loading={aiMapping}
+              result={aiMappingResult}
+              loadingCount={(uploadResult.unmappedColumns ?? []).length}
+            />
+
             {/* Advanced section (collapsed by default on Confirm screen) */}
             <AdvancedSection
               show={showAdvanced}
               onToggle={() => setShowAdvanced((v) => !v)}
-              uploadResult={uploadResult}
-              mapping={mapping}
-              setMapping={setMapping}
-              setScore={setScore}
-              unmappedSourceCols={unmappedSourceCols}
-              attributeKeys={attributeKeys}
-              onToggleAttributeKey={toggleAttributeKey}
               templateName={templateName}
               setTemplateName={setTemplateName}
               savingTemplate={savingTemplate}
@@ -1977,17 +2041,14 @@ interface RegistryMapStepProps {
   onSourceColumnMapping: (sourceCol: string, value: string) => void;
   showAdvanced: boolean;
   onToggleAdvanced: () => void;
-  setMapping: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  setScore: React.Dispatch<React.SetStateAction<Record<string, number>>>;
-  unmappedSourceCols: string[];
-  attributeKeys: string[];
-  onToggleAttributeKey: (col: string) => void;
   templateName: string;
   setTemplateName: (v: string) => void;
   savingTemplate: boolean;
   onSaveTemplate: () => void;
   allTemplates: MappingTemplate[];
   onConfirm: () => void;
+  aiMapping: boolean;
+  aiMappingResult: AiMappingResult | null;
 }
 
 function RegistryMapStep({
@@ -1998,17 +2059,14 @@ function RegistryMapStep({
   onSourceColumnMapping,
   showAdvanced,
   onToggleAdvanced,
-  setMapping,
-  setScore,
-  unmappedSourceCols,
-  attributeKeys,
-  onToggleAttributeKey,
   templateName,
   setTemplateName,
   savingTemplate,
   onSaveTemplate,
   allTemplates,
   onConfirm,
+  aiMapping,
+  aiMappingResult,
 }: RegistryMapStepProps) {
   // Use CANONICAL_FIELDS as the single source of truth for dropdown options
   const entityFields = CANONICAL_FIELDS[uploadResult.entity] ?? [];
@@ -2226,17 +2284,18 @@ function RegistryMapStep({
           </div>
         )}
 
-        {/* Advanced section — metadata + template only, no duplicate mapping */}
+        {/* AI-discovered extras — shows above the template panel. */}
+        <AiFieldsNotice
+          entity={uploadResult.entity}
+          loading={aiMapping}
+          result={aiMappingResult}
+          loadingCount={(uploadResult.unmappedColumns ?? []).length}
+        />
+
+        {/* Advanced section — template only, no duplicate mapping */}
         <AdvancedSection
           show={showAdvanced}
           onToggle={onToggleAdvanced}
-          uploadResult={uploadResult}
-          mapping={mapping}
-          setMapping={setMapping}
-          setScore={setScore}
-          unmappedSourceCols={unmappedSourceCols}
-          attributeKeys={attributeKeys}
-          onToggleAttributeKey={onToggleAttributeKey}
           templateName={templateName}
           setTemplateName={setTemplateName}
           savingTemplate={savingTemplate}
@@ -2258,18 +2317,71 @@ function RegistryMapStep({
 }
 
 
+// ─── AI-resolved extra columns notice ─────────────────────────────────────────
+// Rendered automatically (no toggle) whenever the Claude pass found either a
+// late-alias canonical match or a custom-field candidate. When the pass
+// produced nothing actionable we show nothing — we never surface the raw
+// "unmapped columns" list to the user.
+
+interface AiFieldsNoticeProps {
+  entity: EntityType;
+  loading: boolean;
+  result: AiMappingResult | null;
+  loadingCount: number;
+}
+
+function AiFieldsNotice({ entity, loading, result, loadingCount }: AiFieldsNoticeProps) {
+  if (loading) {
+    return (
+      <div className="text-xs text-gray-500 flex items-center gap-2">
+        <span className="inline-block w-3 h-3 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+        Analysing {loadingCount} additional column{loadingCount === 1 ? "" : "s"}…
+      </div>
+    );
+  }
+  if (!result) return null;
+
+  const canonicalEntries = Object.entries(result.canonicalMappings);
+  const customFields = result.customFields;
+  if (canonicalEntries.length === 0 && customFields.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      {canonicalEntries.length > 0 && (
+        <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+          ✓ We also recognised {canonicalEntries.length} more column{canonicalEntries.length === 1 ? "" : "s"}:{" "}
+          <span className="font-medium">
+            {canonicalEntries.map(([, header]) => header).join(", ")}
+          </span>
+        </div>
+      )}
+      {customFields.length > 0 && (
+        <div className="text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
+          <p className="font-medium mb-1.5">
+            📊 {customFields.length} custom field{customFields.length === 1 ? "" : "s"} will be added to your{" "}
+            {ENTITY_LABELS[entity] ?? entity} data:
+          </p>
+          <ul className="space-y-0.5 ml-1">
+            {customFields.map((f) => (
+              <li key={f.fieldKey} className="text-slate-600">
+                • {f.displayLabel} <span className="text-slate-400">({f.dataType})</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-slate-500 mt-1.5 text-[11px]">
+            These fields will be available in the AI chat and data explorer.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Advanced section (shared between Map and Confirm steps) ──────────────────
 
 interface AdvancedSectionProps {
   show: boolean;
   onToggle: () => void;
-  uploadResult: UploadResult;
-  mapping: Record<string, string>;
-  setMapping: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  setScore: React.Dispatch<React.SetStateAction<Record<string, number>>>;
-  unmappedSourceCols: string[];
-  attributeKeys: string[];
-  onToggleAttributeKey: (col: string) => void;
   templateName: string;
   setTemplateName: (v: string) => void;
   savingTemplate: boolean;
@@ -2281,13 +2393,6 @@ interface AdvancedSectionProps {
 function AdvancedSection({
   show,
   onToggle,
-  uploadResult,
-  mapping,
-  setMapping,
-  setScore,
-  unmappedSourceCols,
-  attributeKeys,
-  onToggleAttributeKey,
   templateName,
   setTemplateName,
   savingTemplate,
@@ -2311,54 +2416,6 @@ function AdvancedSection({
 
       {show && (
         <div className="border-t border-gray-100 px-3 py-3 space-y-4 bg-gray-50/50">
-          {/* Extra fields → attributes */}
-          {unmappedSourceCols.length > 0 && (
-            <div>
-              <p className="text-[11px] font-semibold text-gray-500 uppercase mb-1.5">
-                Save extra columns as metadata
-              </p>
-              <p className="text-[11px] text-gray-400 mb-2">
-                Checked columns are stored in{" "}
-                <code className="bg-white border rounded px-1">attributes</code>{" "}
-                — queryable later, no schema change needed.
-              </p>
-              <div className="divide-y divide-gray-100 rounded border border-gray-200 bg-white">
-                {unmappedSourceCols.map((col) => {
-                  const samples =
-                    uploadResult.sampleValues?.[col]
-                      ?.slice(0, 2)
-                      .join(", ") ?? "";
-                  return (
-                    <label
-                      key={col}
-                      className="flex items-center gap-2.5 px-3 py-2 cursor-pointer select-none hover:bg-gray-50"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={attributeKeys.includes(col)}
-                        onChange={() => onToggleAttributeKey(col)}
-                        className="accent-slate-900"
-                      />
-                      <ColTypeBadge
-                        type={uploadResult.columnTypes?.[col]}
-                      />
-                      <span className="flex-1 min-w-0">
-                        <span className="text-xs font-medium text-gray-700">
-                          {col}
-                        </span>
-                        {samples && (
-                          <span className="text-[11px] text-gray-400 ml-1.5">
-                            {samples}
-                          </span>
-                        )}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
           {/* Template save */}
           <div>
             <p className="text-[11px] font-semibold text-gray-500 uppercase mb-1.5">

@@ -1,4 +1,5 @@
 import { getRegistryForEntity } from "./column-registry";
+import { normaliseToFieldKey } from "./custom-field-keys";
 
 // Lazy import for the canonical column registry — optional dependency that may
 // not be present during the initial migration window. When available, alias
@@ -1908,8 +1909,8 @@ export function applyMappingWithAttributes(
   for (const col of attributeKeys) {
     const val = row[col];
     if (val !== undefined && val !== "") {
-      const key = col.toLowerCase().replace(/[\s\-.]+/g, "_").replace(/[^a-z0-9_]/g, "");
-      attributes[key] = String(val);
+      const key = normaliseToFieldKey(col);
+      if (key) attributes[key] = String(val);
     }
   }
 

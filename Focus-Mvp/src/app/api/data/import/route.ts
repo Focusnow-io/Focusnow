@@ -155,6 +155,18 @@ export async function POST(req: Request) {
   const columnClassification = classifyColumns(parsed.headers, sampleValues);
   const detectedEntities = deriveDetectedEntities(columnClassification);
 
+  // Headers the alias matcher did NOT resolve to a canonical field — the
+  // client forwards these to /api/data/ai-map so Claude can either rescue
+  // them (better alias) or register them as custom fields.
+  const mappedHeaders = new Set(Object.values(suggested).filter(Boolean));
+  const unmappedColumns = parsed.headers
+    .filter((h) => !mappedHeaders.has(h))
+    .map((h) => ({
+      header: h,
+      sampleValues: sampleValues[h] ?? [],
+      columnType: columnTypes[h] ?? "text",
+    }));
+
   // ── Persist DataSource ───────────────────────────────────────────────────
   const source = await prisma.dataSource.create({
     data: {
@@ -192,6 +204,7 @@ export async function POST(req: Request) {
     score,
     sampleValues,
     columnTypes,
+    unmappedColumns,
     previewRows: parsed.rows.slice(0, 10),
     rowCount: parsed.rowCount,
     entity,
