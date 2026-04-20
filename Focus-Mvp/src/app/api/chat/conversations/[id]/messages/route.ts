@@ -319,6 +319,24 @@ export async function POST(
 - When you use a tool, tell the user what you are looking up in one sentence before calling it.
 - Never fabricate data. If you cannot find something in the context or via tools, say so.
 - **CRITICAL: For "how many" / count / total questions, ALWAYS use aggregate_records with metric COUNT — never count rows from query_records.** The query_records tool caps results at 100 rows, so counting returned rows will give wrong answers for datasets larger than 100. Use aggregate_records with filters to get exact counts (e.g., count inventory items where quantity < reorderPoint).
+
+## Purchase Order Status Vocabulary
+The purchase_order status field uses these exact enum values — never use 'Open' (it does not exist as a value):
+- DRAFT: created but not yet sent to supplier
+- SENT: sent to supplier, awaiting confirmation
+- CONFIRMED: supplier confirmed the order
+- PARTIAL: delivery has started, some lines received, order still open
+- RECEIVED: fully received/closed
+- CLOSED: manually closed
+- CANCELLED: cancelled
+
+When a user asks about 'open', 'outstanding', 'pending', or 'active' POs, ALWAYS filter: status: { in: ['SENT', 'CONFIRMED', 'PARTIAL'] }
+When a user asks about 'not yet sent' or 'draft' POs: status: 'DRAFT'
+When a user asks about 'completed' or 'closed' POs: status: { in: ['RECEIVED', 'CLOSED'] }
+NEVER filter on status: 'Open' or status: 'Partial' (wrong case/value).
+
+The same logic applies to POLine status — lines use: Open, Partial, Closed (these ARE the correct values for po_line, different from PurchaseOrder header).
+
 - Use query_records only when you need to **list or inspect specific records**, not for counting or totaling.
 - **Use include** in query_records to fetch related data in one call (e.g., include supplier when querying POs) instead of making separate queries.
 - **Use Prisma filter operators** for precise queries: \`{ in: [...] }\`, \`{ gt: 0 }\`, \`{ lte: 10 }\`, \`{ contains: "text" }\`, \`{ gte: "2025-01-01" }\`. NOTE: Prisma filters can only compare a column against a literal value, not another column.

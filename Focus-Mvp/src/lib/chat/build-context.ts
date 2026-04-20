@@ -197,7 +197,7 @@ IMPORTANT: For inventory stock levels, ALWAYS use the "quantity" field (current 
 - **inventory** (model: inventoryItem): productId, locationId, quantity (current stock — USE THIS), reservedQty, reorderPoint, reorderQty, uom, unitCost, daysOfSupply, demandPerDay, demandCurrentMonth, demandNextMonth, demandMonth3, qtyOnHold, totalValue, moq, orderMultiple, leadTimeDays
 - **supplier**: code, name, country, city, leadTimeDays, active, status, qualityRating, onTimePct, certifications, paymentTerms, currency
 - **customer**: code, name, country, currency, isActive, type, city, vatNumber
-- **purchase_order**: poNumber, supplierId, status (DRAFT/SENT/CONFIRMED/PARTIAL/RECEIVED/CLOSED/CANCELLED), totalAmount, currency, expectedDate, confirmedETA, orderDate, poType
+- **purchase_order**: poNumber, supplierId, status — EXACT enum values: DRAFT | SENT | CONFIRMED | PARTIAL | RECEIVED | CLOSED | CANCELLED. 'Open' orders = { in: ['SENT','CONFIRMED','PARTIAL'] }. 'Closed' = RECEIVED or CLOSED. Never filter on 'Open' — that value does not exist. Other fields: totalAmount, currency, expectedDate, confirmedETA, orderDate, poType
 - **po_line**: purchaseOrderId, productId, qtyOrdered, qtyReceived, qtyOpen, unitCost
 - **sales_order**: soNumber, customerId, status (DRAFT/CONFIRMED/IN_PRODUCTION/SHIPPED/DELIVERED/CANCELLED), totalAmount, currency, requestedDate, orderDate, paymentTerms
 - **so_line**: salesOrderId, productId, qtyOrdered, qtyShipped, unitPrice
