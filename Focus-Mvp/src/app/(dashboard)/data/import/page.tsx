@@ -698,25 +698,10 @@ function ImportPageInner() {
     setAttributeKeys(activeAttributeKeys);
     setAppliedTemplate(matched);
 
-    // ── Route to the right step ────────────────────────────────────────────
-    // If the file contains 2+ entities at high/medium confidence AND each
-    // entity's required fields can be auto-mapped, show entity-split.
-    const significantEntities = (data.detectedEntities ?? [])
-      .filter((e) => e.confidence === "high" || e.confidence === "medium")
-      .filter((e) => {
-        const fields = CANONICAL_FIELDS[e.entity as EntityType];
-        if (!fields) return false;
-        const { mapping: testMapping } = suggestMappingWithConfidence(
-          data.headers, e.entity as EntityType
-        );
-        return fields.filter((f) => f.required).every((f) => !!testMapping[f.field]);
-      });
-    if (significantEntities.length >= 2) {
-      setStep("entity-split");
-    } else {
-      // Single entity — go straight to mapping as before.
-      setStep("map");
-    }
+    // Always go straight to mapping for the entity the user selected.
+    // We never auto-split into multiple entities — reference columns (e.g.
+    // Supplier ID inside a PO Lines file) should not trigger a secondary import.
+    setStep("map");
   }
 
   // ── Save mapping (fire-and-forget or awaited) ─────────────────────────────
