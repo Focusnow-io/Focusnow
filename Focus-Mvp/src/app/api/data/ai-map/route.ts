@@ -189,6 +189,15 @@ export async function POST(req: Request) {
   }
 
   // ── Persist custom field schemas (org-scoped) ──────────────────────────
+  console.log(
+    `[ai-map] org=${ctx.org.id} entity=${entityType} classified`,
+    `canonical=${Object.keys(canonicalMappings).length}`,
+    `custom=${customFields.length}`,
+    customFields.length > 0
+      ? `customKeys=${customFields.map((f) => `${f.fieldKey}:${f.dataType}`).join(",")}`
+      : "",
+  );
+
   if (customFields.length > 0) {
     try {
       await upsertCustomFieldSchemas(
@@ -198,7 +207,10 @@ export async function POST(req: Request) {
       );
     } catch (err) {
       // Log and continue — the import must not be blocked on a schema write.
-      console.error("[ai-map] upsertCustomFieldSchemas failed:", err);
+      console.error(
+        "[ai-map] upsertCustomFieldSchemas failed — custom fields will NOT appear in the chat context",
+        err instanceof Error ? err.stack ?? err.message : err,
+      );
     }
   }
 

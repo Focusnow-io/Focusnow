@@ -536,12 +536,29 @@ async function upsertEntity(
       ]);
       const existingSupplier = await prisma.supplier.findUnique({
         where: { organizationId_code: { organizationId: orgId, code: data.code } },
-        select: { id: true },
+        select: { id: true, attributes: true },
       });
+
+      // Merge existing attributes (likely { isStub: true } from a prior
+      // PO/SO-stub auto-create) with anything the current row carries — new
+      // keys win, and the isStub marker is dropped because we are now
+      // ingesting a real Supplier row.
+      const existingAttrs =
+        (existingSupplier?.attributes as Record<string, unknown> | null) ?? {};
+      const incomingAttrs = (attrs as Record<string, unknown> | undefined) ?? {};
+      const mergedAttrs: Record<string, unknown> = { ...existingAttrs, ...incomingAttrs };
+      delete mergedAttrs.isStub;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updateAttrs: any =
+        Object.keys(mergedAttrs).length > 0 ? mergedAttrs : null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const createAttrs: any =
+        Object.keys(incomingAttrs).length > 0 ? incomingAttrs : undefined;
+
       const supplier = await prisma.supplier.upsert({
         where: { organizationId_code: { organizationId: orgId, code: data.code } },
-        create: { organizationId: orgId, code: data.code, name: data.name, ...supOpt, attributes: attrs },
-        update: { name: data.name, ...supOpt, attributes: attrs },
+        create: { organizationId: orgId, code: data.code, name: data.name, ...supOpt, attributes: createAttrs },
+        update: { name: data.name, ...supOpt, attributes: updateAttrs },
         select: { id: true },
       });
       return { entityType: "Supplier", id: supplier.id, wasUpdate: !!existingSupplier };

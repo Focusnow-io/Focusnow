@@ -747,9 +747,21 @@ function ImportPageInner() {
       if (aiRes.ok) {
         const aiData = (await aiRes.json()) as AiMappingResult;
         setAiMappingResult(aiData);
-        // Fold canonical matches returned by Claude into the live mapping.
+
+        // Compute the final mapping + attributeKeys eagerly so we can
+        // persist them to the DataSource immediately — otherwise a user who
+        // clicks Confirm before this promise resolves would save the
+        // pre-AI state and lose every custom field on the way to /process.
+        const nextMapping: Record<string, string> = { ...aiData.canonicalMappings, ...activeMapping };
+        const nextAttributeKeys = Array.from(
+          new Set([
+            ...activeAttributeKeys,
+            ...aiData.customFields.map((f) => f.sourceColumn),
+          ]),
+        );
+
         if (Object.keys(aiData.canonicalMappings).length > 0) {
-          setMapping((prev) => ({ ...aiData.canonicalMappings, ...prev }));
+          setMapping(nextMapping);
           setScore((prev) => {
             const next = { ...prev };
             for (const f of Object.keys(aiData.canonicalMappings)) {
@@ -758,14 +770,16 @@ function ImportPageInner() {
             return next;
           });
         }
-        // Classified custom fields must be flagged as attribute keys so the
-        // ingestion pipeline writes their values into the attributes JSONB.
         if (aiData.customFields.length > 0) {
-          setAttributeKeys((prev) => {
-            const merged = new Set(prev);
-            for (const f of aiData.customFields) merged.add(f.sourceColumn);
-            return Array.from(merged);
-          });
+          setAttributeKeys(nextAttributeKeys);
+        }
+
+        // Persist the AI-enriched mapping so a fast Confirm click can't
+        // drop custom fields on the floor.
+        try {
+          await saveMapping(data.sourceId, data.entity, nextMapping, nextAttributeKeys);
+        } catch (err) {
+          console.error("[import] saveMapping after ai-map failed:", err);
         }
       }
     } catch (err) {
