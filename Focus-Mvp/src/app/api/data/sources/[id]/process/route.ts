@@ -37,6 +37,11 @@ function toEnum<T extends string>(value: string | undefined, allowed: readonly T
   return (allowed as readonly string[]).includes(upper) ? (upper as T) : undefined;
 }
 
+// Broad set of truthy string tokens a user may export for boolean fields.
+// Anything outside this set (and non-empty) is treated as false — matches the
+// "Y/N", "1/0", "true/false", "yes/no", "x/blank" conventions seen in ERP exports.
+const BOOL_TRUE_TOKENS = new Set(["y", "yes", "true", "1", "x"]);
+
 /** Build an object of optional DB fields from mapped user data.
  *  Only includes fields that the user actually provided a non-empty value for.
  *  This prevents Prisma from generating SQL for columns that may not yet exist
@@ -44,16 +49,17 @@ function toEnum<T extends string>(value: string | undefined, allowed: readonly T
  *  with null when the user simply didn't map that column. */
 function optFields(
   data: Record<string, string>,
-  specs: Array<{ k: string; t?: "d" | "i" | "dt" }>,
+  specs: Array<{ k: string; t?: "d" | "i" | "dt" | "b" }>,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const { k, t } of specs) {
     const v = data[k];
-    if (!v) continue;
+    if (v == null || v === "") continue;
     switch (t) {
       case "d":  { const n = decimal(v); if (n !== null) out[k] = n; break; }
       case "i":  { const n = int(v);     if (n !== null) out[k] = n; break; }
       case "dt": { const d = new Date(v); if (!isNaN(d.getTime())) out[k] = d; break; }
+      case "b":  { out[k] = BOOL_TRUE_TOKENS.has(String(v).trim().toLowerCase()); break; }
       default:   out[k] = v;
     }
   }
@@ -589,14 +595,13 @@ async function upsertEntity(
         { k: "moq", t: "i" }, { k: "orderMultiple", t: "i" }, { k: "leadTimeDays", t: "i" },
         // Cost fields
         { k: "unitCost", t: "d" }, { k: "totalValue", t: "d" },
+        // Expected: after importing a CSV with "Buy Recommendation" = "Y",
+        // InventoryItem.buyRecommendation must be true (Boolean), not "Y" (String).
+        { k: "buyRecommendation", t: "b" },
       ]);
-      // String / boolean fields that optFields doesn't cover
+      // String fields that optFields doesn't cover
       if (data.uom) invOpt.uom = data.uom;
       if (data.lotId) invOpt.lotId = data.lotId;
-      if (data.buyRecommendation != null && data.buyRecommendation !== "") {
-        const value = String(data.buyRecommendation).trim();
-        invOpt.buyRecommendation = value === "Y" || value === "y" ? true : false;
-      }
       // Always store the raw locationCode in attributes so null-location rows
       // from different warehouses stay distinct (NULL ≠ NULL in PG unique constraints,
       // but findFirst without a locationCode filter would still collapse them).
