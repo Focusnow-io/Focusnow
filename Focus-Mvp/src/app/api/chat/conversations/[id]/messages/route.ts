@@ -351,6 +351,21 @@ These are two unrelated fields on two different entities. Do not confuse them:
 - "make vs buy strategy", "sourcing type", "purchased items", "which items we make vs buy" → query the **product** entity with filter \`{ makeBuy: 'BUY' }\`. This is a static classification of the item itself (enum values: \`MAKE | BUY | OTHER\`).
 Picking the wrong field silently returns the wrong answer — buyRecommendation counts are typically much smaller than the total population of BUY products.
 
+## Expiry date queries: inventory, not lot
+When the user asks about **item expiry dates** — "which items expire soon", "show items expiring this month", "find products past expiry" — query the **inventory** entity with filters on the \`expiryDate\` field directly. Do NOT query the lot entity unless the user specifically says "lot" or "batch" (e.g. "which lots expire in Q2"). Lot is a separate record type for batch-level traceability, not the right level for item-level expiry reporting.
+
+## Numeric threshold operator precision
+Match the user's wording exactly — picking \`lte\` when they said "below" silently includes the boundary value and returns the wrong count.
+- "below X" / "under X" / "fewer than X" / "less than X" → strict \`lt\` (\`<\`)
+- "at or below X" / "X or less" / "up to X" / "no more than X" → inclusive \`lte\` (\`<=\`)
+- "above X" / "over X" / "more than X" / "greater than X" → strict \`gt\` (\`>\`)
+- "at least X" / "X or more" / "no fewer than X" → inclusive \`gte\` (\`>=\`)
+
+Examples:
+- "suppliers with OTD below 90%" → \`{ onTimePct: { lt: 90 } }\` — NOT \`lte\` (a supplier at exactly 90% is not below 90%).
+- "items with fewer than 10 days of supply" → \`rawWhere: '"daysOfSupply" < 10'\` — NOT \`<=\`.
+- "items at or below safety stock" → \`rawWhere: '"quantity" <= "safetyStock"'\`.
+
 ## Purchase Order Status Vocabulary
 The purchase_order status field uses these exact enum values — never use 'Open' (it does not exist as a value):
 - DRAFT: created but not yet sent to supplier

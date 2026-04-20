@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getSessionOrg, unauthorized } from "@/lib/api-helpers";
+import { prisma } from "@/lib/prisma";
 import {
   upsertCustomFieldSchemas,
   normaliseToFieldKey,
@@ -210,6 +211,24 @@ export async function POST(req: Request) {
         customFields.map((f) => ({ sourceColumn: f.sourceColumn, sampleValues: f.sampleValues })),
       );
       console.log("[ai-map] upsert complete");
+
+      // Verification read — confirms rows actually made it into the table
+      // and not a silent driver-level drop. Surfaces in Railway/Vercel logs.
+      try {
+        const written = await prisma.customFieldSchema.findMany({
+          where: { organizationId: ctx.org.id, entityType },
+          select: { fieldKey: true },
+        });
+        console.log(
+          `[ai-map] CustomFieldSchema rows after upsert: count=${written.length}`,
+          written.map((r) => r.fieldKey),
+        );
+      } catch (err) {
+        console.error(
+          "[ai-map] post-upsert verification read failed:",
+          err instanceof Error ? err.stack ?? err.message : err,
+        );
+      }
     } catch (err) {
       // Log and continue — the import must not be blocked on a schema write.
       console.error(
