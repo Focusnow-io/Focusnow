@@ -268,7 +268,11 @@ async function executeQueryRecords(
 
   const filters = (input.filters ?? {}) as Record<string, unknown>;
   const includeParam = input.include as Record<string, unknown> | undefined;
-  const limit = Math.min(Math.max(Number(input.limit) || 50, 1), 100);
+  // Cap at 500. The Instructions tell Claude to use limit:300 for the
+  // "worst-stocked" below-ROP workflow so it can compute (quantity -
+  // reorderPoint) over every matching row locally; anything above 500 is
+  // almost certainly a sign the question needs tighter filters.
+  const limit = Math.min(Math.max(Number(input.limit) || 50, 1), 500);
   const orderByField = input.orderBy as string | undefined;
   const rawWhere = input.rawWhere as string | undefined;
 
@@ -312,17 +316,30 @@ async function executeQueryRecords(
         return { error: `Entity ${entityName} has no org scope configured — rawWhere not supported` };
       }
 
-      // Get total count + limited IDs in parallel
-      const [countResult, idResult] = await Promise.all([
-        prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
-          `SELECT COUNT(*)::bigint as count FROM "${tableName}" WHERE ${orgClause} AND (${rawWhere})`,
-          orgId
-        ),
-        prisma.$queryRawUnsafe<Array<{ id: string }>>(
-          `SELECT id FROM "${tableName}" WHERE ${orgClause} AND (${rawWhere}) ${orderClause} LIMIT ${limit}`,
-          orgId
-        ),
-      ]);
+      // Get total count + limited IDs in parallel.
+      // COUNT is cast to ::integer (not ::bigint) to avoid BigInt leaking
+      // into the JSON response via Prisma 7's bigint preservation.
+      const countSql = `SELECT COUNT(*)::integer as count FROM "${tableName}" WHERE ${orgClause} AND (${rawWhere})`;
+      const idsSql = `SELECT id FROM "${tableName}" WHERE ${orgClause} AND (${rawWhere}) ${orderClause} LIMIT ${limit}`;
+      console.log(`[query_records] rawWhere COUNT SQL: ${countSql}`);
+
+      let countResult: Array<{ count: bigint | number }>;
+      let idResult: Array<{ id: string }>;
+      try {
+        [countResult, idResult] = await Promise.all([
+          prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(countSql, orgId),
+          prisma.$queryRawUnsafe<Array<{ id: string }>>(idsSql, orgId),
+        ]);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[query_records] rawWhere failed: ${msg} — SQL was: ${countSql}`);
+        return {
+          error: `Query failed: ${msg}`,
+          sql: countSql,
+          hint:
+            "Check that every column name in rawWhere is double-quoted camelCase (e.g. \"quantity\", \"reorderPoint\"). Unquoted identifiers get lowercased by Postgres and fail to match.",
+        };
+      }
 
       const totalCount = Number(countResult[0]?.count ?? 0);
       const ids = idResult.map((r) => r.id);
@@ -400,22 +417,40 @@ async function executeAggregateRecords(
         return { error: `Entity ${entityName} has no org scope configured — rawWhere not supported` };
       }
 
-      // Build SELECT based on metric
+      // Build SELECT based on metric.
+      // Using ::integer (not ::bigint) so the driver returns a JS number —
+      // Prisma 7 preserves bigint as BigInt, which blows up JSON.stringify
+      // if it ever leaks past our Number() guard.
       let selectExpr: string;
       if (metric === "COUNT") {
-        selectExpr = "COUNT(*)::bigint as value";
+        selectExpr = "COUNT(*)::integer as value";
       } else if (metric === "SUM" && valueField) {
         selectExpr = `COALESCE(SUM("${valueField}"), 0)::double precision as value`;
       } else if (metric === "AVG" && valueField) {
         selectExpr = `AVG("${valueField}")::double precision as value`;
       } else {
-        selectExpr = "COUNT(*)::bigint as value";
+        selectExpr = "COUNT(*)::integer as value";
       }
 
-      const result: Array<{ value: bigint | number }> = await prisma.$queryRawUnsafe(
-        `SELECT ${selectExpr} FROM "${tableName}" WHERE ${orgClause} AND (${rawWhere})`,
-        orgId
-      );
+      const sql = `SELECT ${selectExpr} FROM "${tableName}" WHERE ${orgClause} AND (${rawWhere})`;
+      console.log(`[aggregate_records] rawWhere SQL: ${sql}`);
+
+      let result: Array<{ value: bigint | number }>;
+      try {
+        result = await prisma.$queryRawUnsafe(sql, orgId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[aggregate_records] rawWhere failed: ${msg} — SQL was: ${sql}`);
+        // Surface the generated SQL back to Claude so it can adjust (e.g.
+        // double-quote an unquoted identifier) on a follow-up attempt
+        // instead of silently looping on the same malformed rawWhere.
+        return {
+          error: `Aggregation failed: ${msg}`,
+          sql,
+          hint:
+            "Check that every column name in rawWhere is double-quoted camelCase (e.g. \"quantity\", \"reorderPoint\"). Unquoted identifiers get lowercased by Postgres and fail to match.",
+        };
+      }
 
       const value = Number(result[0]?.value ?? 0);
       return { entity: entityName, metric, count: metric === "COUNT" ? value : undefined, value };
