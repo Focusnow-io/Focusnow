@@ -21,6 +21,12 @@ interface EntityQualityConfig {
   optionalFields: string[];
   /** FK fields whose non-null status contributes to FK resolution score */
   fkFields: string[];
+  /** Subset of any of the three lists above that are NOT NULL in the Prisma
+   *  schema. Listed explicitly because Prisma 7+ rejects `{ not: null }` on
+   *  non-nullable columns AND logs the rejection at level=error regardless
+   *  of JS try/catch, which floods the import terminal. Fields named here
+   *  short-circuit to 100% populated without a DB roundtrip. */
+  knownNonNullable?: string[];
   /** Prisma model accessor key */
   model: keyof typeof prisma;
   /** org scope field name */
@@ -66,25 +72,31 @@ const ENTITY_CONFIG: Partial<Record<string, EntityQualityConfig>> = {
     orgField: "orgId",
   },
   PurchaseOrder: {
-    // supplierId is non-nullable in the schema — Prisma 5+ rejects { not: null } on non-nullable fields
+    // supplierId is non-nullable in the schema — listed in knownNonNullable
+    // so the scorer short-circuits to 100% instead of issuing a count that
+    // Prisma 7 logs as prisma:error on every import.
     requiredFields: [],
     optionalFields: ["currency", "notes"],
     fkFields: ["supplierId"],
+    knownNonNullable: ["supplierId"],
     model: "purchaseOrder",
     orgField: "orgId",
   },
   SalesOrder: {
-    // customerId is non-nullable in the schema
+    // customerId is non-nullable in the schema.
     requiredFields: [],
     optionalFields: ["currency", "notes"],
     fkFields: ["customerId"],
+    knownNonNullable: ["customerId"],
     model: "salesOrder",
     orgField: "orgId",
   },
   BOMHeader: {
+    // productId is non-nullable in the schema.
     requiredFields: [],
     optionalFields: ["description"],
     fkFields: ["productId"],
+    knownNonNullable: ["productId"],
     model: "bOMHeader",
     orgField: "orgId",
   },
@@ -130,14 +142,20 @@ export async function computeDataQualityScore(
 
   const total = await model.count({ where }) as number;
 
-  // Prisma 7+ rejects { not: null } on non-nullable schema fields.
-  // Wrap each per-field count: if it throws (non-nullable field), treat as fully
-  // populated (count === total), since a non-nullable field is always present.
+  // Prisma 7+ rejects `{ not: null }` on non-nullable schema fields AND
+  // logs the rejection at level=error regardless of whether JS catches it —
+  // which is why every import was spamming `prisma:error Argument 'not'
+  // must not be null`. Short-circuit via the config's knownNonNullable
+  // allowlist so we never issue a doomed count; a non-nullable column is
+  // always fully populated by definition. The try/catch stays as a second
+  // line of defence for any fkField we forgot to flag.
+  const knownNonNullable = new Set(config.knownNonNullable ?? []);
   const safeCount = async (field: string): Promise<number> => {
+    if (knownNonNullable.has(field)) return total;
     try {
       return await model.count({ where: { ...where, [field]: { not: null } } }) as number;
     } catch {
-      return total; // non-nullable field → always 100% populated
+      return total; // surprise non-nullable field → always 100% populated
     }
   };
 
