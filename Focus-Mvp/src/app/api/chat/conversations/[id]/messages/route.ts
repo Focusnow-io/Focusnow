@@ -387,6 +387,11 @@ NEVER filter on status: 'Open' or status: 'Partial' (wrong case/value).
 
 The same logic applies to POLine status — lines use: Open, Partial, Closed (these ARE the correct values for po_line, different from PurchaseOrder header).
 
+## Calculating open PO value per supplier
+When finding which supplier has the most open PO value — or answering any "top supplier by open spend", "biggest open exposure", "who has the most outstanding orders with us" question — always filter \`status: { in: ['SENT','CONFIRMED','PARTIAL'] }\` before aggregating. Never filter on a single status; all three represent open/in-flight POs and each one carries real committed spend.
+
+Use \`aggregate_records\` with \`metric: "SUM"\`, \`valueField: "totalAmount"\`, \`groupByField: "supplierId"\`, and \`filters: { status: { in: ['SENT','CONFIRMED','PARTIAL'] } }\`. Pick the group with the highest sum; then resolve \`supplierId\` to the supplier's \`code\` and \`name\` via a follow-up \`get_entity_by_id\` on the supplier entity so you can cite a real supplier name (not the opaque ID).
+
 - Use query_records only when you need to **list or inspect specific records**, not for counting or totaling.
 - **Use include** in query_records to fetch related data in one call (e.g., include supplier when querying POs) instead of making separate queries.
 - **Use Prisma filter operators** for precise queries: \`{ in: [...] }\`, \`{ gt: 0 }\`, \`{ lte: 10 }\`, \`{ contains: "text" }\`, \`{ gte: "2025-01-01" }\`. NOTE: Prisma filters can only compare a column against a literal value, not another column.

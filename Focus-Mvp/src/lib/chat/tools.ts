@@ -287,6 +287,21 @@ async function executeQueryRecords(
     where[config.orgParent.relation] = { [config.orgParent.parentOrgField]: orgId };
   }
 
+  // po_line has no direct `sku` column — the real foreign key is productId
+  // and the SKU lives on the Product relation. Transparently rewrite the
+  // caller's `filters.sku` into a nested `product: { sku }` filter so the
+  // tool matches what the Instructions (and Claude's mental model) expect.
+  // Preserves any other product-nested predicates the caller supplied.
+  if (entityName === "po_line" && typeof where.sku === "string") {
+    const sku = where.sku;
+    delete where.sku;
+    const existingProduct =
+      (where.product && typeof where.product === "object"
+        ? (where.product as Record<string, unknown>)
+        : {}) ?? {};
+    where.product = { ...existingProduct, sku };
+  }
+
   // Build orderBy
   let orderBy: Record<string, string> | undefined;
   if (orderByField) {
@@ -354,6 +369,17 @@ async function executeQueryRecords(
       if (includeParam && Object.keys(includeParam).length > 0) {
         hydrateQuery.include = includeParam;
       }
+      // Same auto-include as the standard path — keep po_line hydration
+      // in sync so rawWhere queries also return product sku / name.
+      if (entityName === "po_line") {
+        const currentInclude = (hydrateQuery.include as Record<string, unknown> | undefined) ?? {};
+        if (!("product" in currentInclude)) {
+          hydrateQuery.include = {
+            ...currentInclude,
+            product: { select: { sku: true, name: true } },
+          };
+        }
+      }
       const rows = await model.findMany(hydrateQuery);
       return { entity: entityName, totalCount, returnedCount: rows.length, rows };
     }
@@ -363,6 +389,19 @@ async function executeQueryRecords(
     const query: any = { where, orderBy, take: limit };
     if (includeParam && Object.keys(includeParam).length > 0) {
       query.include = includeParam;
+    }
+    // po_line results without product detail are useless to the chat — the
+    // AI can't report "2 PO lines for item D7282B18" without the SKU and
+    // product name. Auto-include the product relation when the caller
+    // didn't already request it (and didn't already include product).
+    if (entityName === "po_line") {
+      const currentInclude = (query.include as Record<string, unknown> | undefined) ?? {};
+      if (!("product" in currentInclude)) {
+        query.include = {
+          ...currentInclude,
+          product: { select: { sku: true, name: true } },
+        };
+      }
     }
 
     const [rows, totalCount] = await Promise.all([
