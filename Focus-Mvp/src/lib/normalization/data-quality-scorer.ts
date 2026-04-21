@@ -38,6 +38,10 @@ const ENTITY_CONFIG: Partial<Record<string, EntityQualityConfig>> = {
     requiredFields: ["name", "sku"],
     optionalFields: ["leadTimeDays", "unitCost", "description"],
     fkFields: [],
+    // Schema: `sku String`, `name String` — both NOT NULL, so the count
+    // with `{ not: null }` is rejected by Prisma 7 and logged as
+    // prisma:error. Short-circuit to 100% populated.
+    knownNonNullable: ["name", "sku"],
     model: "product",
     orgField: "organizationId",
   },
@@ -45,6 +49,11 @@ const ENTITY_CONFIG: Partial<Record<string, EntityQualityConfig>> = {
     requiredFields: ["name"],
     optionalFields: ["code", "email", "country", "leadTimeDays"],
     fkFields: [],
+    // Schema: `code String`, `name String` — both NOT NULL. `code` is
+    // declared optional here because some customers may import suppliers
+    // without a stable code, but the schema column itself is non-nullable
+    // (Prisma stubs default to "" on auto-create).
+    knownNonNullable: ["name", "code"],
     model: "supplier",
     orgField: "organizationId",
   },
