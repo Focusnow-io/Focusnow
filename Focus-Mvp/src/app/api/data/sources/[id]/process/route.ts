@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getSessionOrg, unauthorized, notFound } from "@/lib/api-helpers";
 import { prisma } from "@/lib/prisma";
+import { POStatus } from "@prisma/client";
 import { applyMappingWithAttributes, CANONICAL_FIELDS, type MappingConfig, type ColumnClassification, type EntityType } from "@/lib/ingestion/field-mapper";
 import { loadRowsFromConfig } from "@/lib/ingestion/source-loader";
 import { fillDown } from "@/lib/ingestion/preprocess";
@@ -103,13 +104,11 @@ const SO_STATUSES = ["DRAFT", "CONFIRMED", "IN_PRODUCTION", "SHIPPED", "DELIVERE
  *  before we hand them to Prisma. Unknown labels fall back to undefined so
  *  the caller can default the row to DRAFT instead of dying on a Prisma
  *  enum-validation error for one misspelled cell. */
-function normalisePOStatus(
-  raw: string | undefined,
-): typeof PO_STATUSES[number] | undefined {
+function normalisePOStatus(raw: string | undefined): POStatus | undefined {
   if (!raw) return undefined;
   // Prisma's POStatus enum has no CLOSED member — "Closed" / "Completed" /
   // "Received" all collapse onto RECEIVED, which is the terminal state.
-  const map: Record<string, typeof PO_STATUSES[number]> = {
+  const map: Record<string, POStatus> = {
     open: "SENT",
     sent: "SENT",
     approved: "CONFIRMED",
@@ -129,7 +128,7 @@ function normalisePOStatus(
   if (map[lower]) return map[lower];
   const upper = raw.toUpperCase().trim().replace(/[\s-]+/g, "_");
   return (PO_STATUSES as readonly string[]).includes(upper)
-    ? (upper as typeof PO_STATUSES[number])
+    ? (upper as POStatus)
     : undefined;
 }
 
@@ -177,6 +176,7 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  try {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
   const { id } = await params;
@@ -481,6 +481,21 @@ export async function POST(
       data: { status: "FAILED", errorMessage: String(err), normalizationStatus: "failed" },
     });
     return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+  } catch (err) {
+    // Last-resort safety net: anything that slips past the per-step error
+    // handlers above (unhandled throw from normalisePOStatus, prisma client
+    // init, raw SQL, file IO) would otherwise return an empty response
+    // body and leave the client UI with no error to show. Log + return
+    // a structured JSON 500 so the import UI gets a real message.
+    console.error("[process] UNHANDLED FATAL ERROR:", err);
+    return NextResponse.json(
+      {
+        error: "Import failed",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      { status: 500 },
+    );
   }
 }
 
@@ -953,7 +968,7 @@ async function upsertEntity(
       // Use the English-label-aware mapper instead of bare toEnum so CSVs
       // that export "Open" / "Partially received" / "Closed" land on the
       // right POStatus enum value instead of falling through to DRAFT.
-      const poStatus = normalisePOStatus(data.status);
+      const poStatus = normalisePOStatus(data.status) as POStatus | undefined;
       const poOpt = optFields(data, [
         { k: "totalAmount", t: "d" }, { k: "expectedDate", t: "dt" },
         { k: "notes" }, { k: "orderDate", t: "dt" }, { k: "totalLines", t: "i" },

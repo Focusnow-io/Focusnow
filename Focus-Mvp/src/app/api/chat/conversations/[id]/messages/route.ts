@@ -357,6 +357,8 @@ Picking the wrong field silently returns the wrong answer — buyRecommendation 
 When the user asks about **item expiry dates** — "which items expire soon", "show items expiring this month", "find products past expiry" — query the **inventory** entity with filters on the \`expiryDate\` field directly. Do NOT query the lot entity unless the user specifically says "lot" or "batch" (e.g. "which lots expire in Q2"). Lot is a separate record type for batch-level traceability, not the right level for item-level expiry reporting.
 
 ## Numeric threshold operator precision
+**STRICT RULE: "below X", "under X", "fewer than X", "less than X" ALWAYS means strictly less than — use \`lt\`, never \`lte\`. "fewer than 10 days of supply" means \`daysOfSupply < 10\`, NOT \`<= 10\`. Items at exactly 10 days are NOT below 10 days.**
+
 Match the user's wording exactly — picking \`lte\` when they said "below" silently includes the boundary value and returns the wrong count.
 - "below X" / "under X" / "fewer than X" / "less than X" → strict \`lt\` (\`<\`)
 - "at or below X" / "X or less" / "up to X" / "no more than X" → inclusive \`lte\` (\`<=\`)
@@ -365,7 +367,7 @@ Match the user's wording exactly — picking \`lte\` when they said "below" sile
 
 Examples:
 - "suppliers with OTD below 90%" → \`{ onTimePct: { lt: 90 } }\` — NOT \`lte\` (a supplier at exactly 90% is not below 90%).
-- "items with fewer than 10 days of supply" → \`rawWhere: '"daysOfSupply" < 10'\` — NOT \`<=\`.
+- "items with fewer than 10 days of supply" → \`rawWhere: '"daysOfSupply" < 10'\` — NOT \`<=\`. A row with daysOfSupply = 10 is NOT in the answer.
 - "items at or below safety stock" → \`rawWhere: '"quantity" <= "safetyStock"'\`.
 
 ## Purchase Order Status Vocabulary
@@ -413,12 +415,22 @@ When the user asks about "finished goods" stock / inventory / SKUs, the type fie
 2. Filter \`product\` directly with \`{ type: 'FINISHED_GOOD' }\` and cross-reference to inventory for stock levels.
 Return every matching SKU — do not truncate the list unless the user explicitly asks for a top-N view.
 
-## Finding worst/best stocked items (cross-column ordering)
-Prisma / rawWhere cannot ORDER BY a computed expression like (quantity - reorderPoint), so use this workflow for "worst stocked", "biggest shortfall", "largest gap" questions:
-1. Call \`query_records\` on inventory with \`rawWhere: '"quantity" < "reorderPoint"'\` and a high \`limit\` (e.g. 300) so you get every below-ROP row in one call, not just the first 50.
-2. From the returned rows, compute \`(quantity - reorderPoint)\` yourself for each row and find the minimum (most negative) value.
-3. Report the item with the lowest computed value, citing sku, name, on-hand and ROP.
-Never report the worst item from a partial result set — always confirm \`returnedCount === totalCount\` before computing the minimum. If \`totalCount\` exceeds what one tool call can return, say so explicitly and ask the user to narrow the filter rather than guessing.
+## Finding worst/best stocked item — MANDATORY PROCEDURE
+To find the item with the largest gap below reorder point ("worst stocked", "biggest shortfall", "largest gap", "most under-stocked"):
+
+**STEP 1:** Call \`query_records\` on inventory with:
+- \`rawWhere: '"quantity" < "reorderPoint"'\`
+- \`limit: 300\`
+- \`orderBy\` omitted — we sort manually because Prisma cannot ORDER BY a computed expression like \`(quantity - reorderPoint)\`.
+
+**STEP 2:** Check \`returnedCount\` in the response. If \`returnedCount < totalCount\`, call again with a higher \`limit\` until you have every below-ROP row. Do not proceed to Step 3 until \`returnedCount === totalCount\`.
+
+**STEP 3:** From ALL returned rows, compute \`gap = quantity - reorderPoint\` for every single row. Find the row with the MINIMUM gap value (most negative).
+
+**STEP 4:** Report that item, citing sku, name, on-hand, reorderPoint, and gap.
+
+NEVER report the worst item from a partial result set — a minimum over 50 rows is not the minimum over 237.
+NEVER use \`orderBy\` on a computed expression — Prisma cannot order by \`(quantity - reorderPoint)\`. Always fetch all rows and compute the minimum in your own reasoning.
 
 ## Current Dataset
 
