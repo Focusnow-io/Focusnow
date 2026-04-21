@@ -161,6 +161,7 @@ const WO_STATUSES = ["PLANNED", "RELEASED", "IN_PROGRESS", "COMPLETED", "CANCELL
  *  fields (e.g. "__sku__" means "use the value of data.sku"). */
 const ENTITY_DEFAULTS: Partial<Record<string, Record<string, string | number>>> = {
   BOM: { quantity: 1 },
+  BOMLine: { qtyPer: "1", uom: "EA" },
   Product: { name: "__sku__" },
   Supplier: { name: "__code__" },
   InventoryItem: { quantity: 0 },
@@ -1153,7 +1154,408 @@ async function upsertEntity(
       });
       return existingEq ? UPSERTED_UPDATE : UPSERTED_CREATE;
     }
+    case "BOMLine": {
+      // Accept both field-name variants: the mapper now emits bomId /
+      // componentSku / qtyPer (see CANONICAL_FIELDS[BOMLine]); older files
+      // may still carry bomHeaderId / componentId / qty.
+      const rawBomRef = data.bomId || data.bomHeaderId;
+      const rawComponentSku = data.componentSku || data.componentId;
+      const rawQty = data.qtyPer || data.qty || data.quantity;
+
+      if (!rawBomRef || !rawComponentSku || !rawQty) return null;
+
+      // Resolve the parent BOMHeader. If rawBomRef looks like "BOM-<sku>-<rev>"
+      // strip the prefix and trailing revision segment to get the SKU,
+      // otherwise treat it as the SKU directly.
+      let bomSku = rawBomRef;
+      if (rawBomRef.startsWith("BOM-")) {
+        const parts = rawBomRef.replace(/^BOM-/, "").split("-");
+        if (parts.length >= 2) bomSku = parts.slice(0, -1).join("-");
+      }
+
+      const fgProduct = await prisma.product.upsert({
+        where: { organizationId_sku: { organizationId: orgId, sku: bomSku } },
+        create: { organizationId: orgId, sku: bomSku, name: data.fgName || bomSku },
+        update: {},
+        select: { id: true },
+      });
+
+      const version = data.version || data.bomRevision || data.revision || "1";
+      const bomHeader = await prisma.bOMHeader.upsert({
+        where: { orgId_productId_version: { orgId, productId: fgProduct.id, version } },
+        create: { orgId, productId: fgProduct.id, version, isActive: true },
+        update: {},
+        select: { id: true },
+      });
+
+      const component = await prisma.product.upsert({
+        where: { organizationId_sku: { organizationId: orgId, sku: rawComponentSku } },
+        create: {
+          organizationId: orgId,
+          sku: rawComponentSku,
+          name: data.componentName || rawComponentSku,
+        },
+        update: {},
+        select: { id: true },
+      });
+
+      // Note: BOMLine has `sequence` (Int?) not `lineNumber` — the mapper can
+      // send either, we route both to sequence.
+      const bomLineOpt = optFields(data, [
+        { k: "uom" }, { k: "section" }, { k: "notes" }, { k: "makeBuy" },
+        { k: "componentCost", t: "d" }, { k: "extendedCost", t: "d" },
+        { k: "wasteFactorPct", t: "d" },
+        { k: "sequence", t: "i" }, { k: "lineNumber", t: "i" },
+        { k: "isCritical", t: "b" }, { k: "isPhantom", t: "b" },
+        { k: "approvedSubSku" }, { k: "parentComponentId" },
+      ]);
+      // Fold lineNumber into sequence when only lineNumber was mapped.
+      if (bomLineOpt.lineNumber != null && bomLineOpt.sequence == null) {
+        bomLineOpt.sequence = bomLineOpt.lineNumber;
+      }
+      delete bomLineOpt.lineNumber;
+
+      const existingLine = await prisma.bOMLine.findFirst({
+        where: { bomHeaderId: bomHeader.id, componentId: component.id },
+        select: { id: true },
+      });
+
+      if (existingLine) {
+        await prisma.bOMLine.update({
+          where: { id: existingLine.id },
+          data: {
+            qty: decimal(rawQty) ?? 1,
+            uom: data.uom || "EA",
+            ...bomLineOpt,
+          },
+        });
+      } else {
+        await prisma.bOMLine.create({
+          data: {
+            bomHeaderId: bomHeader.id,
+            componentId: component.id,
+            qty: decimal(rawQty) ?? 1,
+            uom: data.uom || "EA",
+            ...bomLineOpt,
+          },
+        });
+      }
+      return existingLine ? UPSERTED_UPDATE : UPSERTED_CREATE;
+    }
+    case "SalesOrderLine": {
+      // salesOrderId is a human-readable SO number in the CSV, not a UUID.
+      const soNumber = data.salesOrderId || data.soNumber || data.soId;
+      const sku = data.productId || data.sku || data.itemCode;
+      const lineNumber = int(data.lineNumber) ?? 1;
+
+      if (!soNumber || !sku) return null;
+
+      const soCustomer = await prisma.customer.upsert({
+        where: { orgId_code: { orgId, code: data.customerId || "UNKNOWN" } },
+        create: {
+          orgId,
+          code: data.customerId || "UNKNOWN",
+          name: data.customerId || "Unknown Customer",
+        },
+        update: {},
+        select: { id: true },
+      });
+      const salesOrder = await prisma.salesOrder.upsert({
+        where: { orgId_soNumber: { orgId, soNumber } },
+        create: {
+          orgId,
+          soNumber,
+          customerId: soCustomer.id,
+          status: "DRAFT",
+          currency: data.currency || "USD",
+        },
+        update: {},
+        select: { id: true },
+      });
+
+      const solProduct = await prisma.product.upsert({
+        where: { organizationId_sku: { organizationId: orgId, sku } },
+        create: { organizationId: orgId, sku, name: data.itemName || sku },
+        update: {},
+        select: { id: true },
+      });
+
+      const solOpt = optFields(data, [
+        { k: "qtyShipped", t: "d" }, { k: "qtyOpen", t: "d" },
+        { k: "lineValue", t: "d" }, { k: "status" },
+        { k: "requestedDate", t: "dt" }, { k: "confirmedDate", t: "dt" },
+        { k: "uom" },
+      ]);
+
+      const existingSol = await prisma.sOLine.findFirst({
+        where: { salesOrderId: salesOrder.id, productId: solProduct.id, lineNumber },
+        select: { id: true },
+      });
+
+      if (existingSol) {
+        await prisma.sOLine.update({
+          where: { id: existingSol.id },
+          data: {
+            qtyOrdered: decimal(data.qtyOrdered) ?? 0,
+            unitPrice: decimal(data.unitPrice) ?? 0,
+            uom: data.uom || "EA",
+            ...solOpt,
+          },
+        });
+      } else {
+        await prisma.sOLine.create({
+          data: {
+            salesOrderId: salesOrder.id,
+            productId: solProduct.id,
+            lineNumber,
+            qtyOrdered: decimal(data.qtyOrdered) ?? 0,
+            unitPrice: decimal(data.unitPrice) ?? 0,
+            uom: data.uom || "EA",
+            ...solOpt,
+          },
+        });
+      }
+      return existingSol ? UPSERTED_UPDATE : UPSERTED_CREATE;
+    }
+    case "WorkOrderOperation": {
+      const woNumber = data.workOrderId || data.workOrderNumber || data.woNumber;
+      const sequence = int(data.sequence || data.opNumber || data.operationNo) ?? 1;
+      const opName =
+        data.name || data.operationName || data.opName || `Operation ${sequence}`;
+
+      if (!woNumber) return null;
+
+      const workOrder = await prisma.workOrder.upsert({
+        where: {
+          organizationId_orderNumber: { organizationId: orgId, orderNumber: woNumber },
+        },
+        create: {
+          organizationId: orgId,
+          orderNumber: woNumber,
+          sku: data.sku || woNumber,
+          plannedQty: 0,
+          status: "PLANNED",
+        },
+        update: {},
+        select: { id: true },
+      });
+
+      const wooOpt = optFields(data, [
+        { k: "workCenter" }, { k: "notes" },
+        { k: "plannedMins", t: "i" }, { k: "actualMins", t: "i" },
+        { k: "plannedSetupMin", t: "d" }, { k: "actualSetupMin", t: "d" },
+        { k: "plannedRunMin", t: "d" }, { k: "actualRunMin", t: "d" },
+        { k: "plannedQty", t: "d" }, { k: "actualQtyGood", t: "d" },
+        { k: "actualQtyScrap", t: "d" }, { k: "yieldPct", t: "d" },
+        { k: "plannedStart", t: "dt" }, { k: "actualStart", t: "dt" },
+        { k: "actualEnd", t: "dt" },
+      ]);
+
+      const WOO_STATUSES = ["PENDING", "IN_PROGRESS", "DONE", "SKIPPED"] as const;
+      const wooStatus = toEnum(data.status, WOO_STATUSES);
+
+      const existingWoo = await prisma.workOrderOperation.findFirst({
+        where: { workOrderId: workOrder.id, sequence },
+        select: { id: true },
+      });
+
+      if (existingWoo) {
+        await prisma.workOrderOperation.update({
+          where: { id: existingWoo.id },
+          data: { name: opName, ...(wooStatus && { status: wooStatus }), ...wooOpt },
+        });
+      } else {
+        await prisma.workOrderOperation.create({
+          data: {
+            workOrderId: workOrder.id,
+            sequence,
+            name: opName,
+            status: wooStatus ?? "PENDING",
+            ...wooOpt,
+          },
+        });
+      }
+      return existingWoo ? UPSERTED_UPDATE : UPSERTED_CREATE;
+    }
+    case "SupplierItem": {
+      const supplierCode = data.supplierId || data.supplierCode;
+      const sku = data.sku || data.productId || data.itemCode;
+
+      if (!supplierCode || !sku) return null;
+
+      const siSupplier = await prisma.supplier.upsert({
+        where: { organizationId_code: { organizationId: orgId, code: supplierCode } },
+        create: {
+          organizationId: orgId,
+          code: supplierCode,
+          name: data.supplierName || supplierCode,
+        },
+        update: {},
+        select: { id: true },
+      });
+
+      const siProduct = await prisma.product.upsert({
+        where: { organizationId_sku: { organizationId: orgId, sku } },
+        create: { organizationId: orgId, sku, name: data.itemName || sku },
+        update: {},
+        select: { id: true },
+      });
+
+      const SUPPLIER_ITEM_STATUSES = ["APPROVED", "PREFERRED", "BLOCKED"] as const;
+      const siStatus = toEnum(data.status, SUPPLIER_ITEM_STATUSES);
+
+      // Note: SupplierItem.contractUnitCost (NOT unitCost). Also supports
+      // unitCost CSV header — fold it in explicitly below.
+      const siOpt = optFields(data, [
+        { k: "contractUnitCost", t: "d" },
+        { k: "leadTimeDays", t: "i" },
+        { k: "moq", t: "i" }, { k: "orderMultiple", t: "i" },
+        { k: "supplierPartNumber" }, { k: "currency" },
+        { k: "countryOfOrigin" }, { k: "approvedSubstitute" },
+        { k: "notes" },
+        { k: "costValidFrom", t: "dt" }, { k: "costValidTo", t: "dt" },
+      ]);
+      const legacyUnitCost = decimal(data.unitCost);
+      if (siOpt.contractUnitCost == null && legacyUnitCost !== null) {
+        siOpt.contractUnitCost = legacyUnitCost;
+      }
+
+      const existingSi = await prisma.supplierItem.findFirst({
+        where: { orgId, supplierId: siSupplier.id, productId: siProduct.id },
+        select: { id: true },
+      });
+
+      if (existingSi) {
+        await prisma.supplierItem.update({
+          where: { id: existingSi.id },
+          data: { ...(siStatus && { status: siStatus }), ...siOpt, attributes: attrs },
+        });
+      } else {
+        await prisma.supplierItem.create({
+          data: {
+            orgId,
+            supplierId: siSupplier.id,
+            productId: siProduct.id,
+            status: siStatus ?? "APPROVED",
+            ...siOpt,
+            attributes: attrs,
+          },
+        });
+      }
+      return existingSi ? UPSERTED_UPDATE : UPSERTED_CREATE;
+    }
+    case "StockMovement": {
+      const sku = data.sku || data.itemCode || data.productId;
+      const movementDate = data.date || data.movementDate || data.occurredAt;
+      const qty = data.qty || data.quantity;
+
+      if (!sku || !qty) return null;
+
+      const smProduct = await prisma.product.upsert({
+        where: { organizationId_sku: { organizationId: orgId, sku } },
+        create: { organizationId: orgId, sku, name: sku },
+        update: {},
+        select: { id: true },
+      });
+
+      // StockMovement.locationId is NOT NULL in the schema. If the CSV
+      // doesn't carry a locationCode we can't materialise a row; skip.
+      const locationCode = data.locationCode || data.location;
+      if (!locationCode) return null;
+      const smLocation = await prisma.location.upsert({
+        where: { organizationId_code: { organizationId: orgId, code: locationCode } },
+        create: { organizationId: orgId, code: locationCode, name: locationCode },
+        update: {},
+        select: { id: true },
+      });
+
+      const MOVEMENT_TYPES = ["RECEIPT", "ISSUE", "TRANSFER", "ADJUSTMENT", "RETURN", "SCRAP"] as const;
+      const movType =
+        toEnum(data.type || data.movementType, MOVEMENT_TYPES) ?? "ADJUSTMENT";
+
+      // Note: StockMovement schema has orgId (not organizationId), occurredAt
+      // (not date), and refType/refId (not a single `reference`). It has no
+      // `attributes` column.
+      await prisma.stockMovement.create({
+        data: {
+          orgId,
+          productId: smProduct.id,
+          locationId: smLocation.id,
+          type: movType,
+          qty: decimal(qty) ?? 0,
+          occurredAt: movementDate ? new Date(movementDate) : new Date(),
+          refType: data.refType || null,
+          refId: data.refId || data.reference || data.movementId || null,
+          notes: data.notes || null,
+          uom: data.uom || null,
+        },
+      });
+      return UPSERTED_CREATE;
+    }
+    case "Lot": {
+      const lotNumber = data.lotNumber || data.lot || data.batchNumber;
+      const sku = data.sku || data.productId || data.itemCode;
+
+      if (!lotNumber || !sku) return null;
+
+      const lotProduct = await prisma.product.upsert({
+        where: { organizationId_sku: { organizationId: orgId, sku } },
+        create: { organizationId: orgId, sku, name: sku },
+        update: {},
+        select: { id: true },
+      });
+
+      const lotOpt = optFields(data, [
+        { k: "expiryDate", t: "dt" }, { k: "manufacturedDate", t: "dt" },
+        { k: "lotType" }, { k: "originType" }, { k: "originReference" },
+        { k: "qtyCreated", t: "d" }, { k: "qtyOnHand", t: "d" }, { k: "qtyConsumed", t: "d" },
+        { k: "qtyScrapped", t: "d" },
+        { k: "notes" }, { k: "status" }, { k: "releasedBy" },
+      ]);
+
+      let lotSupplierId: string | null = null;
+      const lotSupplierCode = data.supplierCode || data.supplierId;
+      if (lotSupplierCode) {
+        const lotSup = await prisma.supplier.upsert({
+          where: { organizationId_code: { organizationId: orgId, code: lotSupplierCode } },
+          create: { organizationId: orgId, code: lotSupplierCode, name: lotSupplierCode },
+          update: {},
+          select: { id: true },
+        });
+        lotSupplierId = lotSup.id;
+      }
+
+      const existingLot = await prisma.lot.findFirst({
+        where: { orgId, lotNumber },
+        select: { id: true },
+      });
+
+      if (existingLot) {
+        await prisma.lot.update({
+          where: { id: existingLot.id },
+          data: {
+            productId: lotProduct.id,
+            ...(lotSupplierId && { supplierId: lotSupplierId }),
+            ...lotOpt,
+            attributes: attrs,
+          },
+        });
+      } else {
+        await prisma.lot.create({
+          data: {
+            orgId,
+            lotNumber,
+            productId: lotProduct.id,
+            ...(lotSupplierId && { supplierId: lotSupplierId }),
+            ...lotOpt,
+            attributes: attrs,
+          },
+        });
+      }
+      return existingLot ? UPSERTED_UPDATE : UPSERTED_CREATE;
+    }
     default:
+      console.warn(`[process] No upsert case for entity: ${entity} — rows will be skipped`);
       return null;
   }
 }

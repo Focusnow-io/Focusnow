@@ -340,9 +340,12 @@ export const CANONICAL_FIELDS = {
     { field: "priority", label: "Priority", required: false },
   ],
   BOMLine: [
-    { field: "bomId", label: "BOM ID", required: true, identity: true },
+    { field: "bomId", label: "BOM ID / FG SKU", required: true, identity: true },
     { field: "componentSku", label: "Component SKU", required: true, identity: true },
     { field: "qtyPer", label: "Qty Per", required: true },
+    { field: "fgName", label: "FG Name", required: false },
+    { field: "componentName", label: "Component Name", required: false },
+    { field: "revision", label: "BOM Revision", required: false },
     { field: "lineNumber", label: "Line Number", required: false },
     { field: "section", label: "Section", required: false },
     { field: "uom", label: "UOM", required: false },
