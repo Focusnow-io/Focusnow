@@ -137,6 +137,15 @@ export async function computeDataQualityScore(
   importedRows: number,
 ): Promise<number> {
   console.log('[data-quality-scorer] entityType=', entityType);
+
+  // BOMLine is scoped via bomHeader.orgId, not a direct orgField, so the
+  // config-driven counter below can't count its rows in isolation. For
+  // now, score BOMLine on type validity alone (rows that survived the
+  // upsert) to avoid the N+1 nested-query cost.
+  if (entityType === "BOMLine") {
+    return totalRows > 0 ? Math.round((importedRows / totalRows) * 100) : 0;
+  }
+
   const config = ENTITY_CONFIG[entityType];
 
   // For unknown entity types, score is based solely on type validity

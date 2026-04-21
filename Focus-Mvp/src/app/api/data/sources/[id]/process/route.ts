@@ -261,6 +261,11 @@ export async function POST(
   }
 
   try {
+    // Per-import parent-entity caches — avoids re-upserting the same
+    // FG product / BOMHeader / supplier / PO / etc. once per child row.
+    // See UpsertCtx for the full set.
+    const upsertCtx = createUpsertCtx();
+
     for (let rowNum = 0; rowNum < rows.length; rowNum++) {
       const row = rows[rowNum];
       const { canonical, attributes } = applyMappingWithAttributes(row, mapping, attributeKeys);
@@ -308,7 +313,7 @@ export async function POST(
       }
 
       try {
-        const result = await upsertEntity(entity, canonical, attributes, ctx.org.id, delta, id, importMode);
+        const result = await upsertEntity(entity, canonical, attributes, ctx.org.id, delta, id, importMode, upsertCtx);
         if (result === null) {
           // Validation skip — required fields missing or parent not found
           console.error(`[process] SKIP Row ${rowNum + 1} (${entity}): validation returned null — required fields missing or parent not found. canonical=`, JSON.stringify(canonical));
@@ -566,6 +571,52 @@ type UpsertResult =
   | typeof UPSERTED_UPDATE
   | null;
 
+/** Per-import-run caches so we don't re-upsert the same parent entity for
+ *  every child row. Collapses the BOMLine / POLine / SOLine / etc. N+1
+ *  lookups from O(n_rows * n_parents_per_row) to O(unique_parents).
+ *  Keys are pre-composed strings (e.g. `${orgId}:${sku}`) so map lookups
+ *  are pure string compares. */
+interface UpsertCtx {
+  productCache: Map<string, string>;     // `${orgId}:${sku}` -> productId
+  supplierCache: Map<string, string>;    // `${orgId}:${code}` -> supplierId
+  customerCache: Map<string, string>;    // `${orgId}:${code}` -> customerId
+  locationCache: Map<string, string>;    // `${orgId}:${code}` -> locationId
+  bomHeaderCache: Map<string, string>;   // `${orgId}:${productId}:${version}` -> bomHeaderId
+  poCache: Map<string, string>;          // `${orgId}:${poNumber}` -> purchaseOrderId
+  soCache: Map<string, string>;          // `${orgId}:${soNumber}` -> salesOrderId
+  woCache: Map<string, string>;          // `${orgId}:${orderNumber}` -> workOrderId
+}
+
+function createUpsertCtx(): UpsertCtx {
+  return {
+    productCache: new Map(),
+    supplierCache: new Map(),
+    customerCache: new Map(),
+    locationCache: new Map(),
+    bomHeaderCache: new Map(),
+    poCache: new Map(),
+    soCache: new Map(),
+    woCache: new Map(),
+  };
+}
+
+/** Consult `cache` for `key`; call `load` only on miss and cache the id for
+ *  subsequent rows. `cache` is optional so callers outside the per-run
+ *  pipeline (e.g. a single-row resolver) can pass undefined. */
+async function cachedUpsert(
+  cache: Map<string, string> | undefined,
+  key: string,
+  load: () => Promise<{ id: string }>,
+): Promise<string> {
+  if (cache) {
+    const hit = cache.get(key);
+    if (hit) return hit;
+  }
+  const { id } = await load();
+  cache?.set(key, id);
+  return id;
+}
+
 async function upsertEntity(
   entity: string,
   data: Record<string, string>,
@@ -574,6 +625,7 @@ async function upsertEntity(
   delta?: Record<string, { created: number; updated: number }>,
   sourceId?: string,
   importMode?: string,
+  ctx?: UpsertCtx,
 ): Promise<UpsertResult> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let attrs: any = Object.keys(attributes).length > 0 ? (attributes as any) : undefined;
@@ -675,27 +727,43 @@ async function upsertEntity(
       // Find or auto-create a minimal product stub so inventory rows are never
       // silently dropped when no Product file has been imported yet.
       // Stubs (name = sku) are excluded from product count KPIs in the apps.
-      const existingProduct = await prisma.product.findUnique({
-        where: { organizationId_sku: { organizationId: orgId, sku: data.sku } },
-        select: { id: true },
-      });
-      const invProduct = existingProduct
-        ? existingProduct
-        : await prisma.product.create({
+      // Cached per-run so a 282-row file doesn't re-hit the same product.
+      const invProductId = await cachedUpsert(
+        ctx?.productCache,
+        `${orgId}:${data.sku}`,
+        async () => {
+          const existing = await prisma.product.findUnique({
+            where: { organizationId_sku: { organizationId: orgId, sku: data.sku } },
+            select: { id: true },
+          });
+          if (existing) return existing;
+          return prisma.product.create({
             data: { organizationId: orgId, sku: data.sku, name: data.name || data.sku },
             select: { id: true },
           });
+        },
+      );
 
       let locationId: string | null = null;
       if (data.locationCode) {
-        const existingLoc = await prisma.location.findUnique({
-          where: { organizationId_code: { organizationId: orgId, code: data.locationCode } },
-          select: { id: true },
-        });
-        if (existingLoc) {
-          locationId = existingLoc.id;
+        // Cache hits avoid re-querying the Location table on every row.
+        // We don't auto-create Locations here (users must upload a
+        // Locations/Sites file explicitly), so on miss we findUnique and
+        // only cache real hits.
+        const locKey = `${orgId}:${data.locationCode}`;
+        const cached = ctx?.locationCache.get(locKey);
+        if (cached) {
+          locationId = cached;
+        } else {
+          const existingLoc = await prisma.location.findUnique({
+            where: { organizationId_code: { organizationId: orgId, code: data.locationCode } },
+            select: { id: true },
+          });
+          if (existingLoc) {
+            locationId = existingLoc.id;
+            ctx?.locationCache.set(locKey, existingLoc.id);
+          }
         }
-        // Do not auto-create locations — users must upload a Locations/Sites file explicitly
       }
 
       const invOpt = optFields(data, [
@@ -744,7 +812,7 @@ async function upsertEntity(
             where: {
               organizationId_productId_locationId: {
                 organizationId: orgId,
-                productId: invProduct.id,
+                productId: invProductId,
                 locationId,
               },
             },
@@ -753,7 +821,7 @@ async function upsertEntity(
         : await prisma.inventoryItem.findFirst({
             where: {
               organizationId: orgId,
-              productId: invProduct.id,
+              productId: invProductId,
               locationId: null,
               // Disambiguate by raw locationCode stored in attributes
               ...(data.locationCode
@@ -778,7 +846,7 @@ async function upsertEntity(
         await prisma.inventoryItem.create({
           data: {
             organizationId: orgId,
-            productId: invProduct.id,
+            productId: invProductId,
             locationId,
             ...invData,
           },
@@ -793,20 +861,28 @@ async function upsertEntity(
       if (!data.parentSku || !data.componentSku) return null;
 
       // Auto-create product stubs so BOM rows are never silently dropped.
-      const [parent, child] = await Promise.all([
-        prisma.product.upsert({
+      // Cached: a BOM file repeating the same parentSku across 50 component
+      // rows now only upserts the parent once.
+      const parentId = await cachedUpsert(
+        ctx?.productCache,
+        `${orgId}:${data.parentSku}`,
+        () => prisma.product.upsert({
           where: { organizationId_sku: { organizationId: orgId, sku: data.parentSku } },
           create: { organizationId: orgId, sku: data.parentSku, name: data.parentName || data.parentSku },
           update: data.parentName ? { name: data.parentName } : {},
           select: { id: true },
         }),
-        prisma.product.upsert({
+      );
+      const childId = await cachedUpsert(
+        ctx?.productCache,
+        `${orgId}:${data.componentSku}`,
+        () => prisma.product.upsert({
           where: { organizationId_sku: { organizationId: orgId, sku: data.componentSku } },
           create: { organizationId: orgId, sku: data.componentSku, name: data.componentName || data.componentSku },
           update: data.componentName ? { name: data.componentName } : {},
           select: { id: true },
         }),
-      ]);
+      );
       const bomOpt = optFields(data, [
         { k: "unit" }, { k: "scrapFactor", t: "d" },
       ]);
@@ -816,12 +892,12 @@ async function upsertEntity(
         delete bomOpt.scrapFactor;
       }
       const existingBom = await prisma.bOMItem.findUnique({
-        where: { parentId_childId: { parentId: parent.id, childId: child.id } },
+        where: { parentId_childId: { parentId, childId } },
         select: { id: true },
       });
       await prisma.bOMItem.upsert({
-        where: { parentId_childId: { parentId: parent.id, childId: child.id } },
-        create: { parentId: parent.id, childId: child.id, quantity: decimal(data.quantity) ?? 1, ...bomOpt, attributes: attrs },
+        where: { parentId_childId: { parentId, childId } },
+        create: { parentId, childId, quantity: decimal(data.quantity) ?? 1, ...bomOpt, attributes: attrs },
         update: { quantity: decimal(data.quantity) ?? 1, ...bomOpt, attributes: attrs },
         select: { id: true },
       });
@@ -960,12 +1036,18 @@ async function upsertEntity(
     case "PurchaseOrder": {
       if (!data.poNumber || !data.supplierId) return null;
       // Auto-create supplier stub so PO rows are never silently dropped.
-      const poSupplier = await prisma.supplier.upsert({
-        where: { organizationId_code: { organizationId: orgId, code: data.supplierId } },
-        create: { organizationId: orgId, code: data.supplierId, name: data.supplierId },
-        update: {},
-        select: { id: true },
-      });
+      // Cached so a PO-Headers file with 65 rows across 15 suppliers only
+      // upserts each supplier once.
+      const poSupplierId = await cachedUpsert(
+        ctx?.supplierCache,
+        `${orgId}:${data.supplierId}`,
+        () => prisma.supplier.upsert({
+          where: { organizationId_code: { organizationId: orgId, code: data.supplierId } },
+          create: { organizationId: orgId, code: data.supplierId, name: data.supplierId },
+          update: {},
+          select: { id: true },
+        }),
+      );
       // Use the English-label-aware mapper instead of bare toEnum so CSVs
       // that export "Open" / "Partially received" / "Closed" land on the
       // right POStatus enum value instead of falling through to DRAFT.
@@ -981,7 +1063,7 @@ async function upsertEntity(
       });
       await prisma.purchaseOrder.upsert({
         where: { orgId_poNumber: { orgId, poNumber: data.poNumber } },
-        create: { orgId, poNumber: data.poNumber, supplierId: poSupplier.id, status: poStatus ?? "DRAFT", currency: data.currency || "USD", ...poOpt, attributes: attrs },
+        create: { orgId, poNumber: data.poNumber, supplierId: poSupplierId, status: poStatus ?? "DRAFT", currency: data.currency || "USD", ...poOpt, attributes: attrs },
         update: { ...(poStatus && { status: poStatus }), ...(data.currency && { currency: data.currency }), ...poOpt, attributes: attrs },
         select: { id: true },
       });
@@ -989,27 +1071,58 @@ async function upsertEntity(
     }
     case "POLine": {
       if (!data.purchaseOrderId || !data.sku || data.qtyOrdered == null || data.qtyOrdered === "") return null;
-      const po = await prisma.purchaseOrder.findFirst({
-        where: { orgId, poNumber: data.purchaseOrderId },
-        select: { id: true, attributes: true },
-      });
-      if (!po) return null;
-      const poProduct = await prisma.product.findUnique({
-        where: { organizationId_sku: { organizationId: orgId, sku: data.sku } },
-        select: { id: true },
-      });
-      if (!poProduct) {
-        // Product not yet loaded — store for deferred resolution
+
+      // Resolve parent PurchaseOrder.id by poNumber. Cached per-run because
+      // the same PO typically has many lines. findFirst-on-miss stays
+      // explicit so we can bail out cleanly when the header file hasn't
+      // been imported yet.
+      const poKey = `${orgId}:${data.purchaseOrderId}`;
+      let poId = ctx?.poCache.get(poKey);
+      if (!poId) {
+        const found = await prisma.purchaseOrder.findFirst({
+          where: { orgId, poNumber: data.purchaseOrderId },
+          select: { id: true },
+        });
+        if (!found) return null;
+        poId = found.id;
+        ctx?.poCache.set(poKey, poId);
+      }
+
+      // Resolve the line's product, cached the same way as other product
+      // lookups. If it doesn't exist we DON'T cache a placeholder — the
+      // pending-product branch below needs the miss to keep firing until
+      // the Product import lands.
+      const pKey = `${orgId}:${data.sku}`;
+      let poProductId = ctx?.productCache.get(pKey);
+      if (!poProductId) {
+        const found = await prisma.product.findUnique({
+          where: { organizationId_sku: { organizationId: orgId, sku: data.sku } },
+          select: { id: true },
+        });
+        if (found) {
+          poProductId = found.id;
+          ctx?.productCache.set(pKey, poProductId);
+        }
+      }
+
+      if (!poProductId) {
+        // Product not yet loaded — store for deferred resolution. The
+        // pending-list merge needs the current PO.attributes, so fetch
+        // them on-demand only in this cold path.
+        const poRow = await prisma.purchaseOrder.findUnique({
+          where: { id: poId },
+          select: { attributes: true },
+        });
         const newAttrs = await addToPendingArray(
-          orgId, "PRODUCT", po.id, "pendingPOLines",
+          orgId, "PRODUCT", poId, "pendingPOLines",
           { sku: data.sku, qty: data.qtyOrdered, unitCost: data.unitCost, uom: data.uom, notes: data.notes },
-          (po.attributes ?? null) as Record<string, unknown> | null,
+          (poRow?.attributes ?? null) as Record<string, unknown> | null,
         );
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await prisma.purchaseOrder.update({ where: { id: po.id }, data: { attributes: newAttrs as any } });
+        await prisma.purchaseOrder.update({ where: { id: poId }, data: { attributes: newAttrs as any } });
         return UPSERTED_CREATE;
       }
-      const lineNumber = int(data.lineNumber) ?? ((await prisma.pOLine.count({ where: { purchaseOrderId: po.id } })) + 1);
+      const lineNumber = int(data.lineNumber) ?? ((await prisma.pOLine.count({ where: { purchaseOrderId: poId } })) + 1);
       const polOpt = optFields(data, [
         { k: "qtyReceived", t: "d" }, { k: "qtyOpen", t: "d" },
         { k: "expectedDate", t: "dt" }, { k: "confirmedETA", t: "dt" },
@@ -1020,13 +1133,13 @@ async function upsertEntity(
       const polStatus = normalisePOLineStatus(data.status);
       if (polStatus) polOpt.status = polStatus;
       const existingPol = await prisma.pOLine.findUnique({
-        where: { id: `${po.id}_${lineNumber}` },
+        where: { id: `${poId}_${lineNumber}` },
         select: { id: true },
       });
       await prisma.pOLine.upsert({
-        where: { id: `${po.id}_${lineNumber}` },
+        where: { id: `${poId}_${lineNumber}` },
         create: {
-          id: `${po.id}_${lineNumber}`, purchaseOrderId: po.id, productId: poProduct.id, lineNumber,
+          id: `${poId}_${lineNumber}`, purchaseOrderId: poId, productId: poProductId, lineNumber,
           qtyOrdered: decimal(data.qtyOrdered) ?? 0, unitCost: decimal(data.unitCost) ?? 0, uom: data.uom || "EA",
           ...polOpt,
         },
@@ -1041,12 +1154,16 @@ async function upsertEntity(
     case "SalesOrder": {
       if (!data.soNumber || !data.customerId) return null;
       // Auto-create customer stub so SO rows are never silently dropped.
-      const soCustomer = await prisma.customer.upsert({
-        where: { orgId_code: { orgId, code: data.customerId } },
-        create: { orgId, code: data.customerId, name: data.customerId },
-        update: {},
-        select: { id: true },
-      });
+      const soCustomerId = await cachedUpsert(
+        ctx?.customerCache,
+        `${orgId}:${data.customerId}`,
+        () => prisma.customer.upsert({
+          where: { orgId_code: { orgId, code: data.customerId } },
+          create: { orgId, code: data.customerId, name: data.customerId },
+          update: {},
+          select: { id: true },
+        }),
+      );
       const soStatus = toEnum(data.status, SO_STATUSES);
       const soOpt = optFields(data, [
         { k: "totalAmount", t: "d" }, { k: "requestedDate", t: "dt" },
@@ -1060,7 +1177,7 @@ async function upsertEntity(
       });
       await prisma.salesOrder.upsert({
         where: { orgId_soNumber: { orgId, soNumber: data.soNumber } },
-        create: { orgId, soNumber: data.soNumber, customerId: soCustomer.id, status: soStatus ?? "DRAFT", currency: data.currency || "USD", ...soOpt, attributes: attrs },
+        create: { orgId, soNumber: data.soNumber, customerId: soCustomerId, status: soStatus ?? "DRAFT", currency: data.currency || "USD", ...soOpt, attributes: attrs },
         update: { ...(soStatus && { status: soStatus }), ...(data.currency && { currency: data.currency }), ...soOpt, attributes: attrs },
         select: { id: true },
       });
@@ -1173,31 +1290,46 @@ async function upsertEntity(
         if (parts.length >= 2) bomSku = parts.slice(0, -1).join("-");
       }
 
-      const fgProduct = await prisma.product.upsert({
-        where: { organizationId_sku: { organizationId: orgId, sku: bomSku } },
-        create: { organizationId: orgId, sku: bomSku, name: data.fgName || bomSku },
-        update: {},
-        select: { id: true },
-      });
+      // All three parent lookups below are cached per-import-run so a 276-row
+      // BOM Lines file with 6 FGs only issues 6 + 6 + (unique components)
+      // upserts instead of 3 per row.
+      const fgProductId = await cachedUpsert(
+        ctx?.productCache,
+        `${orgId}:${bomSku}`,
+        () => prisma.product.upsert({
+          where: { organizationId_sku: { organizationId: orgId, sku: bomSku } },
+          create: { organizationId: orgId, sku: bomSku, name: data.fgName || bomSku },
+          update: {},
+          select: { id: true },
+        }),
+      );
 
       const version = data.version || data.bomRevision || data.revision || "1";
-      const bomHeader = await prisma.bOMHeader.upsert({
-        where: { orgId_productId_version: { orgId, productId: fgProduct.id, version } },
-        create: { orgId, productId: fgProduct.id, version, isActive: true },
-        update: {},
-        select: { id: true },
-      });
+      const bomHeaderId = await cachedUpsert(
+        ctx?.bomHeaderCache,
+        `${orgId}:${fgProductId}:${version}`,
+        () => prisma.bOMHeader.upsert({
+          where: { orgId_productId_version: { orgId, productId: fgProductId, version } },
+          create: { orgId, productId: fgProductId, version, isActive: true },
+          update: {},
+          select: { id: true },
+        }),
+      );
 
-      const component = await prisma.product.upsert({
-        where: { organizationId_sku: { organizationId: orgId, sku: rawComponentSku } },
-        create: {
-          organizationId: orgId,
-          sku: rawComponentSku,
-          name: data.componentName || rawComponentSku,
-        },
-        update: {},
-        select: { id: true },
-      });
+      const componentId = await cachedUpsert(
+        ctx?.productCache,
+        `${orgId}:${rawComponentSku}`,
+        () => prisma.product.upsert({
+          where: { organizationId_sku: { organizationId: orgId, sku: rawComponentSku } },
+          create: {
+            organizationId: orgId,
+            sku: rawComponentSku,
+            name: data.componentName || rawComponentSku,
+          },
+          update: {},
+          select: { id: true },
+        }),
+      );
 
       // Note: BOMLine has `sequence` (Int?) not `lineNumber` — the mapper can
       // send either, we route both to sequence.
@@ -1216,7 +1348,7 @@ async function upsertEntity(
       delete bomLineOpt.lineNumber;
 
       const existingLine = await prisma.bOMLine.findFirst({
-        where: { bomHeaderId: bomHeader.id, componentId: component.id },
+        where: { bomHeaderId, componentId },
         select: { id: true },
       });
 
@@ -1232,8 +1364,8 @@ async function upsertEntity(
       } else {
         await prisma.bOMLine.create({
           data: {
-            bomHeaderId: bomHeader.id,
-            componentId: component.id,
+            bomHeaderId,
+            componentId,
             qty: decimal(rawQty) ?? 1,
             uom: data.uom || "EA",
             ...bomLineOpt,
@@ -1250,35 +1382,48 @@ async function upsertEntity(
 
       if (!soNumber || !sku) return null;
 
-      const soCustomer = await prisma.customer.upsert({
-        where: { orgId_code: { orgId, code: data.customerId || "UNKNOWN" } },
-        create: {
-          orgId,
-          code: data.customerId || "UNKNOWN",
-          name: data.customerId || "Unknown Customer",
-        },
-        update: {},
-        select: { id: true },
-      });
-      const salesOrder = await prisma.salesOrder.upsert({
-        where: { orgId_soNumber: { orgId, soNumber } },
-        create: {
-          orgId,
-          soNumber,
-          customerId: soCustomer.id,
-          status: "DRAFT",
-          currency: data.currency || "USD",
-        },
-        update: {},
-        select: { id: true },
-      });
+      const solCustomerCode = data.customerId || "UNKNOWN";
+      const solCustomerId = await cachedUpsert(
+        ctx?.customerCache,
+        `${orgId}:${solCustomerCode}`,
+        () => prisma.customer.upsert({
+          where: { orgId_code: { orgId, code: solCustomerCode } },
+          create: {
+            orgId,
+            code: solCustomerCode,
+            name: data.customerId || "Unknown Customer",
+          },
+          update: {},
+          select: { id: true },
+        }),
+      );
+      const salesOrderId = await cachedUpsert(
+        ctx?.soCache,
+        `${orgId}:${soNumber}`,
+        () => prisma.salesOrder.upsert({
+          where: { orgId_soNumber: { orgId, soNumber } },
+          create: {
+            orgId,
+            soNumber,
+            customerId: solCustomerId,
+            status: "DRAFT",
+            currency: data.currency || "USD",
+          },
+          update: {},
+          select: { id: true },
+        }),
+      );
 
-      const solProduct = await prisma.product.upsert({
-        where: { organizationId_sku: { organizationId: orgId, sku } },
-        create: { organizationId: orgId, sku, name: data.itemName || sku },
-        update: {},
-        select: { id: true },
-      });
+      const solProductId = await cachedUpsert(
+        ctx?.productCache,
+        `${orgId}:${sku}`,
+        () => prisma.product.upsert({
+          where: { organizationId_sku: { organizationId: orgId, sku } },
+          create: { organizationId: orgId, sku, name: data.itemName || sku },
+          update: {},
+          select: { id: true },
+        }),
+      );
 
       const solOpt = optFields(data, [
         { k: "qtyShipped", t: "d" }, { k: "qtyOpen", t: "d" },
@@ -1288,7 +1433,7 @@ async function upsertEntity(
       ]);
 
       const existingSol = await prisma.sOLine.findFirst({
-        where: { salesOrderId: salesOrder.id, productId: solProduct.id, lineNumber },
+        where: { salesOrderId, productId: solProductId, lineNumber },
         select: { id: true },
       });
 
@@ -1305,8 +1450,8 @@ async function upsertEntity(
       } else {
         await prisma.sOLine.create({
           data: {
-            salesOrderId: salesOrder.id,
-            productId: solProduct.id,
+            salesOrderId,
+            productId: solProductId,
             lineNumber,
             qtyOrdered: decimal(data.qtyOrdered) ?? 0,
             unitPrice: decimal(data.unitPrice) ?? 0,
@@ -1325,20 +1470,24 @@ async function upsertEntity(
 
       if (!woNumber) return null;
 
-      const workOrder = await prisma.workOrder.upsert({
-        where: {
-          organizationId_orderNumber: { organizationId: orgId, orderNumber: woNumber },
-        },
-        create: {
-          organizationId: orgId,
-          orderNumber: woNumber,
-          sku: data.sku || woNumber,
-          plannedQty: 0,
-          status: "PLANNED",
-        },
-        update: {},
-        select: { id: true },
-      });
+      const workOrderId = await cachedUpsert(
+        ctx?.woCache,
+        `${orgId}:${woNumber}`,
+        () => prisma.workOrder.upsert({
+          where: {
+            organizationId_orderNumber: { organizationId: orgId, orderNumber: woNumber },
+          },
+          create: {
+            organizationId: orgId,
+            orderNumber: woNumber,
+            sku: data.sku || woNumber,
+            plannedQty: 0,
+            status: "PLANNED",
+          },
+          update: {},
+          select: { id: true },
+        }),
+      );
 
       const wooOpt = optFields(data, [
         { k: "workCenter" }, { k: "notes" },
@@ -1355,7 +1504,7 @@ async function upsertEntity(
       const wooStatus = toEnum(data.status, WOO_STATUSES);
 
       const existingWoo = await prisma.workOrderOperation.findFirst({
-        where: { workOrderId: workOrder.id, sequence },
+        where: { workOrderId, sequence },
         select: { id: true },
       });
 
@@ -1367,7 +1516,7 @@ async function upsertEntity(
       } else {
         await prisma.workOrderOperation.create({
           data: {
-            workOrderId: workOrder.id,
+            workOrderId,
             sequence,
             name: opName,
             status: wooStatus ?? "PENDING",
@@ -1383,23 +1532,31 @@ async function upsertEntity(
 
       if (!supplierCode || !sku) return null;
 
-      const siSupplier = await prisma.supplier.upsert({
-        where: { organizationId_code: { organizationId: orgId, code: supplierCode } },
-        create: {
-          organizationId: orgId,
-          code: supplierCode,
-          name: data.supplierName || supplierCode,
-        },
-        update: {},
-        select: { id: true },
-      });
+      const siSupplierId = await cachedUpsert(
+        ctx?.supplierCache,
+        `${orgId}:${supplierCode}`,
+        () => prisma.supplier.upsert({
+          where: { organizationId_code: { organizationId: orgId, code: supplierCode } },
+          create: {
+            organizationId: orgId,
+            code: supplierCode,
+            name: data.supplierName || supplierCode,
+          },
+          update: {},
+          select: { id: true },
+        }),
+      );
 
-      const siProduct = await prisma.product.upsert({
-        where: { organizationId_sku: { organizationId: orgId, sku } },
-        create: { organizationId: orgId, sku, name: data.itemName || sku },
-        update: {},
-        select: { id: true },
-      });
+      const siProductId = await cachedUpsert(
+        ctx?.productCache,
+        `${orgId}:${sku}`,
+        () => prisma.product.upsert({
+          where: { organizationId_sku: { organizationId: orgId, sku } },
+          create: { organizationId: orgId, sku, name: data.itemName || sku },
+          update: {},
+          select: { id: true },
+        }),
+      );
 
       const SUPPLIER_ITEM_STATUSES = ["APPROVED", "PREFERRED", "BLOCKED"] as const;
       const siStatus = toEnum(data.status, SUPPLIER_ITEM_STATUSES);
@@ -1421,7 +1578,7 @@ async function upsertEntity(
       }
 
       const existingSi = await prisma.supplierItem.findFirst({
-        where: { orgId, supplierId: siSupplier.id, productId: siProduct.id },
+        where: { orgId, supplierId: siSupplierId, productId: siProductId },
         select: { id: true },
       });
 
@@ -1434,8 +1591,8 @@ async function upsertEntity(
         await prisma.supplierItem.create({
           data: {
             orgId,
-            supplierId: siSupplier.id,
-            productId: siProduct.id,
+            supplierId: siSupplierId,
+            productId: siProductId,
             status: siStatus ?? "APPROVED",
             ...siOpt,
             attributes: attrs,
@@ -1451,23 +1608,31 @@ async function upsertEntity(
 
       if (!sku || !qty) return null;
 
-      const smProduct = await prisma.product.upsert({
-        where: { organizationId_sku: { organizationId: orgId, sku } },
-        create: { organizationId: orgId, sku, name: sku },
-        update: {},
-        select: { id: true },
-      });
+      const smProductId = await cachedUpsert(
+        ctx?.productCache,
+        `${orgId}:${sku}`,
+        () => prisma.product.upsert({
+          where: { organizationId_sku: { organizationId: orgId, sku } },
+          create: { organizationId: orgId, sku, name: sku },
+          update: {},
+          select: { id: true },
+        }),
+      );
 
       // StockMovement.locationId is NOT NULL in the schema. If the CSV
       // doesn't carry a locationCode we can't materialise a row; skip.
       const locationCode = data.locationCode || data.location;
       if (!locationCode) return null;
-      const smLocation = await prisma.location.upsert({
-        where: { organizationId_code: { organizationId: orgId, code: locationCode } },
-        create: { organizationId: orgId, code: locationCode, name: locationCode },
-        update: {},
-        select: { id: true },
-      });
+      const smLocationId = await cachedUpsert(
+        ctx?.locationCache,
+        `${orgId}:${locationCode}`,
+        () => prisma.location.upsert({
+          where: { organizationId_code: { organizationId: orgId, code: locationCode } },
+          create: { organizationId: orgId, code: locationCode, name: locationCode },
+          update: {},
+          select: { id: true },
+        }),
+      );
 
       const MOVEMENT_TYPES = ["RECEIPT", "ISSUE", "TRANSFER", "ADJUSTMENT", "RETURN", "SCRAP"] as const;
       const movType =
@@ -1479,8 +1644,8 @@ async function upsertEntity(
       await prisma.stockMovement.create({
         data: {
           orgId,
-          productId: smProduct.id,
-          locationId: smLocation.id,
+          productId: smProductId,
+          locationId: smLocationId,
           type: movType,
           qty: decimal(qty) ?? 0,
           occurredAt: movementDate ? new Date(movementDate) : new Date(),
@@ -1498,12 +1663,16 @@ async function upsertEntity(
 
       if (!lotNumber || !sku) return null;
 
-      const lotProduct = await prisma.product.upsert({
-        where: { organizationId_sku: { organizationId: orgId, sku } },
-        create: { organizationId: orgId, sku, name: sku },
-        update: {},
-        select: { id: true },
-      });
+      const lotProductId = await cachedUpsert(
+        ctx?.productCache,
+        `${orgId}:${sku}`,
+        () => prisma.product.upsert({
+          where: { organizationId_sku: { organizationId: orgId, sku } },
+          create: { organizationId: orgId, sku, name: sku },
+          update: {},
+          select: { id: true },
+        }),
+      );
 
       const lotOpt = optFields(data, [
         { k: "expiryDate", t: "dt" }, { k: "manufacturedDate", t: "dt" },
@@ -1516,13 +1685,16 @@ async function upsertEntity(
       let lotSupplierId: string | null = null;
       const lotSupplierCode = data.supplierCode || data.supplierId;
       if (lotSupplierCode) {
-        const lotSup = await prisma.supplier.upsert({
-          where: { organizationId_code: { organizationId: orgId, code: lotSupplierCode } },
-          create: { organizationId: orgId, code: lotSupplierCode, name: lotSupplierCode },
-          update: {},
-          select: { id: true },
-        });
-        lotSupplierId = lotSup.id;
+        lotSupplierId = await cachedUpsert(
+          ctx?.supplierCache,
+          `${orgId}:${lotSupplierCode}`,
+          () => prisma.supplier.upsert({
+            where: { organizationId_code: { organizationId: orgId, code: lotSupplierCode } },
+            create: { organizationId: orgId, code: lotSupplierCode, name: lotSupplierCode },
+            update: {},
+            select: { id: true },
+          }),
+        );
       }
 
       const existingLot = await prisma.lot.findFirst({
@@ -1534,7 +1706,7 @@ async function upsertEntity(
         await prisma.lot.update({
           where: { id: existingLot.id },
           data: {
-            productId: lotProduct.id,
+            productId: lotProductId,
             ...(lotSupplierId && { supplierId: lotSupplierId }),
             ...lotOpt,
             attributes: attrs,
@@ -1545,7 +1717,7 @@ async function upsertEntity(
           data: {
             orgId,
             lotNumber,
-            productId: lotProduct.id,
+            productId: lotProductId,
             ...(lotSupplierId && { supplierId: lotSupplierId }),
             ...lotOpt,
             attributes: attrs,
