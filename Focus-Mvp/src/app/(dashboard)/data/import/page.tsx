@@ -116,6 +116,26 @@ const ENTITY_LABELS: Record<EntityType, string> = {
   Capa: "CAPAs (Corrective Actions)",
 };
 
+// Plain-English descriptions surfaced on the disambiguation and confirm
+// screens. Only the common-case entities need copy — anything missing
+// falls back to ENTITY_LABELS, which is already human-readable.
+const ENTITY_DESCRIPTIONS: Partial<Record<EntityType, string>> = {
+  PurchaseOrder: "Orders placed with your suppliers",
+  SalesOrder: "Orders received from your customers",
+  InventoryItem: "Current stock levels per item",
+  Product: "Your product catalogue / SKU master",
+  Supplier: "Your supplier list",
+  POLine: "Individual line items on purchase orders",
+  BOMLine: "Bill of materials — components per finished good",
+  BOMHeader: "Bill of materials headers",
+  WorkOrder: "Production orders / manufacturing jobs",
+  StockMovement: "Consumption and receipt history",
+  ForecastEntry: "Demand forecast data",
+  Customer: "Customer list",
+  Location: "Locations / warehouses",
+  SupplierItem: "Supplier item catalogue (AVL)",
+};
+
 // Plain-English nouns used in the summary sentence
 const ENTITY_NOUN: Record<EntityType, string> = {
   // Master Data
@@ -367,7 +387,7 @@ const ENTITY_UNIT: Record<EntityType, string> = {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /** All wizard steps. "select" is the supply chain hub shown before upload. */
-type Step = "select" | "upload" | "entity-split" | "map" | "confirm" | "done";
+type Step = "select" | "upload" | "entity-split" | "map" | "disambiguate" | "confirm" | "done";
 
 interface CoverageEntry {
   importedRows: number;
@@ -400,6 +420,17 @@ interface AiMappingResult {
   customFields: AiCustomField[];
 }
 
+/** The /api/data/import route now auto-detects the entity and emits this
+ *  block so the wizard can skip entity selection entirely when the file
+ *  is unambiguous. */
+interface DetectedEntityResult {
+  entity: EntityType;
+  confidence: "certain" | "high" | "medium" | "inferred";
+  wasAutoDetected: boolean;
+  alternativeEntities: DetectedEntity[];
+  filenameEntity?: string | null;
+}
+
 interface UploadResult {
   sourceId: string;
   headers: string[];
@@ -414,6 +445,8 @@ interface UploadResult {
   entity: EntityType;
   columnClassification?: Record<string, ColumnClassification>;
   detectedEntities?: DetectedEntity[];
+  detectedEntity?: DetectedEntityResult;
+  detectedDescription?: string;
   selectedSheet: string | null;
   allSheets: string[];
   wasAutoSelected: boolean;
@@ -498,9 +531,17 @@ function ImportPageInner() {
   // ── Core wizard state ─────────────────────────────────────────────────────
   // If a resume ID is present, skip the hub and show a loading state until data arrives
   const resumeId = searchParams.get("resume");
-  const [step, setStep] = useState<Step>(resumeId ? "upload" : "select");
+  // The upload screen is now the primary entry point. The legacy 30-entity
+  // hub is still reachable via the "Advanced: choose data type" link at the
+  // bottom of the upload screen.
+  const [step, setStep] = useState<Step>("upload");
   const [file, setFile] = useState<File | null>(null);
   const [entity, setEntity] = useState<EntityType>("Product");
+  // True when the user explicitly picked an entity (hub card, re-upload
+  // button, or Advanced hub override). Controls whether handleUpload sends
+  // the `entity` hint to the API — without this flag we'd always pass the
+  // default "Product", poisoning auto-detection.
+  const [entityExplicit, setEntityExplicit] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
@@ -629,6 +670,7 @@ function ImportPageInner() {
     upload: "Upload",
     "entity-split": "Confirm",
     map: "Confirm",
+    disambiguate: "Confirm",
     confirm: "Confirm",
     done: "Done",
   };
@@ -666,7 +708,13 @@ function ImportPageInner() {
 
     const fd = new FormData();
     fd.append("file", file);
-    fd.append("entity", entity);
+    // Only send the entity hint when the user explicitly picked one (hub
+    // card / Advanced override / Re-upload button). Without this guard the
+    // default "Product" state would always be posted and the API would
+    // treat every upload as a hinted one.
+    if (entityExplicit) {
+      fd.append("entity", entity);
+    }
     fd.append("importMode", importMode);
     if (overrideSheet) fd.append("sheet", overrideSheet);
 
@@ -796,12 +844,47 @@ function ImportPageInner() {
       console.error("[import] saveMapping failed:", err);
     }
 
-    // ── Route: skip the map step when every required field is already
-    // mapped (green path). Only show the dropdown UI when something is
-    // actually missing — non-technical users shouldn't see it otherwise.
+    // Reflect the API's resolved entity in local state so every downstream
+    // screen (confirm header, template picker, etc.) speaks in the same
+    // terms the user just saw in the detection UI.
+    setEntity(data.entity);
+
+    // ── Route based on auto-detection result ─────────────────────────────
     const requiredFields =
       CANONICAL_FIELDS[data.entity as EntityType]?.filter((f) => f.required) ?? [];
     const allRequiredMapped = requiredFields.every((f) => !!finalMapping[f.field]);
+    const det = data.detectedEntity;
+    const detectedCount = data.detectedEntities?.length ?? 0;
+
+    // Case B — multi-entity files keep flowing through the existing
+    // entity-split picker. We trigger it only when the detector found 2+
+    // distinct entities at high confidence.
+    const significantCount = (data.detectedEntities ?? []).filter(
+      (e) => e.confidence === "high" || e.confidence === "medium",
+    ).length;
+    if (significantCount >= 2 && !entityExplicit) {
+      setStep("entity-split");
+      return;
+    }
+
+    // Case A — certain/high confidence AND everything maps cleanly →
+    // skip both the map and disambiguation screens and go straight to
+    // the confirm summary.
+    if (det && (det.confidence === "certain" || det.confidence === "high") && allRequiredMapped) {
+      setStep("confirm");
+      return;
+    }
+
+    // Case C — medium confidence with real alternatives → ask the user to
+    // pick between 2–3 option cards (the disambiguation screen).
+    if (det && det.confidence === "medium" && detectedCount >= 2) {
+      setStep("disambiguate");
+      return;
+    }
+
+    // Case D fallback — low/no confidence, or required fields missing →
+    // drop into the existing dropdown-driven map step so the user can
+    // override assignments by hand.
     setStep(allRequiredMapped ? "confirm" : "map");
     // Mark the rescued fields (used by pill colour logic even if the state
     // update above has not settled yet).
@@ -1089,11 +1172,16 @@ function ImportPageInner() {
 
   // ── Reset ─────────────────────────────────────────────────────────────────
   const handleReset = useCallback(() => {
-    setStep("select");
+    // Return to the Upload screen (the new default entry point) rather
+    // than the hub — the next file almost always benefits from auto
+    // detection; the Advanced link is right there if the user wants to
+    // pick a specific type.
+    setStep("upload");
     setFreshnessVersion((v) => v + 1); // re-fetch coverage to reflect just-imported data
     setFile(null);
     setUploadResult(null);
     setUploadError(null);
+    setEntityExplicit(false);
     setMapping({});
     setScore({});
     setAttributeKeys([]);
@@ -1272,6 +1360,7 @@ function ImportPageInner() {
                     setReuploadModal({ entity: type, label: ENTITY_LABELS[type] });
                   } else {
                     setEntity(type);
+                    setEntityExplicit(true);
                     setStep("upload");
                   }
                 }}
@@ -1374,21 +1463,19 @@ function ImportPageInner() {
 
       {step === "upload" && !(resumeId && !uploadResult) && (
         <div className="space-y-4">
-          {/* Back button — outside the card */}
-          <button
-            onClick={() => { setFile(null); setUploadError(null); setStep("select"); }}
-            className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 rounded-lg px-3 py-2 transition-colors shadow-sm"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back to Import
-          </button>
-
           <Card>
             <CardContent className="p-8 space-y-6">
-              {/* Header */}
+              {/* Header — entity-agnostic when the user hasn't explicitly
+                  picked one; shows the chosen type only on hub re-upload. */}
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">{ENTITY_LABELS[entity]}</h2>
-                <p className="text-sm text-gray-500 mt-0.5">Upload a CSV or Excel file — we'll map your columns automatically.</p>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  {entityExplicit ? ENTITY_LABELS[entity] : "Upload your data"}
+                </h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {entityExplicit
+                    ? "Upload a CSV or Excel file — we'll map your columns automatically."
+                    : "Drop any CSV or Excel file — we'll figure out what it contains."}
+                </p>
               </div>
 
               {/* Drop zone */}
@@ -1414,8 +1501,8 @@ function ImportPageInner() {
                       <Upload className="w-6 h-6 text-gray-400" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-gray-700">Click to select your file</p>
-                      <p className="text-xs text-gray-400 mt-0.5">CSV or .xlsx · Max 50 MB</p>
+                      <p className="text-sm font-semibold text-gray-700">Drop your file here or click to browse</p>
+                      <p className="text-xs text-gray-400 mt-0.5">CSV or Excel · any ERP export · any column names</p>
                     </div>
                   </div>
                 )}
@@ -1444,12 +1531,117 @@ function ImportPageInner() {
                 disabled={!file || uploading}
                 className="w-full h-11 text-sm font-semibold"
               >
-                {uploading ? "Analysing your file…" : "Upload & auto-detect fields"}
+                {uploading ? "Analysing your file…" : "Upload & analyse"}
               </Button>
+
+              {/* Advanced escape hatch — the old 30-entity hub is still the
+                  best tool when the user already knows which type they want,
+                  or when auto-detection needs overriding. */}
+              <div className="pt-1 text-center">
+                <button
+                  type="button"
+                  onClick={() => setStep("select")}
+                  className="text-xs text-slate-600 hover:text-slate-900 underline underline-offset-2"
+                >
+                  Advanced: choose data type manually →
+                </button>
+              </div>
             </CardContent>
           </Card>
         </div>
       )}
+
+      {/* ────────────────────────────────────────────────────────────────── */}
+      {/* STEP: Disambiguate (medium-confidence detection)                   */}
+      {/* Shown when the API returned confidence="medium" AND >=2 plausible  */}
+      {/* entity types. Shows 2–4 option cards instead of a dropdown.        */}
+      {/* ────────────────────────────────────────────────────────────────── */}
+      {step === "disambiguate" && uploadResult && (() => {
+        const candidates = (uploadResult.detectedEntities ?? [])
+          .filter((e) => CANONICAL_FIELDS[e.entity as EntityType])
+          .slice(0, 4);
+        return (
+          <Card>
+            <CardContent className="p-6 space-y-5">
+              <div className="space-y-1">
+                <p className="text-base font-semibold text-gray-900">
+                  What does this file contain?
+                </p>
+                <p className="text-sm text-gray-500">
+                  We found a few possibilities. Pick the one that matches your file.
+                  {uploadResult.detectedEntity?.filenameEntity && (
+                    <> The filename suggests <strong className="text-gray-700">{ENTITY_LABELS[uploadResult.detectedEntity.filenameEntity as EntityType] ?? uploadResult.detectedEntity.filenameEntity}</strong>.</>
+                  )}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {candidates.map((c) => {
+                  const ent = c.entity as EntityType;
+                  const label = ENTITY_LABELS[ent] ?? c.entity;
+                  const desc = ENTITY_DESCRIPTIONS[ent];
+                  return (
+                    <button
+                      key={c.entity}
+                      type="button"
+                      onClick={async () => {
+                        setEntity(ent);
+                        setEntityExplicit(true);
+                        try {
+                          await saveMapping(
+                            uploadResult.sourceId,
+                            ent,
+                            mapping,
+                            attributeKeys,
+                          );
+                        } catch (err) {
+                          console.error("[import] saveMapping (disambiguate) failed:", err);
+                        }
+                        // After the user confirms the type, the mapper
+                        // suggestion for the newly-chosen entity may differ
+                        // from the original — re-resolve and route.
+                        const fields = CANONICAL_FIELDS[ent]?.filter((f) => f.required) ?? [];
+                        const allRequiredMapped = fields.every((f) => !!mapping[f.field]);
+                        setStep(allRequiredMapped ? "confirm" : "map");
+                      }}
+                      className="text-left border border-gray-200 hover:border-slate-400 hover:bg-slate-50 rounded-xl p-4 transition-colors"
+                    >
+                      <p className="text-sm font-semibold text-gray-900">{label}</p>
+                      {desc && <p className="text-xs text-gray-500 mt-1">{desc}</p>}
+                      <p className="text-[11px] text-gray-400 mt-2">
+                        {uploadResult.rowCount.toLocaleString()} rows · {c.requiredFieldsMatched} identity field{c.requiredFieldsMatched === 1 ? "" : "s"} matched
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="pt-1 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setStep("select")}
+                  className="text-xs text-slate-600 hover:text-slate-900 underline underline-offset-2"
+                >
+                  Not sure? → Let me browse all types
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFile(null);
+                    setUploadError(null);
+                    setUploadResult(null);
+                    setEntityExplicit(false);
+                    setStep("upload");
+                  }}
+                  className="text-xs text-gray-500 hover:text-gray-700"
+                >
+                  ← Start over
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* STEP: Entity-split (multi-entity detected)                         */}
@@ -1652,6 +1844,18 @@ function ImportPageInner() {
           <CardContent className="p-6 space-y-5">
             {/* Plain-language summary */}
             <div className="bg-slate-50 rounded-xl p-5 space-y-2">
+              {/* Detection badge — differentiates "we figured this out for
+                  you" from "you picked this type". */}
+              {uploadResult.detectedEntity?.wasAutoDetected ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                  <CheckCircle className="w-3 h-3" />
+                  Auto-detected
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                  📁 {ENTITY_LABELS[uploadResult.entity] ?? uploadResult.entity}
+                </span>
+              )}
               <p className="text-base font-semibold text-slate-900">
                 Ready to import{" "}
                 {plural(
@@ -1667,6 +1871,11 @@ function ImportPageInner() {
                     : "your file"}
                 </span>
               </p>
+              {uploadResult.detectedDescription && (
+                <p className="text-xs text-gray-500">
+                  {uploadResult.detectedDescription}
+                </p>
+              )}
 
               {/* Mapped-fields pill list */}
               <p className="text-xs text-gray-500">
@@ -2057,6 +2266,7 @@ function ImportPageInner() {
                 onClick={() => {
                   setImportMode("replace");
                   setEntity(reuploadModal.entity);
+                  setEntityExplicit(true);
                   setReuploadModal(null);
                   setStep("upload");
                 }}
@@ -2073,6 +2283,7 @@ function ImportPageInner() {
                 onClick={() => {
                   setImportMode("merge");
                   setEntity(reuploadModal.entity);
+                  setEntityExplicit(true);
                   setReuploadModal(null);
                   setStep("upload");
                 }}
