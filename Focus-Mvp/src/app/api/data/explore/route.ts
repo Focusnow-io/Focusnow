@@ -36,6 +36,10 @@ async function queryEntity(
     const where = {
       organizationId: orgId,
       deletedAt: null,
+      // Stub products are auto-created from SKU-only references (BOM
+      // import, inventory import, etc.) to satisfy FK constraints. They
+      // must exist in the DB but should not clutter Explorer.
+      NOT: { attributes: { path: ["isStub"], equals: true } },
       ...(q && { OR: [{ sku: { contains: q, ...ci } }, { name: { contains: q, ...ci } }, { productFamily: { contains: q, ...ci } }, { productLine: { contains: q, ...ci } }] }),
     };
     const sel = { sku: true, name: true, type: true, makeBuy: true, uom: true, unitCost: true, listPrice: true, leadTimeDays: true, productFamily: true, abcClass: true, productLine: true, shelfLifeDays: true, drawingNumber: true, regulatoryClass: true, active: true } as const;
@@ -62,6 +66,10 @@ async function queryEntity(
   if (entity === "Supplier") {
     const where = {
       organizationId: orgId,
+      // Stub suppliers are auto-created when PO/SO imports reference a
+      // supplier before the Supplier file has been uploaded. Hide them
+      // from Explorer until they're replaced by a real import row.
+      NOT: { attributes: { path: ["isStub"], equals: true } },
       ...(q && { OR: [{ code: { contains: q, ...ci } }, { name: { contains: q, ...ci } }, { country: { contains: q, ...ci } }] }),
     };
     const sel = { code: true, name: true, email: true, phone: true, country: true, city: true, leadTimeDays: true, paymentTerms: true, currency: true, status: true, qualityRating: true, onTimePct: true, certifications: true } as const;
@@ -1086,8 +1094,21 @@ async function getAllCounts(orgId: string): Promise<Record<string, number>> {
     qcInspection, ncr, capa,
   ] = await Promise.all([
     // Master Data
-    prisma.product.count({ where: { organizationId: orgId, deletedAt: null } }),
-    prisma.supplier.count({ where: { organizationId: orgId } }),
+    // `NOT attributes.isStub = true` keeps auto-created FK-stub rows out
+    // of the Explorer count. Real imports always strip the isStub marker.
+    prisma.product.count({
+      where: {
+        organizationId: orgId,
+        deletedAt: null,
+        NOT: { attributes: { path: ["isStub"], equals: true } },
+      },
+    }),
+    prisma.supplier.count({
+      where: {
+        organizationId: orgId,
+        NOT: { attributes: { path: ["isStub"], equals: true } },
+      },
+    }),
     prisma.customer.count({ where: { orgId } }),
     prisma.location.count({ where: { organizationId: orgId } }),
     // Finance

@@ -136,6 +136,19 @@ const ENTITY_DESCRIPTIONS: Partial<Record<EntityType, string>> = {
   SupplierItem: "Supplier item catalogue (AVL)",
 };
 
+// When an import file's detector flags additional entity types alongside
+// the primary one, the Confirm screen surfaces them as opt-in checkboxes.
+// These descriptions explain what the auto-created rows will look like so
+// the user isn't surprised that ticking "Products" on an Inventory import
+// doesn't populate the catalogue with rich product data.
+const ADDITIONAL_ENTITY_DESCRIPTIONS: Partial<Record<EntityType, string>> = {
+  Product: "Basic product records created from SKU column",
+  Supplier: "Basic supplier records created from Supplier ID column",
+  Customer: "Basic customer records created from Customer ID column",
+  Location: "Basic location records from Location Code column",
+  BOMHeader: "BOM header records for finished goods",
+};
+
 // Plain-English nouns used in the summary sentence
 const ENTITY_NOUN: Record<EntityType, string> = {
   // Master Data
@@ -557,6 +570,15 @@ function ImportPageInner() {
   // enables the "Back to summary" button.
   const [mapEscapeHatch, setMapEscapeHatch] = useState(false);
 
+  // Secondary entity types the detector flagged in the same file. Rendered
+  // as a checkbox list on the Confirm screen — the user can opt out of
+  // importing the extras (e.g. reject auto-generated Products from an
+  // Inventory-only import). Primary entity is always imported and isn't
+  // represented here.
+  const [additionalEntities, setAdditionalEntities] = useState<
+    Array<{ entity: EntityType; confidence: string; checked: boolean }>
+  >([]);
+
   // ── Mapping state ─────────────────────────────────────────────────────────
   // Active mapping and scores — may differ from suggestedMapping if a template
   // was applied or the user manually changed things in the map step.
@@ -683,6 +705,29 @@ function ImportPageInner() {
    * in the current file headers the mapping is accepted at score 1.0.
    * Columns that no longer exist fall back to the auto-suggested value.
    */
+  /** Derive the opt-in list from whatever the detector found, excluding
+   *  the primary entity (which is always imported) and any entity we don't
+   *  actually have a canonical config for. Low-confidence hits are dropped
+   *  so we don't spam the UI with every loose alias match. */
+  function computeAdditionalEntities(
+    detected: DetectedEntity[] | undefined,
+    primary: EntityType,
+  ): Array<{ entity: EntityType; confidence: string; checked: boolean }> {
+    if (!detected) return [];
+    return detected
+      .filter(
+        (e) =>
+          (e.confidence === "high" || e.confidence === "medium") &&
+          e.entity !== primary &&
+          !!CANONICAL_FIELDS[e.entity as EntityType],
+      )
+      .map((e) => ({
+        entity: e.entity as EntityType,
+        confidence: e.confidence,
+        checked: true,
+      }));
+  }
+
   function mergeTemplate(
     template: MappingTemplate,
     baseMapping: Record<string, string>,
@@ -849,6 +894,12 @@ function ImportPageInner() {
     // terms the user just saw in the detection UI.
     setEntity(data.entity);
 
+    // Secondary entities detected in the same file — Confirm renders them
+    // as opt-in checkboxes instead of routing to a dedicated split screen.
+    setAdditionalEntities(
+      computeAdditionalEntities(data.detectedEntities, data.entity as EntityType),
+    );
+
     // ── Route based on auto-detection result ─────────────────────────────
     const requiredFields =
       CANONICAL_FIELDS[data.entity as EntityType]?.filter((f) => f.required) ?? [];
@@ -856,20 +907,12 @@ function ImportPageInner() {
     const det = data.detectedEntity;
     const detectedCount = data.detectedEntities?.length ?? 0;
 
-    // Case B — multi-entity files keep flowing through the existing
-    // entity-split picker. We trigger it only when the detector found 2+
-    // distinct entities at high confidence.
-    const significantCount = (data.detectedEntities ?? []).filter(
-      (e) => e.confidence === "high" || e.confidence === "medium",
-    ).length;
-    if (significantCount >= 2 && !entityExplicit) {
-      setStep("entity-split");
-      return;
-    }
-
     // Case A — certain/high confidence AND everything maps cleanly →
     // skip both the map and disambiguation screens and go straight to
-    // the confirm summary.
+    // the confirm summary. Multi-entity files used to route through a
+    // dedicated entity-split screen here; that block is still present
+    // but no longer reachable from the initial-upload flow — the new
+    // additional-entities checkbox card on Confirm replaces it.
     if (det && (det.confidence === "certain" || det.confidence === "high") && allRequiredMapped) {
       setStep("confirm");
       return;
@@ -941,6 +984,10 @@ function ImportPageInner() {
     setEntityExplicit(true);
     setAiMappingResult(null);
     setAiRescuedFields(new Set());
+    // Recompute the opt-in list for the newly-chosen primary entity.
+    setAdditionalEntities(
+      computeAdditionalEntities(uploadResult.detectedEntities, chosenEntity),
+    );
 
     // 1) Re-run the alias matcher for the chosen entity.
     const { mapping: newMapping, score: newScore } =
@@ -1019,6 +1066,16 @@ function ImportPageInner() {
   // ── Process (actual import) ───────────────────────────────────────────────
   async function handleProcess() {
     if (!uploadResult) return;
+
+    // If the user kept any additional entities checked on the Confirm
+    // screen, hand off to the sequential multi-entity importer which
+    // knows how to clone the source and run each entity in its own pass.
+    const hasCheckedExtras = additionalEntities.some((e) => e.checked);
+    if (hasCheckedExtras) {
+      await handleMultiEntityImport();
+      return;
+    }
+
     setProcessing(true);
     setDismissedErrorBanner(false);
 
@@ -1108,16 +1165,27 @@ function ImportPageInner() {
     setProcessing(true);
     setDismissedErrorBanner(false);
 
-    const significantEntities = (uploadResult.detectedEntities ?? []).filter(
-      (e) => e.confidence === "high" || e.confidence === "medium"
-    );
-
-    // Ensure the user's explicitly selected entity is always imported, even if
-    // the auto-detector didn't flag it at high/medium confidence.
+    // Build the entities-to-import list from the Confirm-screen checkbox
+    // state: the primary entity is always included; each checked
+    // additional entity gets a pass of its own. Unchecked additionals
+    // are skipped, so the user can opt out of auto-created Products /
+    // Suppliers / etc. without losing the primary import.
     const userEntity = uploadResult.entity;
-    if (!significantEntities.some((e) => e.entity === userEntity)) {
-      significantEntities.push({ entity: userEntity, confidence: "medium" as const, columnsUsed: [], requiredFieldsMatched: 0 });
-    }
+    const checkedAdditional = additionalEntities.filter((e) => e.checked);
+    const significantEntities: DetectedEntity[] = [
+      {
+        entity: userEntity,
+        confidence: "high" as const,
+        columnsUsed: [],
+        requiredFieldsMatched: 0,
+      },
+      ...checkedAdditional.map<DetectedEntity>((e) => ({
+        entity: e.entity,
+        confidence: (e.confidence === "high" ? "high" : "medium") as "high" | "medium",
+        columnsUsed: [],
+        requiredFieldsMatched: 0,
+      })),
+    ];
 
     // Import order: Product first (join anchor), then Supplier, then everything else
     const ORDER: string[] = ["Product", "Supplier", "InventoryItem", "BOM"];
@@ -1271,6 +1339,7 @@ function ImportPageInner() {
     setUploadResult(null);
     setUploadError(null);
     setEntityExplicit(false);
+    setAdditionalEntities([]);
     setMapping({});
     setScore({});
     setAttributeKeys([]);
@@ -2079,6 +2148,58 @@ function ImportPageInner() {
                       ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Secondary entities — opt-in checklist. Rendered only when
+                the detector flagged something besides the primary entity
+                in the same file (e.g. InventoryItem + Product). */}
+            {additionalEntities.length > 0 && (
+              <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                <p className="text-xs font-semibold text-slate-700 mb-2">
+                  📦 We also found data for:
+                </p>
+                <div className="space-y-2">
+                  {additionalEntities.map((ae, idx) => {
+                    const label = ENTITY_LABELS[ae.entity] ?? ae.entity;
+                    const desc = ADDITIONAL_ENTITY_DESCRIPTIONS[ae.entity];
+                    return (
+                      <label
+                        key={ae.entity}
+                        className="flex items-start gap-2.5 cursor-pointer select-none"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={ae.checked}
+                          onChange={() =>
+                            setAdditionalEntities((prev) =>
+                              prev.map((e, i) =>
+                                i === idx ? { ...e, checked: !e.checked } : e,
+                              ),
+                            )
+                          }
+                          disabled={processing}
+                          className="mt-0.5 accent-slate-900"
+                        />
+                        <span className="flex-1 min-w-0">
+                          <span className="text-sm font-medium text-slate-800">
+                            {label}
+                          </span>
+                          {desc && (
+                            <span className="block text-xs text-slate-500">
+                              {desc}
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-2">
+                  Unchecked items won&apos;t appear in your Explorer but
+                  minimal records may still be created to link your data
+                  together.
+                </p>
               </div>
             )}
 
