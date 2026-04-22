@@ -42,7 +42,6 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowLeft,
-  Save,
   ChevronDown,
   ChevronUp,
   X,
@@ -586,12 +585,6 @@ function ImportPageInner() {
   const [score, setScore] = useState<Record<string, number>>({});
   const [attributeKeys, setAttributeKeys] = useState<string[]>([]);
 
-  // ── Template state ────────────────────────────────────────────────────────
-  const [appliedTemplate, setAppliedTemplate] = useState<MappingTemplate | null>(null);
-  const [templateName, setTemplateName] = useState("");
-  const [savingTemplate, setSavingTemplate] = useState(false);
-  const [allTemplates, setAllTemplates] = useState<MappingTemplate[]>([]);
-
   // ── Registry mapping UI state ─────────────────────────────────────────────
   // Columns the user has explicitly flagged as missing from the registry.
   const [flaggedColumns, setFlaggedColumns] = useState<string[]>([]);
@@ -599,7 +592,6 @@ function ImportPageInner() {
   const [showSheetPicker, setShowSheetPicker] = useState(false);
 
   // ── UI toggles ────────────────────────────────────────────────────────────
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [showAllFiles, setShowAllFiles] = useState(false);
 
   // ── Snapshot preview state ───────────────────────────────────────────────
@@ -786,14 +778,12 @@ function ImportPageInner() {
     let activeMapping = data.suggestedMapping;
     let activeScore = data.score;
     let activeAttributeKeys: string[] = [];
-    let matched: MappingTemplate | null = null;
 
     try {
       const tRes = await fetch(`/api/data/mapping-templates?entity=${data.entity}`);
       if (tRes.ok) {
         const tData = await tRes.json();
         const templates: MappingTemplate[] = tData.templates ?? [];
-        setAllTemplates(templates);
         if (templates.length > 0) {
           // First match wins — no picker needed
           const merged = mergeTemplate(
@@ -805,7 +795,6 @@ function ImportPageInner() {
           activeMapping = merged.mapping;
           activeScore = merged.score;
           activeAttributeKeys = merged.attributeKeys;
-          matched = templates[0];
         }
       }
     } catch {
@@ -815,7 +804,6 @@ function ImportPageInner() {
     setMapping(activeMapping);
     setScore(activeScore);
     setAttributeKeys(activeAttributeKeys);
-    setAppliedTemplate(matched);
     setAiMappingResult(null);
     setAiRescuedFields(new Set());
     setMapEscapeHatch(false);
@@ -1108,27 +1096,6 @@ function ImportPageInner() {
     }
   }
 
-  // ── Template save (Advanced section) ─────────────────────────────────────
-  async function handleSaveTemplate() {
-    if (!uploadResult || !templateName.trim()) return;
-    setSavingTemplate(true);
-    try {
-      const res = await fetch("/api/data/mapping-templates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: templateName.trim(),
-          entity: uploadResult.entity,
-          mapping,
-          attributeKeys,
-        }),
-      });
-      if (res.ok) setTemplateName("");
-    } finally {
-      setSavingTemplate(false);
-    }
-  }
-
   // ── Multi-pass: map a second entity from the same file ───────────────────
   async function handleAddPass(newEntity: EntityType) {
     if (!parentSourceId) return;
@@ -1149,7 +1116,6 @@ function ImportPageInner() {
       setAttributeKeys([]);
       setImportResult(null);
       setValidationResult(null);
-      setAppliedTemplate(null);
       setDismissedErrorBanner(false);
 
       // Always show the Map step — auto-mapping is a suggestion, not a final answer.
@@ -1343,11 +1309,9 @@ function ImportPageInner() {
     setMapping({});
     setScore({});
     setAttributeKeys([]);
-    setAppliedTemplate(null);
     setImportResult(null);
     setValidationResult(null);
     setParentSourceId(null);
-    setShowAdvanced(false);
     setShowSheetPicker(false);
     setDismissedErrorBanner(false);
     setFlaggedColumns([]);
@@ -1973,16 +1937,8 @@ function ImportPageInner() {
         <RegistryMapStep
           uploadResult={uploadResult}
           mapping={mapping}
-          appliedTemplate={appliedTemplate}
           flaggedColumns={flaggedColumns}
           onSourceColumnMapping={handleSourceColumnMapping}
-          showAdvanced={showAdvanced}
-          onToggleAdvanced={() => setShowAdvanced((v) => !v)}
-          templateName={templateName}
-          setTemplateName={setTemplateName}
-          savingTemplate={savingTemplate}
-          onSaveTemplate={handleSaveTemplate}
-          allTemplates={allTemplates}
           onConfirm={handleConfirmMapping}
           aiMapping={aiMapping}
           aiMappingResult={aiMappingResult}
@@ -2102,17 +2058,6 @@ function ImportPageInner() {
               </div>
             )}
 
-            {/* Template auto-applied notice */}
-            {appliedTemplate && (
-              <p className="text-xs text-gray-500 flex items-center gap-1.5">
-                <CheckCircle className="w-3 h-3 text-emerald-500" />
-                We applied your saved mapping for{" "}
-                <strong className="text-gray-700">
-                  {ENTITY_LABELS[uploadResult.entity]}
-                </strong>
-                . Review below.
-              </p>
-            )}
 
             {/* Sheet info + escape hatch */}
             {uploadResult.wasAutoSelected && uploadResult.allSheets.length > 1 && (
@@ -2226,18 +2171,6 @@ function ImportPageInner() {
                 Review field mapping →
               </button>
             </div>
-
-            {/* Advanced section (collapsed by default on Confirm screen) */}
-            <AdvancedSection
-              show={showAdvanced}
-              onToggle={() => setShowAdvanced((v) => !v)}
-              templateName={templateName}
-              setTemplateName={setTemplateName}
-              savingTemplate={savingTemplate}
-              onSaveTemplate={handleSaveTemplate}
-              allTemplates={allTemplates}
-              appliedTemplate={appliedTemplate}
-            />
 
             {processing && (
               <div className="space-y-1.5">
@@ -2517,16 +2450,8 @@ function ImportPageInner() {
 interface RegistryMapStepProps {
   uploadResult: UploadResult;
   mapping: Record<string, string>;
-  appliedTemplate: MappingTemplate | null;
   flaggedColumns: string[];
   onSourceColumnMapping: (sourceCol: string, value: string) => void;
-  showAdvanced: boolean;
-  onToggleAdvanced: () => void;
-  templateName: string;
-  setTemplateName: (v: string) => void;
-  savingTemplate: boolean;
-  onSaveTemplate: () => void;
-  allTemplates: MappingTemplate[];
   onConfirm: () => void;
   aiMapping: boolean;
   aiMappingResult: AiMappingResult | null;
@@ -2537,16 +2462,8 @@ interface RegistryMapStepProps {
 function RegistryMapStep({
   uploadResult,
   mapping,
-  appliedTemplate,
   flaggedColumns,
   onSourceColumnMapping,
-  showAdvanced,
-  onToggleAdvanced,
-  templateName,
-  setTemplateName,
-  savingTemplate,
-  onSaveTemplate,
-  allTemplates,
   onConfirm,
   aiMapping,
   aiMappingResult,
@@ -2620,13 +2537,6 @@ function RegistryMapStep({
               <strong className="text-gray-700">{ENTITY_LABELS[uploadResult.entity]}</strong>{" "}
               field. {uploadResult.rowCount.toLocaleString()} rows detected.
             </p>
-          </div>
-        )}
-
-        {appliedTemplate && (
-          <div className="flex items-center gap-1.5 text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-2">
-            <CheckCircle className="w-3.5 h-3.5 shrink-0" />
-            Saved mapping &ldquo;{appliedTemplate.name}&rdquo; applied. Review below.
           </div>
         )}
 
@@ -2800,18 +2710,6 @@ function RegistryMapStep({
           loadingCount={(uploadResult.unmappedColumns ?? []).length}
         />
 
-        {/* Advanced section — template only, no duplicate mapping */}
-        <AdvancedSection
-          show={showAdvanced}
-          onToggle={onToggleAdvanced}
-          templateName={templateName}
-          setTemplateName={setTemplateName}
-          savingTemplate={savingTemplate}
-          onSaveTemplate={onSaveTemplate}
-          allTemplates={allTemplates}
-          appliedTemplate={appliedTemplate}
-        />
-
         <Button
           onClick={onConfirm}
           disabled={!canProceed}
@@ -2887,81 +2785,3 @@ function AiFieldsNotice({ entity, loading, result, loadingCount }: AiFieldsNotic
 
 // ─── Advanced section (shared between Map and Confirm steps) ──────────────────
 
-interface AdvancedSectionProps {
-  show: boolean;
-  onToggle: () => void;
-  templateName: string;
-  setTemplateName: (v: string) => void;
-  savingTemplate: boolean;
-  onSaveTemplate: () => void;
-  allTemplates: MappingTemplate[];
-  appliedTemplate: MappingTemplate | null;
-}
-
-function AdvancedSection({
-  show,
-  onToggle,
-  templateName,
-  setTemplateName,
-  savingTemplate,
-  onSaveTemplate,
-  allTemplates,
-  appliedTemplate,
-}: AdvancedSectionProps) {
-  return (
-    <div className="border border-gray-100 rounded-lg overflow-hidden">
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-medium text-gray-500 hover:bg-gray-50 transition-colors"
-      >
-        Advanced options
-        {show ? (
-          <ChevronUp className="w-3.5 h-3.5" />
-        ) : (
-          <ChevronDown className="w-3.5 h-3.5" />
-        )}
-      </button>
-
-      {show && (
-        <div className="border-t border-gray-100 px-3 py-3 space-y-4 bg-gray-50/50">
-          {/* Template save */}
-          <div>
-            <p className="text-[11px] font-semibold text-gray-500 uppercase mb-1.5">
-              Save as template
-            </p>
-            {appliedTemplate && (
-              <p className="text-[11px] text-blue-600 mb-1.5">
-                Template &ldquo;{appliedTemplate.name}&rdquo; was applied.
-                Save under a new name to create a variant.
-              </p>
-            )}
-            {allTemplates.length > 0 && (
-              <p className="text-[11px] text-gray-400 mb-1.5">
-                Existing:{" "}
-                {allTemplates.map((t) => t.name).join(", ")}
-              </p>
-            )}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={templateName}
-                onChange={(e) => setTemplateName(e.target.value)}
-                placeholder="Template name…"
-                className="flex-1 h-8 text-xs rounded border border-gray-200 bg-white px-2 outline-none focus:border-slate-400"
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 px-2"
-                disabled={!templateName.trim() || savingTemplate}
-                onClick={onSaveTemplate}
-              >
-                <Save className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
