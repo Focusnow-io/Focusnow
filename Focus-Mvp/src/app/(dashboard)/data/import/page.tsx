@@ -927,6 +927,95 @@ function ImportPageInner() {
     }
   }
 
+  // ── Disambiguation: user picked an entity from the 2–4 option cards ─────
+  // The mapping that came back with the upload was computed against the
+  // auto-detected entity; if the user overrides it we have to re-resolve
+  // the mapping for the NEW entity (different canonical fields → different
+  // alias matches) before routing. Running the AI-map pass again on the
+  // updated unmapped set rescues late-matching columns so the user lands
+  // on Confirm instead of Map for most files.
+  async function handleDisambiguate(chosenEntity: EntityType) {
+    if (!uploadResult) return;
+
+    setEntity(chosenEntity);
+    setEntityExplicit(true);
+    setAiMappingResult(null);
+    setAiRescuedFields(new Set());
+
+    // 1) Re-run the alias matcher for the chosen entity.
+    const { mapping: newMapping, score: newScore } =
+      suggestMappingWithConfidence(uploadResult.headers, chosenEntity);
+
+    let finalMapping: Record<string, string> = newMapping;
+    let finalScore: Record<string, number> = newScore;
+    let finalAttributeKeys = attributeKeys;
+
+    // 2) AI rescue pass: whichever headers are still unmapped for the
+    //    newly-chosen entity get sent to /api/data/ai-map.
+    const mappedSet = new Set(Object.values(newMapping).filter(Boolean));
+    const columnsForAi = (uploadResult.unmappedColumns ?? []).filter(
+      (c) => !mappedSet.has(c.header),
+    );
+
+    if (columnsForAi.length > 0) {
+      setAiMapping(true);
+      try {
+        const aiRes = await fetch("/api/data/ai-map", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sourceId: uploadResult.sourceId,
+            entityType: chosenEntity,
+            unmappedColumns: columnsForAi,
+          }),
+        });
+        if (aiRes.ok) {
+          const aiData = (await aiRes.json()) as AiMappingResult;
+          setAiMappingResult(aiData);
+
+          const canonicalKeys = Object.keys(aiData.canonicalMappings);
+          if (canonicalKeys.length > 0) {
+            finalMapping = { ...aiData.canonicalMappings, ...finalMapping };
+            finalScore = { ...finalScore };
+            for (const f of canonicalKeys) {
+              if (finalScore[f] == null) finalScore[f] = 0.9;
+            }
+            setAiRescuedFields(new Set(canonicalKeys));
+          }
+          if (aiData.customFields.length > 0) {
+            finalAttributeKeys = Array.from(
+              new Set([
+                ...finalAttributeKeys,
+                ...aiData.customFields.map((f) => f.sourceColumn),
+              ]),
+            );
+          }
+        }
+      } catch (err) {
+        console.error("[import] ai-map (disambiguate) failed:", err);
+      } finally {
+        setAiMapping(false);
+      }
+    }
+
+    setMapping(finalMapping);
+    setScore(finalScore);
+    setAttributeKeys(finalAttributeKeys);
+
+    // 3) Persist for the /process route.
+    try {
+      await saveMapping(uploadResult.sourceId, chosenEntity, finalMapping, finalAttributeKeys);
+    } catch (err) {
+      console.error("[import] saveMapping (disambiguate) failed:", err);
+    }
+
+    // 4) Route by required-field coverage of the *new* entity.
+    const requiredFields =
+      CANONICAL_FIELDS[chosenEntity]?.filter((f) => f.required) ?? [];
+    const allRequiredMapped = requiredFields.every((f) => !!finalMapping[f.field]);
+    setStep(allRequiredMapped ? "confirm" : "map");
+  }
+
   // ── Process (actual import) ───────────────────────────────────────────────
   async function handleProcess() {
     if (!uploadResult) return;
@@ -1602,27 +1691,9 @@ function ImportPageInner() {
                     <button
                       key={c.entity}
                       type="button"
-                      onClick={async () => {
-                        setEntity(ent);
-                        setEntityExplicit(true);
-                        try {
-                          await saveMapping(
-                            uploadResult.sourceId,
-                            ent,
-                            mapping,
-                            attributeKeys,
-                          );
-                        } catch (err) {
-                          console.error("[import] saveMapping (disambiguate) failed:", err);
-                        }
-                        // After the user confirms the type, the mapper
-                        // suggestion for the newly-chosen entity may differ
-                        // from the original — re-resolve and route.
-                        const fields = CANONICAL_FIELDS[ent]?.filter((f) => f.required) ?? [];
-                        const allRequiredMapped = fields.every((f) => !!mapping[f.field]);
-                        setStep(allRequiredMapped ? "confirm" : "map");
-                      }}
-                      className="text-left border border-gray-200 hover:border-slate-400 hover:bg-slate-50 rounded-xl p-4 transition-colors"
+                      onClick={() => handleDisambiguate(ent)}
+                      disabled={aiMapping}
+                      className="text-left border border-gray-200 hover:border-slate-400 hover:bg-slate-50 rounded-xl p-4 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <p className="text-sm font-semibold text-gray-900">{label}</p>
                       {desc && <p className="text-xs text-gray-500 mt-1">{desc}</p>}
