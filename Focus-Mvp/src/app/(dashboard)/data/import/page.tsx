@@ -1478,12 +1478,19 @@ function ImportPageInner() {
                 </p>
               </div>
 
-              {/* Drop zone */}
+              {/* Drop zone — dims + locks clicks while the upload is
+                  in flight so the user can't kick off a second upload. */}
               <div
-                className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${
+                className={`border-2 border-dashed rounded-xl p-10 text-center transition-all ${
+                  uploading
+                    ? "opacity-50 pointer-events-none animate-pulse"
+                    : "cursor-pointer"
+                } ${
                   file ? "border-emerald-300 bg-emerald-50/40" : "border-gray-200 hover:border-slate-400 hover:bg-gray-50"
                 }`}
-                onClick={() => fileRef.current?.click()}
+                onClick={() => {
+                  if (!uploading) fileRef.current?.click();
+                }}
               >
                 {file ? (
                   <div className="flex flex-col items-center gap-3">
@@ -1492,7 +1499,11 @@ function ImportPageInner() {
                     </div>
                     <div>
                       <p className="font-semibold text-sm text-gray-900">{file.name}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">{(file.size / 1024).toFixed(1)} KB · Click to change</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {uploading
+                          ? "Reading your file and detecting data types…"
+                          : `${(file.size / 1024).toFixed(1)} KB · Click to change`}
+                      </p>
                     </div>
                   </div>
                 ) : (
@@ -1531,7 +1542,14 @@ function ImportPageInner() {
                 disabled={!file || uploading}
                 className="w-full h-11 text-sm font-semibold"
               >
-                {uploading ? "Analysing your file…" : "Upload & analyse"}
+                {uploading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Analysing your file…
+                  </>
+                ) : (
+                  "Upload & analyse"
+                )}
               </Button>
 
               {/* Advanced escape hatch — the old 30-entity hub is still the
