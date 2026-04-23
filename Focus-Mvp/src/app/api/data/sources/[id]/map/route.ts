@@ -26,15 +26,18 @@ export async function PUT(
   const {
     mapping,
     entity,
+    dataset,
     attributeKeys = [],
     compound: incomingCompound,
   } = body as {
     mapping: Record<string, string>;
     entity: string;
+    /** New dataset name for the JSONB import pipeline. When provided,
+     *  overwrites mappingConfig.dataset so the process-v2 route picks
+     *  up disambiguation changes. Optional for backward compat with
+     *  legacy callers that only supply `entity`. */
+    dataset?: string;
     attributeKeys?: string[];
-    /** Optional compound block from the UI — set when the user picks a
-     *  compound-aware entity on the disambiguation screen and the client
-     *  needs to install (or overwrite) the two-pass processing hint. */
     compound?: {
       compound: CompoundEntityType;
       fileType: "flat" | "header-only" | "line-only" | "unknown";
@@ -99,6 +102,10 @@ export async function PUT(
         mapping,
         entity,
         attributeKeys,
+        // Only overwrite dataset when the client explicitly sent one;
+        // the upload-v2 route already persists it and legacy callers
+        // don't include it in their body.
+        ...(dataset ? { dataset } : {}),
         ...(nextCompound ? { compound: nextCompound } : {}),
       },
       status: "PENDING",

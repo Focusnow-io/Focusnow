@@ -70,6 +70,58 @@ import {
  *  stable key stored on IMPORT_CONCEPTS and passed around the wizard. */
 type ConceptEntity = EntityType | CompoundEntityType;
 
+// ─── /api/data/import-v2 adapter ──────────────────────────────────────────
+//
+// The new upload endpoint speaks dataset-vocabulary (snake_case keys like
+// "purchase_orders") while the rest of this wizard still renders entity
+// labels via ENTITY_LABELS keyed on EntityType (PascalCase). We map
+// between the two at the upload boundary so the downstream UI — Confirm
+// summary, ENTITY_NOUN lookups, Done-screen delta — keeps working
+// unchanged.
+type DatasetName =
+  | "products"
+  | "suppliers"
+  | "customers"
+  | "locations"
+  | "inventory"
+  | "purchase_orders"
+  | "sales_orders"
+  | "bom";
+
+const DATASET_TO_ENTITY: Record<DatasetName, EntityType> = {
+  products: "Product",
+  suppliers: "Supplier",
+  customers: "Customer",
+  locations: "Location",
+  inventory: "InventoryItem",
+  purchase_orders: "PurchaseOrder",
+  sales_orders: "SalesOrder",
+  bom: "BOMHeader",
+};
+
+/** Shape returned by /api/data/import-v2 — dataset-vocabulary fields. */
+interface UploadV2Response {
+  sourceId: string;
+  headers: string[];
+  dataset: DatasetName;
+  detectedDataset: {
+    dataset: DatasetName;
+    confidence: "certain" | "high" | "medium" | "low" | "inferred";
+    wasAutoDetected: boolean;
+    alternatives: Array<{
+      dataset: DatasetName;
+      score: number;
+      identityFieldsMatched: number;
+    }>;
+  };
+  detectedDescription?: string;
+  suggestedMapping: Record<string, string>;
+  confidence: Record<string, number>;
+  sampleValues: Record<string, string[]>;
+  unmappedColumns?: string[];
+  rowCount: number;
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const ENTITY_LABELS: Record<ConceptEntity, string> = {
@@ -602,14 +654,84 @@ interface UploadResult {
   previewRows: Record<string, string>[];
   rowCount: number;
   entity: EntityType;
+  /** New dataset vocabulary field. Populated by the /import-v2 adapter.
+   *  `entity` above is the legacy-shape translation so ENTITY_LABELS /
+   *  ENTITY_NOUN lookups continue to work. */
+  dataset?: DatasetName;
   columnClassification?: Record<string, ColumnClassification>;
   detectedEntities?: DetectedEntity[];
   detectedEntity?: DetectedEntityResult;
+  /** New detection block from /import-v2 — kept alongside detectedEntity
+   *  so callers that want the raw dataset vocabulary (e.g. sending it to
+   *  /process-v2) don't have to reverse-map EntityType → DatasetName. */
+  detectedDataset?: UploadV2Response["detectedDataset"];
   detectedCompound?: DetectedCompoundResult | null;
   detectedDescription?: string;
   selectedSheet: string | null;
   allSheets: string[];
   wasAutoSelected: boolean;
+}
+
+/** Translate the /import-v2 response shape into the legacy UploadResult
+ *  this wizard was written against. Keeps `dataset` and `detectedDataset`
+ *  around for new-vocabulary consumers, and synthesises the old fields
+ *  (entity, detectedEntity with alternativeEntities, columnTypes) by
+ *  mapping each dataset name through DATASET_TO_ENTITY. */
+function adaptUploadV2Response(raw: UploadV2Response): UploadResult {
+  const entity = DATASET_TO_ENTITY[raw.dataset];
+  // /import-v2 returns numeric confidence per field; translate the top-
+  // score tier into the MappingConfidence string the old UI expects so
+  // the field pills colour correctly.
+  const confidenceStrings: Record<string, MappingConfidence> = {};
+  for (const [field, score] of Object.entries(raw.confidence ?? {})) {
+    confidenceStrings[field] =
+      score >= 0.95 ? "exact" : score >= 0.8 ? "alias" : "fuzzy";
+  }
+  const detectedEntities: DetectedEntity[] = (raw.detectedDataset.alternatives ?? []).map(
+    (a) => ({
+      entity: DATASET_TO_ENTITY[a.dataset] ?? a.dataset,
+      confidence:
+        a.identityFieldsMatched >= 2
+          ? "high"
+          : a.identityFieldsMatched >= 1
+            ? "medium"
+            : "low",
+      columnsUsed: [],
+      requiredFieldsMatched: a.identityFieldsMatched,
+    }),
+  );
+  const unmapped: UnmappedColumn[] = (raw.unmappedColumns ?? []).map((h) => ({
+    header: h,
+    sampleValues: raw.sampleValues?.[h] ?? [],
+    columnType: "text",
+  }));
+  return {
+    sourceId: raw.sourceId,
+    headers: raw.headers,
+    suggestedMapping: raw.suggestedMapping,
+    confidence: confidenceStrings,
+    score: raw.confidence ?? {},
+    sampleValues: raw.sampleValues ?? {},
+    columnTypes: {},
+    unmappedColumns: unmapped,
+    previewRows: [],
+    rowCount: raw.rowCount,
+    entity,
+    dataset: raw.dataset,
+    detectedEntities,
+    detectedEntity: {
+      entity,
+      confidence: raw.detectedDataset.confidence === "low" ? "inferred" : raw.detectedDataset.confidence,
+      wasAutoDetected: raw.detectedDataset.wasAutoDetected,
+      alternativeEntities: detectedEntities,
+    },
+    detectedDataset: raw.detectedDataset,
+    detectedCompound: null,
+    detectedDescription: raw.detectedDescription,
+    selectedSheet: null,
+    allSheets: [],
+    wasAutoSelected: false,
+  };
 }
 
 interface ValidationResult {
@@ -858,32 +980,48 @@ function ImportPageInner() {
 
     const fd = new FormData();
     fd.append("file", file);
-    // Only send the entity hint when the user explicitly picked one (hub
-    // card / Advanced override / Re-upload button). Without this guard the
-    // default "Product" state would always be posted and the API would
-    // treat every upload as a hinted one.
+    // Dataset hint for /import-v2. Only sent when the user explicitly
+    // picked a concept (hub card / re-upload), so drag-and-drop uploads
+    // still auto-detect. EntityType → DatasetName translation mirrors
+    // DATASET_TO_ENTITY so the two vocabularies stay in lockstep.
     if (entityExplicit) {
-      fd.append("entity", entity);
+      const entityToDataset: Record<string, DatasetName> = {
+        Product: "products",
+        Supplier: "suppliers",
+        Customer: "customers",
+        Location: "locations",
+        InventoryItem: "inventory",
+        PurchaseOrder: "purchase_orders",
+        POLine: "purchase_orders",
+        SalesOrder: "sales_orders",
+        SalesOrderLine: "sales_orders",
+        BOMHeader: "bom",
+        BOMLine: "bom",
+      };
+      const dataset = entityToDataset[entity];
+      if (dataset) fd.append("dataset", dataset);
     }
-    // Compound hint — set when the user clicked a compound concept card
-    // (Purchase Orders, Sales Orders, Bill of Materials). Tells the import
-    // API to run compound detection even if the file's column signals are
-    // weak enough that single-entity detection would fire first.
-    if (compoundHint) {
-      fd.append("compound", compoundHint);
-    }
+    // Compound hint — legacy concept hub may still set this on
+    // Purchase Orders / Sales Orders / BOM cards. The compound's header
+    // entity is already translated above, so the /import-v2 endpoint
+    // ignores `compound`; we send nothing here.
+    void compoundHint;
     fd.append("importMode", importMode);
     if (overrideSheet) fd.append("sheet", overrideSheet);
 
     let data: UploadResult;
     try {
-      const res = await fetch("/api/data/import", { method: "POST", body: fd });
-      data = await res.json();
+      // New dataset pipeline. The response shape is different from the
+      // legacy /api/data/import — adaptUploadV2Response normalises it
+      // back to the UploadResult the rest of this wizard reads.
+      const res = await fetch("/api/data/import-v2", { method: "POST", body: fd });
+      const raw = await res.json();
       if (!res.ok) {
-        setUploadError((data as unknown as { error: string }).error ?? "Upload failed");
+        setUploadError((raw as { error?: string }).error ?? "Upload failed");
         setUploading(false);
         return;
       }
+      data = adaptUploadV2Response(raw as UploadV2Response);
     } catch {
       setUploadError("Network error — please try again.");
       setUploading(false);
@@ -1263,8 +1401,9 @@ function ImportPageInner() {
     // process — handles the edge case where the user edited things in Advanced.
     await saveMapping(uploadResult.sourceId, uploadResult.entity, mapping, attributeKeys);
 
+    // New JSONB import pipeline — writes ImportDataset / ImportRecord.
     const res = await fetch(
-      `/api/data/sources/${uploadResult.sourceId}/process`,
+      `/api/data/sources/${uploadResult.sourceId}/process-v2`,
       { method: "POST" }
     );
     const result = await res.json();
