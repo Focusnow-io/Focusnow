@@ -91,8 +91,13 @@ function deriveDetectedEntities(
     if (!detectedSet.has(def.headerEntity) && !detectedSet.has(def.lineEntity)) {
       continue;
     }
-    const { fileType } = detectCompoundFileType(headers, key);
+    const { fileType, headerMatches, lineMatches } = detectCompoundFileType(headers, key);
     if (fileType === "unknown") continue;
+    // Match the auto-detect guard in `detectCompound`: only promote when
+    // both sides have at least one identity signal. A single-side match
+    // (e.g. BOMHeader finding a SKU column on an inventory file) is too
+    // weak to justify flipping an entity's confidence to high.
+    if (headerMatches < 1 || lineMatches < 1) continue;
     for (const r of results) {
       if (r.entity === def.headerEntity) {
         r.compoundType = key;
@@ -191,6 +196,14 @@ function detectCompound(
     }
     const result = detectCompoundFileType(headers, key);
     if (result.fileType === "unknown") continue;
+    // Auto-detection requires identity matches on BOTH sides. A lone
+    // signal (e.g. an inventory file with a SKU that BOMHeader also
+    // treats as an identity field) isn't enough to promote to a
+    // compound — the user would see "Bill of Materials" on a 282-row
+    // inventory upload. Header-only / line-only compound imports are
+    // still reachable via the explicit compound hint (the concept hub's
+    // Purchase Orders card etc.).
+    if (result.headerMatches < 1 || result.lineMatches < 1) continue;
     // Prefer the compound with the strongest combined signal.
     const score = result.headerMatches + result.lineMatches;
     const bestScore = best ? best.headerMatches + best.lineMatches : -1;

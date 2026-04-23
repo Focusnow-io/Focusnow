@@ -252,8 +252,13 @@ export const CANONICAL_FIELDS = {
     { field: "customerPoRef", label: "Customer PO Reference", required: false },
   ],
   BOMHeader: [
+    // Both productId AND version are identity fields. A file with a SKU
+    // column but no version/revision column can't be a BOM Header — it's
+    // almost always an inventory file that happened to share the SKU key.
+    // Requiring two identity fields keeps BOMHeader confidence at "low"
+    // for those cases instead of promoting to "high".
     { field: "productId", label: "Product ID / SKU", required: true, identity: true },
-    { field: "version", label: "BOM Version / Revision", required: true },
+    { field: "version", label: "BOM Version / Revision", required: true, identity: true },
     { field: "isActive", label: "Is Active", required: false },
     { field: "effectiveFrom", label: "Effective From", required: false },
     { field: "effectiveTo", label: "Effective To", required: false },
@@ -2331,7 +2336,15 @@ export interface ColumnClassification {
  * InventoryItem wins over Product when both match the same column equally.
  */
 const CLASSIFIER_ENTITY_PRIORITY: string[] = [
-  "InventoryItem", "Supplier", "Product", "BOM", "Order",
+  "InventoryItem",
+  "Supplier",
+  "Product",
+  "PurchaseOrder",
+  "SalesOrder",
+  "BOM",
+  "BOMHeader",
+  "BOMLine",
+  "Order",
 ];
 function entityPriorityForClassifier(entity: string | undefined): number {
   if (!entity) return CLASSIFIER_ENTITY_PRIORITY.length;
@@ -2499,6 +2512,41 @@ export function classifyColumns(
 
     // ── 4. unclassified ────────────────────────────────────────────────
     result[header] = { type: "unclassified" };
+  }
+
+  // ── 5. Inventory fingerprint boost ───────────────────────────────────
+  // A file with both a SKU-like column and a quantity-like column is
+  // almost always an inventory upload — even when some columns incidentally
+  // match engineering-entity fields. Promote any SKU column currently
+  // attributed to BOMHeader / BOMLine / BOM onto InventoryItem.sku so the
+  // downstream entity resolver picks InventoryItem as the primary entity.
+  const QUANTITY_ALIASES = new Set([
+    "onhand", "onhandqty", "onhandbalance", "qoh", "soh",
+    "stockonhand", "stocklevel", "stockqty", "stock",
+    "qty", "quantity", "qtyonhand", "qtyonhandtotal",
+    "availablestock", "available", "instock", "inventoryqty",
+  ]);
+  const SKU_ALIASES = new Set([
+    "sku", "itemcode", "itemid", "productid", "productcode",
+    "partno", "partnumber", "materialcode", "materialid",
+  ]);
+  const normHeaders = headers.map((h) => h.toLowerCase().replace(/[^a-z0-9]/g, ""));
+  const hasQuantitySignal = normHeaders.some((n) => QUANTITY_ALIASES.has(n));
+  const hasSkuSignal = normHeaders.some((n) => SKU_ALIASES.has(n));
+
+  if (hasQuantitySignal && hasSkuSignal) {
+    const engineeringEntities = new Set(["BOMHeader", "BOMLine", "BOM"]);
+    const skuLikeFields = new Set(["productId", "componentSku", "sku"]);
+    for (const [header, c] of Object.entries(result)) {
+      if (
+        (c.type === "entity_match" || c.type === "sparse") &&
+        c.canonicalField &&
+        skuLikeFields.has(c.canonicalField) &&
+        engineeringEntities.has(c.entity ?? "")
+      ) {
+        result[header] = { ...c, entity: "InventoryItem", canonicalField: "sku" };
+      }
+    }
   }
 
   return result;
