@@ -2261,16 +2261,34 @@ function ImportPageInner() {
               )}
 
               {(() => {
-                // Done screen reports ONLY the primary entity's delta.
-                // Stub upserts for parent types (Supplier, Product, etc.)
-                // produce their own delta entries, but those are
-                // plumbing — surfacing them here just confuses the user.
+                // Done screen reports the primary entity's delta plus — for
+                // compound imports — the secondary (line) delta, so a flat
+                // Purchase Orders upload shows "15 new POs added · 476 new
+                // PO lines added" rather than hiding the line-pass work.
+                // Stub upserts for parent types on line-only files stay
+                // hidden; they're plumbing, not a user-visible result.
                 const entity = uploadResult.entity as EntityType;
                 const primaryDelta = importResult.delta?.[entity];
                 const noun = ENTITY_NOUN[entity] ?? entity.toLowerCase();
                 const logicParam = importResult.delta?.LogicParam;
+                const compound = uploadResult.detectedCompound ?? null;
+                // Surface the line entity's delta only when the primary
+                // pass was the header — a line-only file's primary is
+                // already the line entity, so there is no separate
+                // secondary to show.
+                const secondaryEntity =
+                  compound && compound.headerEntity === entity
+                    ? compound.lineEntity
+                    : null;
+                const secondaryDelta = secondaryEntity
+                  ? importResult.delta?.[secondaryEntity]
+                  : null;
+                const secondaryNoun = secondaryEntity
+                  ? ENTITY_NOUN[secondaryEntity] ?? secondaryEntity.toLowerCase()
+                  : "";
                 const hasAnything =
                   !!primaryDelta ||
+                  !!secondaryDelta ||
                   (logicParam && logicParam.created + logicParam.updated > 0);
                 return hasAnything ? (
                   <>
@@ -2293,6 +2311,12 @@ function ImportPageInner() {
                             deactivated (not in file)
                           </p>
                         )}
+                      {secondaryDelta && secondaryDelta.created > 0 && (
+                        <p>{plural(secondaryDelta.created, `new ${secondaryNoun}`)} added</p>
+                      )}
+                      {secondaryDelta && secondaryDelta.updated > 0 && (
+                        <p>{plural(secondaryDelta.updated, `${secondaryNoun}`)} updated</p>
+                      )}
                       {logicParam && logicParam.created + logicParam.updated > 0 && (
                         <p className="text-blue-600">
                           {plural(
