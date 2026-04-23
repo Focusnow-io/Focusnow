@@ -201,6 +201,19 @@ const ENTITY_NOUN: Record<EntityType, string> = {
   Capa: "CAPA",
 };
 
+// Rotated every 3 s while an import is running — gives the user a sense of
+// progress on long imports (5–60 s) without us needing real server-side
+// progress reporting. Order is intentional: early messages are generic,
+// later ones hint we're nearly done so the wait feels bounded.
+const IMPORT_MESSAGES = [
+  "Importing your data…",
+  "Matching records and resolving relationships…",
+  "Almost there — hang tight…",
+  "Large files can take a minute, we're on it…",
+  "Validating and saving your records…",
+  "Just a few more seconds…",
+];
+
 const ENTITY_OPTIONS = Object.entries(ENTITY_LABELS) as [EntityType, string][];
 
 // ─── Supply chain stages ──────────────────────────────────────────────────────
@@ -613,6 +626,11 @@ function ImportPageInner() {
 
   // ── Import + validation state ─────────────────────────────────────────────
   const [processing, setProcessing] = useState(false);
+  // Rotating "still working" copy shown below the progress bar during a
+  // long import. The ref tracks the cursor across renders so the cycle
+  // survives the React re-render that each setState triggers.
+  const [importMessage, setImportMessage] = useState(IMPORT_MESSAGES[0]);
+  const messageIndexRef = useRef(0);
   const [importResult, setImportResult] = useState<{
     imported: number;
     errors: string[];
@@ -647,6 +665,23 @@ function ImportPageInner() {
       .catch(() => {/* non-critical — coverage display degrades gracefully */})
       .finally(() => setFreshnessLoading(false));
   }, [freshnessVersion]);
+
+  // Cycle the "still working" copy every 3 s while an import is running.
+  // Reset to the first message as soon as the import finishes so the
+  // caption is fresh if another import starts in the same session.
+  useEffect(() => {
+    if (!processing) {
+      messageIndexRef.current = 0;
+      setImportMessage(IMPORT_MESSAGES[0]);
+      return;
+    }
+    const interval = setInterval(() => {
+      messageIndexRef.current =
+        (messageIndexRef.current + 1) % IMPORT_MESSAGES.length;
+      setImportMessage(IMPORT_MESSAGES[messageIndexRef.current]);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [processing]);
 
   // ── Resume a previously started import ───────────────────────────────────
   useEffect(() => {
@@ -2236,8 +2271,11 @@ function ImportPageInner() {
 
             {processing && (
               <div className="space-y-1.5">
-                <p className="text-sm text-gray-600">Importing…</p>
+                <p className="text-sm text-gray-600">{importMessage}</p>
                 <Progress value={undefined} className="animate-pulse" />
+                <p className="text-[11px] text-gray-400">
+                  Large files may take up to a minute. Please don&apos;t close this page.
+                </p>
               </div>
             )}
 
