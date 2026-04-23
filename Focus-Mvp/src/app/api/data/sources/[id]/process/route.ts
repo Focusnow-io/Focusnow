@@ -29,7 +29,7 @@ import { NextResponse } from "next/server";
 import { getSessionOrg, unauthorized, notFound } from "@/lib/api-helpers";
 import { prisma } from "@/lib/prisma";
 import { POStatus } from "@prisma/client";
-import { applyMappingWithAttributes, CANONICAL_FIELDS, type MappingConfig, type ColumnClassification, type EntityType } from "@/lib/ingestion/field-mapper";
+import { applyMappingWithAttributes, CANONICAL_FIELDS, COMPOUND_ENTITIES, getIdentityFields, type MappingConfig, type ColumnClassification, type EntityType } from "@/lib/ingestion/field-mapper";
 import { loadRowsFromConfig } from "@/lib/ingestion/source-loader";
 import { fillDown } from "@/lib/ingestion/preprocess";
 import { resolveEntity } from "@/lib/normalization/entity-resolver";
@@ -231,16 +231,75 @@ export async function POST(
     }
   }
 
+  // ── Compound passes ──────────────────────────────────────────────────────
+  // A compound file (e.g. "Purchase Orders") describes both a header entity
+  // and a line entity in one upload. Rather than forcing the user to split
+  // the file in two, we loop twice here: once over headers (deduplicated by
+  // identity fields), once over lines. Each pass runs the same per-row
+  // pipeline as a plain single-entity import, but against a different entity
+  // + mapping + dedupe strategy.
+  type Pass = {
+    entity: EntityType;
+    mapping: Record<string, string>;
+    /** When set, each canonical row is processed only once per unique value
+     *  of the listed identity fields — prevents a 476-line flat PO file from
+     *  upserting 476 identical PurchaseOrder headers. */
+    dedupeBy?: string[];
+    label: string;
+  };
+  const passes: Pass[] = [];
+  if (config.compound) {
+    const { type: compoundType, fileType, headerMapping, lineMapping } = config.compound;
+    const def = COMPOUND_ENTITIES[compoundType];
+    // Guard: the user may have remapped `entity` to something outside this
+    // compound via the review UI. In that case respect their override and
+    // fall through to a single-pass run on `entity` instead of forcing the
+    // stale header/line passes.
+    const entityMatchesCompound =
+      entity === def.headerEntity || entity === def.lineEntity;
+    if (entityMatchesCompound) {
+      if (fileType === "flat" || fileType === "header-only") {
+        passes.push({
+          entity: def.headerEntity,
+          mapping: headerMapping,
+          dedupeBy: getIdentityFields(def.headerEntity),
+          label: `${compoundType}:header`,
+        });
+      }
+      if (fileType === "flat" || fileType === "line-only") {
+        passes.push({
+          entity: def.lineEntity,
+          mapping: lineMapping,
+          label: `${compoundType}:line`,
+        });
+      }
+    }
+  }
+  if (passes.length === 0) {
+    passes.push({ entity, mapping, label: entity });
+  }
+
   await prisma.dataSource.update({
     where: { id },
     data: { status: "PROCESSING" },
   });
 
-  // Replace mode — wipe existing entity data and old source records before importing
+  // Replace mode — wipe existing entity data and old source records before importing.
+  // For compound imports, we delete the header entity's data (cascades to
+  // lines via FK), then delete the line entity's data separately in case the
+  // file is line-only.
   if (importMode === "replace") {
-    console.log(`[process] replace mode — deleting existing ${entity} data for org ${ctx.org.id}`);
-    await deleteEntityData(ctx.org.id, entity);
-    // Also delete old DataSource records for the same entity (except the current one)
+    const entitiesToClear = config.compound
+      ? [
+          COMPOUND_ENTITIES[config.compound.type].headerEntity,
+          COMPOUND_ENTITIES[config.compound.type].lineEntity,
+        ]
+      : [entity];
+    for (const ent of entitiesToClear) {
+      console.log(`[process] replace mode — deleting existing ${ent} data for org ${ctx.org.id}`);
+      await deleteEntityData(ctx.org.id, ent);
+    }
+    // Also delete old DataSource records for the same primary entity (except the current one)
     await prisma.dataSource.deleteMany({
       where: {
         organizationId: ctx.org.id,
@@ -262,7 +321,9 @@ export async function POST(
   // Addition 1 — Per-entity created vs updated delta tracking
   const delta: Record<string, { created: number; updated: number; deactivated?: number }> = {};
 
-  // Snapshot import: track successfully processed unique keys for post-upsert deactivation
+  // Snapshot import: track successfully processed unique keys for post-upsert deactivation.
+  // Snapshot config is keyed on the *primary* entity only — we never deactivate lines
+  // based on a flat header+line upload.
   const snapshotConfig = SNAPSHOT_ENTITIES[entity];
   const processedKeys = new Set<string>();
 
@@ -270,35 +331,59 @@ export async function POST(
   const notes: string[] = [];
   const defaultCounts: Record<string, Record<string, number>> = {};
 
-  // Diagnostic: log the mapping and first row keys so we can debug mapping failures.
-  if (rows.length > 0) {
-    const firstRowKeys = Object.keys(rows[0]);
-    const mappingEntries = Object.entries(mapping);
-    console.log(
-      `[process] entity=${entity}, mappingKeys=[${mappingEntries.map(([k, v]) => `${k}→${v}`).join(", ")}], firstRowCols=[${firstRowKeys.join(", ")}]`
-    );
-    // Check for header mismatches — mapping references a source column not in the row
-    for (const [canonical, source] of mappingEntries) {
-      if (source && !firstRowKeys.includes(source)) {
-        console.warn(`[process] MISMATCH: mapping.${canonical}="${source}" not found in row keys`);
-      }
-    }
-  }
-
   try {
-    // Per-import parent-entity caches — avoids re-upserting the same
-    // FG product / BOMHeader / supplier / PO / etc. once per child row.
-    // See UpsertCtx for the full set.
+    // Per-import parent-entity caches — shared across all passes so a header
+    // upserted in pass 1 is immediately visible to line lookups in pass 2.
     const upsertCtx = createUpsertCtx();
+
+    for (const pass of passes) {
+      const passEntity = pass.entity;
+      const passMapping = pass.mapping;
+      // The final pass always covers every row (header-only has no second
+      // pass; flat / line-only end on the line pass which never dedupes).
+      // Count file-level imported / skipped there only, so a flat 476-line
+      // PO file reports "476 imported" not "491 imported".
+      const isCountingPass = pass === passes[passes.length - 1];
+
+      // Diagnostic: log the mapping and first row keys so we can debug mapping failures.
+      if (rows.length > 0) {
+        const firstRowKeys = Object.keys(rows[0]);
+        const mappingEntries = Object.entries(passMapping);
+        console.log(
+          `[process] pass=${pass.label}, entity=${passEntity}, mappingKeys=[${mappingEntries.map(([k, v]) => `${k}→${v}`).join(", ")}], firstRowCols=[${firstRowKeys.join(", ")}]`
+        );
+        for (const [canonical, source] of mappingEntries) {
+          if (source && !firstRowKeys.includes(source)) {
+            console.warn(`[process] MISMATCH: mapping.${canonical}="${source}" not found in row keys`);
+          }
+        }
+      }
+
+      // Per-pass dedupe set — when dedupeBy is set (header pass of a flat
+      // compound file) we only upsert each unique identity tuple once.
+      const passSeenKeys = pass.dedupeBy ? new Set<string>() : null;
 
     for (let rowNum = 0; rowNum < rows.length; rowNum++) {
       const row = rows[rowNum];
-      const { canonical, attributes } = applyMappingWithAttributes(row, mapping, attributeKeys);
+      const { canonical, attributes } = applyMappingWithAttributes(row, passMapping, attributeKeys);
 
       // Skip empty rows (common in Excel exports with trailing blanks)
       if (Object.values(canonical).every((v) => v == null || v === "")) {
-        skipped++;
+        if (isCountingPass) skipped++;
         continue;
+      }
+
+      // Dedupe the header pass of a flat compound file by the entity's
+      // identity tuple. A 476-line PO file with 15 unique POs yields 15
+      // header upserts, not 476.
+      if (passSeenKeys && pass.dedupeBy) {
+        const key = pass.dedupeBy.map((f) => canonical[f] ?? "").join("|");
+        // An empty key (no identity fields present in this row) means the
+        // row isn't a valid header — skip it silently so lines don't trip
+        // a bogus header upsert on the line pass.
+        if (!key.replaceAll("|", "")) continue;
+        if (passSeenKeys.has(key)) continue;
+        passSeenKeys.add(key);
       }
 
       // Skip rows whose orderType doesn't match the entity being imported.
@@ -307,20 +392,20 @@ export async function POST(
         (row["orderType"] || row["order_type"] || row["Order Type"] || row["type"] || "") as string
       ).trim().toUpperCase();
       if (rawOrderType) {
-        if (entity === "PurchaseOrder" && rawOrderType === "SO") { skipped++; continue; }
-        if (entity === "SalesOrder" && rawOrderType === "PO") { skipped++; continue; }
+        if (passEntity === "PurchaseOrder" && rawOrderType === "SO") { if (isCountingPass) skipped++; continue; }
+        if (passEntity === "SalesOrder" && rawOrderType === "PO") { if (isCountingPass) skipped++; continue; }
       }
 
       // Track total rows per entity type
-      if (!entityTypeCounts[entity]) {
-        entityTypeCounts[entity] = { totalRows: 0, importedRows: 0 };
+      if (!entityTypeCounts[passEntity]) {
+        entityTypeCounts[passEntity] = { totalRows: 0, importedRows: 0 };
       }
-      entityTypeCounts[entity].totalRows++;
+      entityTypeCounts[passEntity].totalRows++;
 
       // Apply sensible defaults for non-identity required fields when missing.
       // This allows multi-entity imports to succeed even when not all required
       // columns are mapped (e.g. BOM quantity defaults to 1).
-      const defaults = ENTITY_DEFAULTS[entity];
+      const defaults = ENTITY_DEFAULTS[passEntity];
       if (defaults) {
         for (const [field, defaultVal] of Object.entries(defaults)) {
           if (canonical[field] == null || String(canonical[field]).trim() === "") {
@@ -331,20 +416,24 @@ export async function POST(
             } else {
               canonical[field] = String(defaultVal);
             }
-            if (!defaultCounts[entity]) defaultCounts[entity] = {};
-            defaultCounts[entity][field] = (defaultCounts[entity][field] ?? 0) + 1;
+            if (!defaultCounts[passEntity]) defaultCounts[passEntity] = {};
+            defaultCounts[passEntity][field] = (defaultCounts[passEntity][field] ?? 0) + 1;
           }
         }
       }
 
+      // Snapshot tracking only applies to the primary entity — a header pass
+      // feeds processedKeys, a line pass does not.
+      const trackSnapshot = !!snapshotConfig && passEntity === entity;
+
       try {
-        const result = await upsertEntity(entity, canonical, attributes, ctx.org.id, delta, id, importMode, upsertCtx);
+        const result = await upsertEntity(passEntity, canonical, attributes, ctx.org.id, delta, id, importMode, upsertCtx);
         if (result === null) {
           // Validation skip — required fields missing or parent not found
-          console.error(`[process] SKIP Row ${rowNum + 1} (${entity}): validation returned null — required fields missing or parent not found. canonical=`, JSON.stringify(canonical));
-          skipped++;
+          console.error(`[process] SKIP Row ${rowNum + 1} (${passEntity}): validation returned null — required fields missing or parent not found. canonical=`, JSON.stringify(canonical));
+          if (isCountingPass) skipped++;
           // Surface a helpful error so the user knows WHY the row was skipped
-          const entityFields = CANONICAL_FIELDS[entity as EntityType];
+          const entityFields = CANONICAL_FIELDS[passEntity as EntityType];
           if (entityFields) {
             const missing = entityFields
               .filter((f) => f.required && (!canonical[f.field] || String(canonical[f.field]).trim() === ""))
@@ -363,35 +452,35 @@ export async function POST(
           // row as imported so totals still line up with the file but
           // skip the delta bump so we don't report 476 supplier updates
           // when only 19 unique suppliers exist.
-          imported++;
-          entityTypeCounts[entity].importedRows++;
-          if (snapshotConfig) {
+          if (isCountingPass) imported++;
+          entityTypeCounts[passEntity].importedRows++;
+          if (trackSnapshot && snapshotConfig) {
             const key = snapshotConfig.uniqueKeyExtractor(canonical);
             if (key) processedKeys.add(key);
           }
         } else if (result === UPSERTED_CREATE || result === UPSERTED_UPDATE) {
-          imported++;
-          entityTypeCounts[entity].importedRows++;
+          if (isCountingPass) imported++;
+          entityTypeCounts[passEntity].importedRows++;
           // Track delta
-          if (!delta[entity]) delta[entity] = { created: 0, updated: 0 };
-          if (result === UPSERTED_CREATE) delta[entity].created++;
-          else delta[entity].updated++;
+          if (!delta[passEntity]) delta[passEntity] = { created: 0, updated: 0 };
+          if (result === UPSERTED_CREATE) delta[passEntity].created++;
+          else delta[passEntity].updated++;
           // Snapshot key tracking
-          if (snapshotConfig) {
+          if (trackSnapshot && snapshotConfig) {
             const key = snapshotConfig.uniqueKeyExtractor(canonical);
             if (key) processedKeys.add(key);
           }
         } else {
           // Got entity ID back
           newEntityIds.push({ entityType: result.entityType, id: result.id });
-          imported++;
-          entityTypeCounts[entity].importedRows++;
+          if (isCountingPass) imported++;
+          entityTypeCounts[passEntity].importedRows++;
           // Track delta
-          if (!delta[entity]) delta[entity] = { created: 0, updated: 0 };
-          if (result.wasUpdate) delta[entity].updated++;
-          else delta[entity].created++;
+          if (!delta[passEntity]) delta[passEntity] = { created: 0, updated: 0 };
+          if (result.wasUpdate) delta[passEntity].updated++;
+          else delta[passEntity].created++;
           // Snapshot key tracking
-          if (snapshotConfig) {
+          if (trackSnapshot && snapshotConfig) {
             const key = snapshotConfig.uniqueKeyExtractor(canonical);
             if (key) processedKeys.add(key);
           }
@@ -399,7 +488,7 @@ export async function POST(
       } catch (e: unknown) {
         const err = e instanceof Error ? e : new Error(String(e));
         console.error(
-          `[process] SKIP Row ${rowNum + 1} (${entity}):`,
+          `[process] SKIP Row ${rowNum + 1} (${passEntity}):`,
           err.message,
           (e as { code?: string }).code ?? '',
           err.stack,
@@ -407,6 +496,7 @@ export async function POST(
         errors.push(friendlyError(e, String(rowNum + 1)));
       }
     }
+    } // end for (pass of passes)
 
     // Addition 4 — LogicParam capture for calculated columns
     if (config.columnClassification) {

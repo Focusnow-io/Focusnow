@@ -12,9 +12,13 @@ import {
   inferColumnType,
   classifyColumns,
   detectEntityFromFilename,
+  detectCompoundFileType,
   CANONICAL_FIELDS,
+  COMPOUND_ENTITIES,
   type EntityType,
   type ColumnClassification,
+  type CompoundEntityType,
+  type CompoundFileType,
 } from "@/lib/ingestion/field-mapper";
 
 interface DetectedEntity {
@@ -22,15 +26,27 @@ interface DetectedEntity {
   confidence: "high" | "medium" | "low";
   columnsUsed: string[];
   requiredFieldsMatched: number;
+  /** When set, this entity is the header/line side of a detected compound
+   *  concept (e.g. PurchaseOrder as part of a PurchaseOrders compound upload).
+   *  The UI collapses these into one "Purchase Orders" row. */
+  compoundType?: CompoundEntityType;
+  compoundFileType?: CompoundFileType;
+  compoundRole?: "header" | "line";
 }
 
 /** Derive detected entities from column classification output.
  *  Uses identity fields (not all required fields) for confidence scoring —
  *  identity fields are the minimum needed to prove the entity exists in the data,
  *  while non-identity required fields can be defaulted during processing.
+ *
+ *  When the file's classification hits both sides of a compound concept
+ *  (e.g. PurchaseOrder + POLine), the matching entries are marked with
+ *  `compoundType` and promoted to high confidence so the import wizard can
+ *  surface them as one combined "Purchase Orders" choice.
  */
 function deriveDetectedEntities(
   classification: Record<string, ColumnClassification>,
+  headers: string[],
 ): DetectedEntity[] {
   // Group entity_match and sparse columns by entity
   const byEntity = new Map<string, string[]>();
@@ -66,6 +82,32 @@ function deriveDetectedEntities(
     results.push({ entity, confidence, columnsUsed, requiredFieldsMatched });
   }
 
+  // Compound promotion — if the classified entities together cover both
+  // sides of a compound concept, mark them so downstream code can treat
+  // them as a single upload. Also runs for header-only / line-only files.
+  const detectedSet = new Set(results.map((r) => r.entity));
+  for (const key of Object.keys(COMPOUND_ENTITIES) as CompoundEntityType[]) {
+    const def = COMPOUND_ENTITIES[key];
+    if (!detectedSet.has(def.headerEntity) && !detectedSet.has(def.lineEntity)) {
+      continue;
+    }
+    const { fileType } = detectCompoundFileType(headers, key);
+    if (fileType === "unknown") continue;
+    for (const r of results) {
+      if (r.entity === def.headerEntity) {
+        r.compoundType = key;
+        r.compoundFileType = fileType;
+        r.compoundRole = "header";
+        r.confidence = "high";
+      } else if (r.entity === def.lineEntity) {
+        r.compoundType = key;
+        r.compoundFileType = fileType;
+        r.compoundRole = "line";
+        r.confidence = "high";
+      }
+    }
+  }
+
   // Sort high → medium → low, then by requiredFieldsMatched desc
   const order = { high: 0, medium: 1, low: 2 };
   results.sort((a, b) => order[a.confidence] - order[b.confidence] || b.requiredFieldsMatched - a.requiredFieldsMatched);
@@ -96,6 +138,68 @@ function describeDetection(entity: EntityType, rowCount: number): string {
   };
   const desc = DESCRIPTIONS[entity] ?? entity.toLowerCase();
   return `${rowCount.toLocaleString()} rows of ${desc}`;
+}
+
+/** Compound counterpart of describeDetection — builds the same plain-English
+ *  summary for a detected compound entity (e.g. "65 rows of purchase orders
+ *  (headers + lines)"). */
+function describeCompoundDetection(
+  compound: CompoundEntityType,
+  fileType: CompoundFileType,
+  rowCount: number,
+): string {
+  const { label } = COMPOUND_ENTITIES[compound];
+  const suffix =
+    fileType === "flat"
+      ? "(headers + lines)"
+      : fileType === "header-only"
+        ? "(headers only)"
+        : fileType === "line-only"
+          ? "(lines only)"
+          : "";
+  return `${rowCount.toLocaleString()} rows of ${label.toLowerCase()} ${suffix}`.trim();
+}
+
+/** Pick the best compound entity match from the detected single-entity list.
+ *  A compound wins when both (or either) of its header/line entity is present
+ *  in detectedEntities — we then use detectCompoundFileType to confirm the
+ *  signal is strong enough. Returns `null` when no compound applies. */
+function detectCompound(
+  headers: string[],
+  detectedEntities: DetectedEntity[],
+): {
+  compound: CompoundEntityType;
+  fileType: CompoundFileType;
+  headerMatches: number;
+  lineMatches: number;
+  headerMapping: Record<string, string>;
+  lineMapping: Record<string, string>;
+} | null {
+  const detectedSet = new Set(detectedEntities.map((e) => e.entity));
+  let best: ReturnType<typeof detectCompoundFileType> & {
+    compound: CompoundEntityType;
+  } | null = null;
+
+  for (const key of Object.keys(COMPOUND_ENTITIES) as CompoundEntityType[]) {
+    const def = COMPOUND_ENTITIES[key];
+    // Require at least one of the compound's underlying entities to have been
+    // picked up by classifyColumns, otherwise we'd register a compound hit on
+    // e.g. a Product-only file just because `sku` / `lineNumber` happened to
+    // appear.
+    if (!detectedSet.has(def.headerEntity) && !detectedSet.has(def.lineEntity)) {
+      continue;
+    }
+    const result = detectCompoundFileType(headers, key);
+    if (result.fileType === "unknown") continue;
+    // Prefer the compound with the strongest combined signal.
+    const score = result.headerMatches + result.lineMatches;
+    const bestScore = best ? best.headerMatches + best.lineMatches : -1;
+    if (score > bestScore) {
+      best = { ...result, compound: key };
+    }
+  }
+
+  return best;
 }
 
 export async function POST(req: Request) {
@@ -182,7 +286,7 @@ export async function POST(req: Request) {
   // ── Auto-detect entity ────────────────────────────────────────────────
   // 1) Column classification is the strongest signal (content + headers).
   const columnClassification = classifyColumns(parsed.headers, sampleValues);
-  const detectedEntities = deriveDetectedEntities(columnClassification);
+  const detectedEntities = deriveDetectedEntities(columnClassification, parsed.headers);
 
   // 2) Filename detection is a secondary signal used as a tiebreaker when
   //    column classification is only medium-confidence.
@@ -230,6 +334,48 @@ export async function POST(req: Request) {
     }
   }
 
+  // 4) Compound detection — a file whose header + line signals both fire for
+  //    the same business concept (e.g. PO-number AND item-sku on the same
+  //    row) is treated as a compound import. The pipeline keeps the header
+  //    entity as `entity` so snapshot / cleanup behaviour is unchanged, and
+  //    adds a `compound` block to mappingConfig so /process knows to run two
+  //    passes. A hint like "PurchaseOrder" or "POLine" still resolves to the
+  //    same compound — the user picked one side of the pair.
+  const compoundHintRaw = formData.get("compound") as string | null;
+  const compoundHint: CompoundEntityType | null =
+    compoundHintRaw && compoundHintRaw in COMPOUND_ENTITIES
+      ? (compoundHintRaw as CompoundEntityType)
+      : null;
+
+  let compoundDetection = detectCompound(parsed.headers, detectedEntities);
+  if (compoundHint && !compoundDetection) {
+    // User hinted a compound but classification didn't fire — still run the
+    // file-type detection so the processor knows how to route rows.
+    const forced = detectCompoundFileType(parsed.headers, compoundHint);
+    if (forced.fileType !== "unknown") {
+      compoundDetection = { ...forced, compound: compoundHint };
+    }
+  } else if (compoundHint && compoundDetection && compoundDetection.compound !== compoundHint) {
+    // Respect an explicit hint over the auto-picked compound.
+    const forced = detectCompoundFileType(parsed.headers, compoundHint);
+    if (forced.fileType !== "unknown") {
+      compoundDetection = { ...forced, compound: compoundHint };
+    }
+  }
+
+  if (compoundDetection) {
+    const def = COMPOUND_ENTITIES[compoundDetection.compound];
+    // Pick the *represented* side as primary when the file is one-sided, so
+    // snapshot mode / cleanup still operates on the right table.
+    if (compoundDetection.fileType === "line-only") {
+      entity = def.lineEntity;
+    } else {
+      entity = def.headerEntity;
+    }
+    wasAutoDetected = wasAutoDetected || entity !== entityHint;
+    detectedConfidence = "high";
+  }
+
   // ── Field mapping + scoring (now uses the resolved entity) ────────────
   const { mapping: suggested, confidence, score } = suggestMappingWithConfidence(
     parsed.headers,
@@ -247,6 +393,19 @@ export async function POST(req: Request) {
       sampleValues: sampleValues[h] ?? [],
       columnType: columnTypes[h] ?? "text",
     }));
+
+  // Build the compound block we'll persist on mappingConfig. When a compound
+  // is in play, both the header- and line-side mappings are stored alongside
+  // the primary mapping so /process can run its two passes without
+  // re-running suggestMappingWithConfidence.
+  const compoundConfig = compoundDetection
+    ? {
+        type: compoundDetection.compound,
+        fileType: compoundDetection.fileType,
+        headerMapping: compoundDetection.headerMapping,
+        lineMapping: compoundDetection.lineMapping,
+      }
+    : null;
 
   // ── Persist DataSource ───────────────────────────────────────────────────
   const source = await prisma.dataSource.create({
@@ -271,9 +430,14 @@ export async function POST(req: Request) {
         rawFileBase64: buffer.toString("base64"),
         rawFileType: isXlsx ? "xlsx" : "csv",
         columnClassification: columnClassification as unknown as Prisma.InputJsonValue,
+        ...(compoundConfig ? { compound: compoundConfig } : {}),
       },
     },
   });
+
+  const detectedDescription = compoundDetection
+    ? describeCompoundDetection(compoundDetection.compound, compoundDetection.fileType, parsed.rowCount)
+    : describeDetection(entity, parsed.rowCount);
 
   return NextResponse.json({
     sourceId: source.id,
@@ -300,7 +464,21 @@ export async function POST(req: Request) {
       alternativeEntities: detectedEntities.filter((e) => e.entity !== entity),
       filenameEntity: filenameEntity ?? null,
     },
-    detectedDescription: describeDetection(entity, parsed.rowCount),
+    detectedDescription,
+    /** When the upload is recognised as a compound concept (e.g. Purchase
+     *  Orders), the UI can surface "headers + lines" instead of two picker
+     *  rows. The processor also uses this to run its two-pass flow. */
+    detectedCompound: compoundDetection
+      ? {
+          type: compoundDetection.compound,
+          label: COMPOUND_ENTITIES[compoundDetection.compound].label,
+          fileType: compoundDetection.fileType,
+          headerEntity: COMPOUND_ENTITIES[compoundDetection.compound].headerEntity,
+          lineEntity: COMPOUND_ENTITIES[compoundDetection.compound].lineEntity,
+          headerMatches: compoundDetection.headerMatches,
+          lineMatches: compoundDetection.lineMatches,
+        }
+      : null,
     // Sheet metadata — always included so the UI can offer an escape hatch
     selectedSheet: selectedSheet ?? null,
     allSheets,

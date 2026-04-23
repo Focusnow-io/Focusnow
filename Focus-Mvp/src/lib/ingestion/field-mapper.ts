@@ -634,6 +634,104 @@ export function getRequiredNonIdentityFields(entity: EntityType): string[] {
     .map((f) => f.field as string);
 }
 
+// ─── Compound entities ────────────────────────────────────────────────────────
+//
+// Many real-world uploads describe *two* related tables in a single file —
+// e.g. "Purchase Orders" conceptually covers both the PurchaseOrder header and
+// its POLine children. Users often hand us one of three shapes for the same
+// business concept:
+//   flat         — every row carries both header + line columns (most common
+//                  export from legacy ERPs: PO #, Supplier, SKU, Qty, …)
+//   header-only  — one row per header, no line columns (PO summary listing)
+//   line-only    — one row per line with just the header identifier (line
+//                  detail dumped without the header's attributes)
+// Rather than forcing the user to pick which Prisma table they mean, we let
+// them pick the business concept ("Purchase Orders") and the import pipeline
+// derives both record types from the file automatically.
+
+export const COMPOUND_ENTITIES = {
+  PurchaseOrders: {
+    label: "Purchase Orders",
+    description: "Purchase orders and line items from your suppliers",
+    headerEntity: "PurchaseOrder" as EntityType,
+    lineEntity: "POLine" as EntityType,
+    headerIdentityFields: ["poNumber", "supplierId", "orderDate", "totalAmount"],
+    lineIdentityFields: ["sku", "qtyOrdered", "unitCost", "lineNumber"],
+  },
+  SalesOrders: {
+    label: "Sales Orders",
+    description: "Sales orders and line items from your customers",
+    headerEntity: "SalesOrder" as EntityType,
+    lineEntity: "SalesOrderLine" as EntityType,
+    headerIdentityFields: ["soNumber", "customerId", "orderDate", "totalAmount"],
+    lineIdentityFields: ["sku", "qtyOrdered", "unitPrice", "lineNumber"],
+  },
+  BillOfMaterials: {
+    label: "Bill of Materials",
+    description: "BOM headers and their component lines",
+    headerEntity: "BOMHeader" as EntityType,
+    lineEntity: "BOMLine" as EntityType,
+    headerIdentityFields: ["productId", "version"],
+    lineIdentityFields: ["componentSku", "qtyPer", "componentName"],
+  },
+} as const;
+
+export type CompoundEntityType = keyof typeof COMPOUND_ENTITIES;
+
+/** How the uploaded file breaks down against the compound concept:
+ *  - "flat"        every row carries both header and line columns
+ *  - "header-only" the file only describes headers
+ *  - "line-only"   the file only describes lines (requires the header to
+ *                  already exist in the DB, or be present in this same pass
+ *                  and resolvable by identity)
+ *  - "unknown"     insufficient signal to pick either side. */
+export type CompoundFileType = "header-only" | "line-only" | "flat" | "unknown";
+
+/** Examines mapping results for a compound entity and decides which of its
+ *  two underlying tables the file supplies.
+ *
+ *  Uses the *mappings* (not raw headers) so synonyms, alias matches, and the
+ *  user's manual overrides all contribute — a column doesn't count unless the
+ *  alias matcher (or the user) has resolved it to a real canonical field. */
+export function detectCompoundFileType(
+  headers: string[],
+  compound: CompoundEntityType,
+): {
+  fileType: CompoundFileType;
+  headerMatches: number;
+  lineMatches: number;
+  headerMapping: Record<string, string>;
+  lineMapping: Record<string, string>;
+} {
+  const def = COMPOUND_ENTITIES[compound];
+  const headerResult = suggestMappingWithConfidence(headers, def.headerEntity);
+  const lineResult = suggestMappingWithConfidence(headers, def.lineEntity);
+
+  // Count only the *identity / signal* fields listed on the compound def —
+  // not every incidental field on the canonical entity — so a file with just
+  // `poNumber + supplierId` counts as "header-only" rather than a weak match.
+  const headerMatches = def.headerIdentityFields.filter(
+    (f) => !!headerResult.mapping[f],
+  ).length;
+  const lineMatches = def.lineIdentityFields.filter(
+    (f) => !!lineResult.mapping[f],
+  ).length;
+
+  let fileType: CompoundFileType;
+  if (headerMatches >= 1 && lineMatches >= 1) fileType = "flat";
+  else if (headerMatches >= 1) fileType = "header-only";
+  else if (lineMatches >= 1) fileType = "line-only";
+  else fileType = "unknown";
+
+  return {
+    fileType,
+    headerMatches,
+    lineMatches,
+    headerMapping: headerResult.mapping,
+    lineMapping: lineResult.mapping,
+  };
+}
+
 /**
  * Confidence level for a field mapping.
  * - "exact"  — normalised header === normalised field name (score 1.0)
@@ -671,6 +769,16 @@ export interface MappingConfig {
   score?: Record<string, number>;
   columnClassification?: Record<string, ColumnClassification>;
   importMode?: "replace" | "merge";
+  /** Compound file marker — when set, /process runs two passes (dedup'd
+   *  headers first, then lines) instead of one. `entity` still carries the
+   *  primary (header-side for flat / header-only, line-side for line-only)
+   *  so downstream snapshot + cleanup logic doesn't need to be compound-aware. */
+  compound?: {
+    type: CompoundEntityType;
+    fileType: CompoundFileType;
+    headerMapping: Record<string, string>;
+    lineMapping: Record<string, string>;
+  };
 }
 
 export interface MappingWithConfidence {
