@@ -55,6 +55,7 @@ import {
 import {
   CANONICAL_FIELDS,
   COMPOUND_ENTITIES,
+  detectCompoundFileType,
   getCanonicalFields,
   suggestMappingWithConfidence,
   type EntityType,
@@ -1058,16 +1059,31 @@ function ImportPageInner() {
   }
 
   // ── Save mapping (fire-and-forget or awaited) ─────────────────────────────
+  /** Optional compound context passed through from the disambiguation flow.
+   *  When set, the map PUT route replaces (or installs) `mappingConfig.compound`
+   *  so the two-pass processor picks up the line entity. */
+  interface SaveCompoundCtx {
+    compound: CompoundEntityType;
+    fileType: CompoundFileType;
+    headerMapping: Record<string, string>;
+    lineMapping: Record<string, string>;
+  }
   function saveMapping(
     sourceId: string,
     ent: EntityType,
     m: Record<string, string>,
-    attrKeys: string[]
+    attrKeys: string[],
+    compoundCtx?: SaveCompoundCtx,
   ): Promise<void> {
     return fetch(`/api/data/sources/${sourceId}/map`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mapping: m, entity: ent, attributeKeys: attrKeys }),
+      body: JSON.stringify({
+        mapping: m,
+        entity: ent,
+        attributeKeys: attrKeys,
+        ...(compoundCtx ? { compound: compoundCtx } : {}),
+      }),
     }).then(() => {});
   }
 
@@ -1107,6 +1123,53 @@ function ImportPageInner() {
     setEntityExplicit(true);
     setAiMappingResult(null);
     setAiRescuedFields(new Set());
+
+    // 0) Re-detect compound context. When the user picks an entity that sits
+    //    on either side of a compound concept (PurchaseOrder / POLine for
+    //    Purchase Orders, SalesOrder / SalesOrderLine for Sales Orders,
+    //    BOMHeader / BOMLine for Bill of Materials) we re-run the file-type
+    //    detector so a flat PO file processed through disambig still runs
+    //    the two-pass importer. Without this the process route sees no
+    //    compound block, runs single-pass PurchaseOrder, and silently drops
+    //    all the line rows.
+    const matchingCompound = (Object.entries(COMPOUND_ENTITIES) as [
+      CompoundEntityType,
+      (typeof COMPOUND_ENTITIES)[CompoundEntityType],
+    ][]).find(
+      ([, def]) => def.headerEntity === chosenEntity || def.lineEntity === chosenEntity,
+    );
+    let compoundCtx: SaveCompoundCtx | undefined;
+    let nextDetectedCompound: DetectedCompoundResult | null = uploadResult.detectedCompound ?? null;
+    if (matchingCompound) {
+      const [compoundKey, def] = matchingCompound;
+      const detected = detectCompoundFileType(uploadResult.headers, compoundKey);
+      if (detected.fileType !== "unknown") {
+        compoundCtx = {
+          compound: compoundKey,
+          fileType: detected.fileType,
+          headerMapping: detected.headerMapping,
+          lineMapping: detected.lineMapping,
+        };
+        nextDetectedCompound = {
+          type: compoundKey,
+          label: ENTITY_LABELS[compoundKey] ?? compoundKey,
+          fileType: detected.fileType,
+          headerEntity: def.headerEntity,
+          lineEntity: def.lineEntity,
+          headerMatches: detected.headerMatches,
+          lineMatches: detected.lineMatches,
+          headerMapping: detected.headerMapping,
+          lineMapping: detected.lineMapping,
+        };
+      } else {
+        // Fell through — chosen entity doesn't actually have a compound
+        // signal. Clear any stale detection from the upload response.
+        nextDetectedCompound = null;
+      }
+    } else {
+      nextDetectedCompound = null;
+    }
+    setUploadResult((prev) => (prev ? { ...prev, detectedCompound: nextDetectedCompound } : prev));
 
     // 1) Re-run the alias matcher for the chosen entity.
     const { mapping: newMapping, score: newScore } =
@@ -1168,9 +1231,17 @@ function ImportPageInner() {
     setScore(finalScore);
     setAttributeKeys(finalAttributeKeys);
 
-    // 3) Persist for the /process route.
+    // 3) Persist for the /process route — pass the freshly-detected compound
+    //    block so the two-pass processor sees it even when the upload API's
+    //    original resolution missed it.
     try {
-      await saveMapping(uploadResult.sourceId, chosenEntity, finalMapping, finalAttributeKeys);
+      await saveMapping(
+        uploadResult.sourceId,
+        chosenEntity,
+        finalMapping,
+        finalAttributeKeys,
+        compoundCtx,
+      );
     } catch (err) {
       console.error("[import] saveMapping (disambiguate) failed:", err);
     }

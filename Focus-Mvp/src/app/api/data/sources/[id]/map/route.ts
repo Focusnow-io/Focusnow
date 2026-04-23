@@ -23,19 +23,36 @@ export async function PUT(
   if (!source) return notFound();
 
   const body = await req.json();
-  const { mapping, entity, attributeKeys = [] } = body as {
+  const {
+    mapping,
+    entity,
+    attributeKeys = [],
+    compound: incomingCompound,
+  } = body as {
     mapping: Record<string, string>;
     entity: string;
     attributeKeys?: string[];
+    /** Optional compound block from the UI — set when the user picks a
+     *  compound-aware entity on the disambiguation screen and the client
+     *  needs to install (or overwrite) the two-pass processing hint. */
+    compound?: {
+      compound: CompoundEntityType;
+      fileType: "flat" | "header-only" | "line-only" | "unknown";
+      headerMapping: Record<string, string>;
+      lineMapping: Record<string, string>;
+    };
   };
 
   const existing = (source.mappingConfig as Record<string, unknown>) ?? {};
 
-  // Compound-aware update: when this DataSource was uploaded as a compound
-  // (Purchase Orders / Sales Orders / Bill of Materials), the incoming
-  // `mapping` is for the primary side (header OR line). Mirror it into
-  // the matching slot on mappingConfig.compound so the two-pass processor
-  // sees the user's latest edits, not the mapping captured at upload.
+  // Compound-aware update. Two flows to cover:
+  //   (a) An incoming compound block from the UI (set in the disambiguate
+  //       flow when the user picks e.g. "Purchase Orders") — install or
+  //       replace the stored compound context.
+  //   (b) No incoming compound, but this DataSource was uploaded as a
+  //       compound — mirror the saved primary mapping into the matching
+  //       slot of the existing compound so the two-pass processor picks
+  //       up the user's latest edits rather than the upload-time mapping.
   const existingCompound = existing.compound as
     | {
         type: CompoundEntityType;
@@ -46,7 +63,22 @@ export async function PUT(
     | undefined;
 
   let nextCompound = existingCompound;
-  if (existingCompound) {
+  if (incomingCompound) {
+    // UI-provided compound wins. Use the posted mapping as the side of
+    // the compound the user is actually editing; fall back to the
+    // incoming compound's pre-detected mapping for the other side.
+    const def = COMPOUND_ENTITIES[incomingCompound.compound];
+    const headerMapping =
+      entity === def.headerEntity ? mapping : incomingCompound.headerMapping;
+    const lineMapping =
+      entity === def.lineEntity ? mapping : incomingCompound.lineMapping;
+    nextCompound = {
+      type: incomingCompound.compound,
+      fileType: incomingCompound.fileType,
+      headerMapping,
+      lineMapping,
+    };
+  } else if (existingCompound) {
     const def = COMPOUND_ENTITIES[existingCompound.type];
     if (entity === def.headerEntity) {
       nextCompound = { ...existingCompound, headerMapping: mapping };
