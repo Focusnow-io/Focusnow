@@ -50,7 +50,6 @@ import {
   Type,
   Flag,
   Sparkles,
-  Columns,
   Loader2,
 } from "lucide-react";
 import {
@@ -133,19 +132,6 @@ const ENTITY_DESCRIPTIONS: Partial<Record<EntityType, string>> = {
   Customer: "Customer list",
   Location: "Locations / warehouses",
   SupplierItem: "Supplier item catalogue (AVL)",
-};
-
-// When an import file's detector flags additional entity types alongside
-// the primary one, the Confirm screen surfaces them as opt-in checkboxes.
-// These descriptions explain what the auto-created rows will look like so
-// the user isn't surprised that ticking "Products" on an Inventory import
-// doesn't populate the catalogue with rich product data.
-const ADDITIONAL_ENTITY_DESCRIPTIONS: Partial<Record<EntityType, string>> = {
-  Product: "Basic product records created from SKU column",
-  Supplier: "Basic supplier records created from Supplier ID column",
-  Customer: "Basic customer records created from Customer ID column",
-  Location: "Basic location records from Location Code column",
-  BOMHeader: "BOM header records for finished goods",
 };
 
 // Plain-English nouns used in the summary sentence
@@ -412,7 +398,7 @@ const ENTITY_UNIT: Record<EntityType, string> = {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /** All wizard steps. "select" is the supply chain hub shown before upload. */
-type Step = "select" | "upload" | "entity-split" | "map" | "disambiguate" | "confirm" | "done";
+type Step = "select" | "upload" | "map" | "disambiguate" | "confirm" | "done";
 
 interface CoverageEntry {
   importedRows: number;
@@ -493,37 +479,6 @@ interface MappingTemplate {
   attributeKeys: string[];
 }
 
-/**
- * Build a mapping from the column classification that was already computed
- * during upload.  The classifier already proved which CSV columns belong to
- * which entity+field — reuse that instead of re-running suggestMappingWithConfidence
- * from scratch (which may fail on non-obvious header names).
- *
- * Returns `null` when the classification doesn't cover all identity fields
- * for the requested entity, so the caller can fall back to the auto-mapper.
- */
-function buildMappingFromClassification(
-  classification: Record<string, ColumnClassification> | undefined,
-  entityType: EntityType,
-): Record<string, string> | null {
-  if (!classification) return null;
-  const mapping: Record<string, string> = {};
-  for (const [col, c] of Object.entries(classification)) {
-    if ((c.type === "entity_match" || c.type === "sparse" || c.type === "calculated") && c.entity === entityType && c.canonicalField) {
-      mapping[c.canonicalField] = col;
-    }
-  }
-  // Only trust this mapping if all identity fields are covered
-  const fields = CANONICAL_FIELDS[entityType] ?? [];
-  const identityFields = fields.filter(
-    (f) => "identity" in f && (f as { identity?: boolean }).identity,
-  );
-  if (identityFields.length > 0 && !identityFields.every((f) => mapping[(f as { field: string }).field])) {
-    return null;
-  }
-  return Object.keys(mapping).length > 0 ? mapping : null;
-}
-
 // ─── Small helpers ────────────────────────────────────────────────────────────
 
 function ColTypeBadge({ type }: { type: string | undefined }) {
@@ -582,15 +537,6 @@ function ImportPageInner() {
   // enables the "Back to summary" button.
   const [mapEscapeHatch, setMapEscapeHatch] = useState(false);
 
-  // Secondary entity types the detector flagged in the same file. Rendered
-  // as a checkbox list on the Confirm screen — the user can opt out of
-  // importing the extras (e.g. reject auto-generated Products from an
-  // Inventory-only import). Primary entity is always imported and isn't
-  // represented here.
-  const [additionalEntities, setAdditionalEntities] = useState<
-    Array<{ entity: EntityType; confidence: string; checked: boolean }>
-  >([]);
-
   // ── Mapping state ─────────────────────────────────────────────────────────
   // Active mapping and scores — may differ from suggestedMapping if a template
   // was applied or the user manually changed things in the map step.
@@ -640,9 +586,6 @@ function ImportPageInner() {
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [dismissedErrorBanner, setDismissedErrorBanner] = useState(false);
 
-  // ── Multi-entity sequential import state ───────────────────────────────────
-  const [multiEntityProgress, setMultiEntityProgress] = useState<string | null>(null);
-  const [aggregatedDelta, setAggregatedDelta] = useState<Record<string, { created: number; updated: number; deactivated?: number }>>({});
 
   // ── Multi-pass state ──────────────────────────────────────────────────────
   const [parentSourceId, setParentSourceId] = useState<string | null>(null);
@@ -717,7 +660,6 @@ function ImportPageInner() {
   const milestoneFor: Record<Step, Milestone> = {
     select: "Upload",
     upload: "Upload",
-    "entity-split": "Confirm",
     map: "Confirm",
     disambiguate: "Confirm",
     confirm: "Confirm",
@@ -732,29 +674,6 @@ function ImportPageInner() {
    * in the current file headers the mapping is accepted at score 1.0.
    * Columns that no longer exist fall back to the auto-suggested value.
    */
-  /** Derive the opt-in list from whatever the detector found, excluding
-   *  the primary entity (which is always imported) and any entity we don't
-   *  actually have a canonical config for. Low-confidence hits are dropped
-   *  so we don't spam the UI with every loose alias match. */
-  function computeAdditionalEntities(
-    detected: DetectedEntity[] | undefined,
-    primary: EntityType,
-  ): Array<{ entity: EntityType; confidence: string; checked: boolean }> {
-    if (!detected) return [];
-    return detected
-      .filter(
-        (e) =>
-          (e.confidence === "high" || e.confidence === "medium") &&
-          e.entity !== primary &&
-          !!CANONICAL_FIELDS[e.entity as EntityType],
-      )
-      .map((e) => ({
-        entity: e.entity as EntityType,
-        confidence: e.confidence,
-        checked: true,
-      }));
-  }
-
   function mergeTemplate(
     template: MappingTemplate,
     baseMapping: Record<string, string>,
@@ -917,40 +836,21 @@ function ImportPageInner() {
     // terms the user just saw in the detection UI.
     setEntity(data.entity);
 
-    // Secondary entities detected in the same file — Confirm renders them
-    // as opt-in checkboxes instead of routing to a dedicated split screen.
-    setAdditionalEntities(
-      computeAdditionalEntities(data.detectedEntities, data.entity as EntityType),
-    );
-
     // ── Route based on auto-detection result ─────────────────────────────
+    //   high / certain confidence + all required mapped → confirm
+    //   medium confidence + ≥ 2 plausible candidates        → disambiguate
+    //   exactly one medium candidate (not the primary)      → adopt it
+    //   anything else                                       → map
     const requiredFields =
       CANONICAL_FIELDS[data.entity as EntityType]?.filter((f) => f.required) ?? [];
     const allRequiredMapped = requiredFields.every((f) => !!finalMapping[f.field]);
     const det = data.detectedEntity;
-    const detectedCount = data.detectedEntities?.length ?? 0;
 
-    // Case A — certain/high confidence AND everything maps cleanly →
-    // skip both the map and disambiguation screens and go straight to
-    // the confirm summary. Multi-entity files used to route through a
-    // dedicated entity-split screen here; that block is still present
-    // but no longer reachable from the initial-upload flow — the new
-    // additional-entities checkbox card on Confirm replaces it.
     if (det && (det.confidence === "certain" || det.confidence === "high") && allRequiredMapped) {
       setStep("confirm");
       return;
     }
 
-    // Case C — medium confidence → filter candidates down to entities
-    // that actually matched at least one identity field. Anything with
-    // zero matches is noise (the detector flagged it on a stray alias
-    // hit) and would only confuse the user on the disambiguation cards.
-    //
-    //   ≥ 2 real candidates → show disambiguation screen
-    //   exactly 1 real candidate, and it isn't the primary → adopt it
-    //     silently via handleDisambiguate, which re-resolves the mapping
-    //     and routes to confirm or map
-    //   0 real candidates → fall through to Case D
     if (det && det.confidence === "medium") {
       const candidates = (data.detectedEntities ?? []).filter(
         (e) =>
@@ -967,16 +867,11 @@ function ImportPageInner() {
         return;
       }
     }
-    // Silence unused-var warning — the old branch used it but the
-    // filtered version derives its own count.
-    void detectedCount;
 
-    // Case D fallback — low/no confidence, or required fields missing →
-    // drop into the existing dropdown-driven map step so the user can
-    // override assignments by hand.
     setStep(allRequiredMapped ? "confirm" : "map");
-    // Mark the rescued fields (used by pill colour logic even if the state
-    // update above has not settled yet).
+    // `rescuedFieldKeys` feeds the pill-colour logic via setAiRescuedFields
+    // above — the reference here prevents the closure over-zealous
+    // "unused" lint rule from flagging it.
     void rescuedFieldKeys;
   }
 
@@ -1030,10 +925,6 @@ function ImportPageInner() {
     setEntityExplicit(true);
     setAiMappingResult(null);
     setAiRescuedFields(new Set());
-    // Recompute the opt-in list for the newly-chosen primary entity.
-    setAdditionalEntities(
-      computeAdditionalEntities(uploadResult.detectedEntities, chosenEntity),
-    );
 
     // 1) Re-run the alias matcher for the chosen entity.
     const { mapping: newMapping, score: newScore } =
@@ -1112,16 +1003,6 @@ function ImportPageInner() {
   // ── Process (actual import) ───────────────────────────────────────────────
   async function handleProcess() {
     if (!uploadResult) return;
-
-    // If the user kept any additional entities checked on the Confirm
-    // screen, hand off to the sequential multi-entity importer which
-    // knows how to clone the source and run each entity in its own pass.
-    const hasCheckedExtras = additionalEntities.some((e) => e.checked);
-    if (hasCheckedExtras) {
-      await handleMultiEntityImport();
-      return;
-    }
-
     setProcessing(true);
     setDismissedErrorBanner(false);
 
@@ -1183,157 +1064,6 @@ function ImportPageInner() {
     }
   }
 
-  // ── Sequential multi-entity import (entity-split confirm) ─────────────
-  async function handleMultiEntityImport() {
-    if (!uploadResult) return;
-    setProcessing(true);
-    setDismissedErrorBanner(false);
-
-    // Build the entities-to-import list from the Confirm-screen checkbox
-    // state: the primary entity is always included; each checked
-    // additional entity gets a pass of its own. Unchecked additionals
-    // are skipped, so the user can opt out of auto-created Products /
-    // Suppliers / etc. without losing the primary import.
-    const userEntity = uploadResult.entity;
-    const checkedAdditional = additionalEntities.filter((e) => e.checked);
-    const significantEntities: DetectedEntity[] = [
-      {
-        entity: userEntity,
-        confidence: "high" as const,
-        columnsUsed: [],
-        requiredFieldsMatched: 0,
-      },
-      ...checkedAdditional.map<DetectedEntity>((e) => ({
-        entity: e.entity,
-        confidence: (e.confidence === "high" ? "high" : "medium") as "high" | "medium",
-        columnsUsed: [],
-        requiredFieldsMatched: 0,
-      })),
-    ];
-
-    // Import order: Product first (join anchor), then Supplier, then everything else
-    const ORDER: string[] = ["Product", "Supplier", "InventoryItem", "BOM"];
-    const sorted = [...significantEntities].sort((a, b) => {
-      const ai = ORDER.indexOf(a.entity);
-      const bi = ORDER.indexOf(b.entity);
-      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
-    });
-
-    const delta: Record<string, { created: number; updated: number; deactivated?: number }> = {};
-    let totalImported = 0;
-    const allErrors: string[] = [];
-    const allNotes: string[] = [];
-    let currentSourceId = uploadResult.sourceId;
-    // Track which source imported the most rows so we validate the right entity
-    let bestSourceId = currentSourceId;
-    let bestImported = 0;
-    // Track the source for the user's explicitly selected entity for validation
-    let userEntitySourceId = currentSourceId;
-
-    for (let i = 0; i < sorted.length; i++) {
-      const ent = sorted[i];
-      const entityType = ent.entity as EntityType;
-      const isUserEntity = entityType === userEntity;
-      const noun = ENTITY_NOUN[entityType] ?? ent.entity.toLowerCase();
-      setMultiEntityProgress(`Importing ${noun}s… (${i + 1} of ${sorted.length})`);
-
-      if (i === 0) {
-        // First entity uses the original upload source.
-        // For the user's selected entity, preserve the mapping from state
-        // (which includes the initial auto-suggestion and any user edits).
-        // For other entities, generate a fresh mapping for THEIR canonical fields.
-        const passMapping = isUserEntity
-          ? mapping
-          : buildMappingFromClassification(uploadResult.columnClassification, entityType)
-            ?? suggestMappingWithConfidence(uploadResult.headers, entityType).mapping;
-
-        // Skip non-user entities whose required fields can't be auto-mapped —
-        // they'd fail 100% of rows and just pollute the error list.
-        if (!isUserEntity) {
-          const entityFields = CANONICAL_FIELDS[entityType] ?? [];
-          const missingRequired = entityFields.filter(
-            (f) => f.required && !passMapping[f.field]
-          );
-          if (missingRequired.length > 0) continue;
-        }
-
-        const passAttrKeys = isUserEntity ? attributeKeys : [];
-        await saveMapping(currentSourceId, entityType, passMapping, passAttrKeys);
-        const res = await fetch(`/api/data/sources/${currentSourceId}/process`, { method: "POST" });
-        const result = await res.json();
-        const passImported = result.imported ?? 0;
-        totalImported += passImported;
-        if (passImported > bestImported) { bestImported = passImported; bestSourceId = currentSourceId; }
-        if (isUserEntity) userEntitySourceId = currentSourceId;
-        allErrors.push(...(result.errors ?? []));
-        if (result.delta) {
-          for (const [k, v] of Object.entries(result.delta) as [string, { created: number; updated: number; deactivated?: number }][]) {
-            delta[k] = {
-              created: (delta[k]?.created ?? 0) + v.created,
-              updated: (delta[k]?.updated ?? 0) + v.updated,
-              deactivated: (delta[k]?.deactivated ?? 0) + (v.deactivated ?? 0) || undefined,
-            };
-          }
-        }
-        setParentSourceId(currentSourceId);
-      } else {
-        // Subsequent entities use clone-pass.
-        const cloneRes = await fetch(`/api/data/sources/${currentSourceId}/clone-pass`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ entity: entityType }),
-        });
-        if (!cloneRes.ok) continue;
-        const cloneData: UploadResult = await cloneRes.json();
-        // For the user's entity, use the mapping from state (preserves manual edits).
-        // For other entities, use the clone-pass's fresh auto-mapping.
-        const passMapping = isUserEntity
-          ? mapping
-          : buildMappingFromClassification(uploadResult.columnClassification, entityType)
-            ?? cloneData.suggestedMapping;
-
-        // Skip non-user entities whose ACTUAL mapping is missing identity fields —
-        // identity fields are the minimum to prove the entity exists. Non-identity
-        // required fields can be defaulted during processing.
-        if (!isUserEntity) {
-          const entityFields = CANONICAL_FIELDS[entityType] ?? [];
-          const missingIdentity = entityFields.filter(
-            (f: { identity?: boolean; field: string }) => f.identity && !passMapping[f.field]
-          );
-          if (missingIdentity.length > 0) continue;
-        }
-
-        const passAttrKeys = isUserEntity ? attributeKeys : [];
-        await saveMapping(cloneData.sourceId, entityType, passMapping, passAttrKeys);
-        const res = await fetch(`/api/data/sources/${cloneData.sourceId}/process`, { method: "POST" });
-        const result = await res.json();
-        const passImported = result.imported ?? 0;
-        totalImported += passImported;
-        if (passImported > bestImported) { bestImported = passImported; bestSourceId = cloneData.sourceId; }
-        if (isUserEntity) userEntitySourceId = cloneData.sourceId;
-        allErrors.push(...(result.errors ?? []));
-        if (result.notes) allNotes.push(...(result.notes as string[]));
-        if (result.delta) {
-          for (const [k, v] of Object.entries(result.delta) as [string, { created: number; updated: number; deactivated?: number }][]) {
-            delta[k] = {
-              created: (delta[k]?.created ?? 0) + v.created,
-              updated: (delta[k]?.updated ?? 0) + v.updated,
-              deactivated: (delta[k]?.deactivated ?? 0) + (v.deactivated ?? 0) || undefined,
-            };
-          }
-        }
-      }
-    }
-
-    setAggregatedDelta(delta);
-    setImportResult({ imported: totalImported, errors: allErrors.slice(0, 10), delta, notes: allNotes.length > 0 ? allNotes : undefined });
-    setMultiEntityProgress(null);
-    setProcessing(false);
-    setStep("done");
-
-    // Validate the user's selected entity source (falls back to best-imported source)
-    runValidationInBackground(userEntitySourceId || bestSourceId);
-  }
 
   // ── Undo snapshot deactivation ─────────────────────────────────────────
   async function handleUndoSnapshot() {
@@ -1363,7 +1093,6 @@ function ImportPageInner() {
     setUploadResult(null);
     setUploadError(null);
     setEntityExplicit(false);
-    setAdditionalEntities([]);
     setMapping({});
     setScore({});
     setAttributeKeys([]);
@@ -1373,8 +1102,6 @@ function ImportPageInner() {
     setShowSheetPicker(false);
     setDismissedErrorBanner(false);
     setFlaggedColumns([]);
-    setMultiEntityProgress(null);
-    setAggregatedDelta({});
     setSnapshotPreview(null);
     setLoadingPreview(false);
     setUndoing(false);
@@ -1454,7 +1181,7 @@ function ImportPageInner() {
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className={cn("space-y-6 mx-auto w-full", step === "select" ? "max-w-5xl" : step === "map" ? "max-w-4xl" : step === "entity-split" ? "max-w-3xl" : "max-w-2xl")}>
+    <div className={cn("space-y-6 mx-auto w-full", step === "select" ? "max-w-5xl" : step === "map" ? "max-w-4xl" : "max-w-2xl")}>
       {step !== "select" && (
         <div>
           <h1 className="text-xl font-bold text-gray-900">Import Data</h1>
@@ -1829,171 +1556,6 @@ function ImportPageInner() {
       })()}
 
       {/* ────────────────────────────────────────────────────────────────── */}
-      {/* STEP: Entity-split (multi-entity detected)                         */}
-      {/* ────────────────────────────────────────────────────────────────── */}
-      {step === "entity-split" && uploadResult && (() => {
-        const significantEntities = (uploadResult.detectedEntities ?? [])
-          .filter((e) => e.confidence === "high" || e.confidence === "medium")
-          .filter((e) => {
-            // Only show entities whose required fields can actually be auto-mapped.
-            // This prevents showing e.g. BOM when the file has parentSku/componentSku
-            // columns but no BOM quantity column — it would fail 100% of rows.
-            const fields = CANONICAL_FIELDS[e.entity as EntityType];
-            if (!fields) return false;
-            const { mapping: testMapping } = suggestMappingWithConfidence(
-              uploadResult.headers, e.entity as EntityType
-            );
-            return fields
-              .filter((f) => f.required)
-              .every((f) => !!testMapping[f.field]);
-          });
-        const classification = uploadResult.columnClassification ?? {};
-        const calculatedCols = Object.entries(classification).filter(
-          ([, c]) => c.type === "calculated" && c.logicParamKey
-        );
-        const unclassifiedCols = Object.entries(classification).filter(
-          ([, c]) => c.type === "unclassified"
-        );
-
-        return (
-          <Card>
-            <CardContent className="p-6 space-y-5">
-              {/* Header */}
-              <div>
-                <p className="text-base font-semibold text-gray-900 flex items-center gap-2">
-                  <Columns className="w-5 h-5 text-slate-500" />
-                  We detected multiple data types in your file
-                </p>
-                <p className="text-sm text-gray-500 mt-1">
-                  Your file contains {significantEntities.length} entity types.
-                  We&apos;ll import them in the right order automatically.
-                </p>
-              </div>
-
-              {/* Entity cards */}
-              <div className="grid gap-3">
-                {significantEntities.map((ent, i) => {
-                  const label = ENTITY_LABELS[ent.entity as EntityType] ?? ent.entity;
-                  return (
-                    <div
-                      key={ent.entity}
-                      className="rounded-lg border border-gray-200 bg-white p-4 space-y-2"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-600">
-                            {i + 1}
-                          </div>
-                          <span className="text-sm font-semibold text-gray-900">{label}</span>
-                        </div>
-                        <span className={cn(
-                          "text-[10px] font-medium px-2 py-0.5 rounded-full",
-                          ent.confidence === "high"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : "bg-amber-100 text-amber-700"
-                        )}>
-                          {ent.confidence} confidence
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-500">
-                        {ent.columnsUsed.length} column{ent.columnsUsed.length !== 1 ? "s" : ""} matched
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {ent.columnsUsed.map((col) => (
-                          <span
-                            key={col}
-                            className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium bg-slate-50 border border-slate-200 text-slate-600"
-                          >
-                            {col}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Business logic captured */}
-              {calculatedCols.length > 0 && (
-                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-blue-500" />
-                    <p className="text-sm font-semibold text-blue-900">Business logic captured</p>
-                  </div>
-                  <p className="text-xs text-blue-700">
-                    Focus will recalculate these from your live data. We&apos;ve captured the parameters your team uses.
-                  </p>
-                  <div className="space-y-1">
-                    {calculatedCols.map(([col, c]) => (
-                      <div key={col} className="flex items-center gap-2 text-xs text-blue-800">
-                        <span className="font-medium">{c.logicParamKey}</span>
-                        <span className="text-blue-500">=</span>
-                        <span className="text-blue-600">
-                          {c.logicParamValue
-                            ? `${c.logicParamValue.days} ${c.logicParamValue.unit}`
-                            : "detected"}
-                        </span>
-                        <span className="text-blue-400 text-[10px]">({col})</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Unclassified columns */}
-              {unclassifiedCols.length > 0 && (
-                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-2">
-                  <p className="text-xs font-semibold text-gray-500 uppercase">
-                    Unclassified columns
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    These columns weren&apos;t matched to any entity. They&apos;ll be skipped unless you assign them manually later.
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {unclassifiedCols.map(([col]) => (
-                      <span
-                        key={col}
-                        className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium bg-white border border-gray-200 text-gray-500"
-                      >
-                        {col}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Progress indicator (shown during sequential import) */}
-              {processing && multiEntityProgress && (
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <Loader2 className="w-4 h-4 animate-spin text-slate-500" />
-                  {multiEntityProgress}
-                </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex gap-3">
-                <Button
-                  variant="outline"
-                  onClick={() => setStep("map")}
-                  disabled={processing}
-                  className="flex-1"
-                >
-                  Review mapping manually
-                </Button>
-                <Button
-                  onClick={handleMultiEntityImport}
-                  disabled={processing}
-                  className="flex-1"
-                >
-                  {processing ? "Importing…" : "Confirm and import"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })()}
-
-      {/* ────────────────────────────────────────────────────────────────── */}
       {/* STEP: Map (registry-based two-panel mapping UI)                    */}
       {/* ────────────────────────────────────────────────────────────────── */}
       {step === "map" && uploadResult && (
@@ -2159,58 +1721,6 @@ function ImportPageInner() {
               </div>
             )}
 
-            {/* Secondary entities — opt-in checklist. Rendered only when
-                the detector flagged something besides the primary entity
-                in the same file (e.g. InventoryItem + Product). */}
-            {additionalEntities.length > 0 && (
-              <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-                <p className="text-xs font-semibold text-slate-700 mb-2">
-                  📦 We also found data for:
-                </p>
-                <div className="space-y-2">
-                  {additionalEntities.map((ae, idx) => {
-                    const label = ENTITY_LABELS[ae.entity] ?? ae.entity;
-                    const desc = ADDITIONAL_ENTITY_DESCRIPTIONS[ae.entity];
-                    return (
-                      <label
-                        key={ae.entity}
-                        className="flex items-start gap-2.5 cursor-pointer select-none"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={ae.checked}
-                          onChange={() =>
-                            setAdditionalEntities((prev) =>
-                              prev.map((e, i) =>
-                                i === idx ? { ...e, checked: !e.checked } : e,
-                              ),
-                            )
-                          }
-                          disabled={processing}
-                          className="mt-0.5 accent-slate-900"
-                        />
-                        <span className="flex-1 min-w-0">
-                          <span className="text-sm font-medium text-slate-800">
-                            {label}
-                          </span>
-                          {desc && (
-                            <span className="block text-xs text-slate-500">
-                              {desc}
-                            </span>
-                          )}
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-                <p className="text-[11px] text-slate-500 mt-2">
-                  Unchecked items won&apos;t appear in your Explorer but
-                  minimal records may still be created to link your data
-                  together.
-                </p>
-              </div>
-            )}
-
             {/* AI-discovered extras — shows above the template panel. */}
             <AiFieldsNotice
               entity={uploadResult.entity}
@@ -2342,63 +1852,65 @@ function ImportPageInner() {
                 <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto" />
               )}
 
-              {importResult.delta && Object.keys(importResult.delta).some((k) => k !== "LogicParam") ? (
-                <>
-                  <p className="text-lg font-semibold text-gray-900">Import complete</p>
-                  <div className="space-y-1 text-sm text-gray-700">
-                    {Object.entries(importResult.delta)
-                      .filter(([k]) => k !== "LogicParam")
-                      // Hide secondary-entity rows where nothing new was
-                      // actually created — the primary entity is what the
-                      // user cared about; a line like "476 suppliers
-                      // updated" on a PO-lines import is noise from stub
-                      // re-upserts, not a meaningful change.
-                      .filter(([k, counts]) => {
-                        if (k === uploadResult.entity) return true;
-                        return counts.created > 0;
-                      })
-                      .map(([entityKey, counts]) => {
-                        const noun = ENTITY_NOUN[entityKey as EntityType] ?? entityKey.toLowerCase();
-                        return (
-                          <div key={entityKey} className="space-y-0.5">
-                            {counts.created > 0 && (
-                              <p>{plural(counts.created, `new ${noun}`)} added</p>
-                            )}
-                            {counts.updated > 0 && (
-                              <p>{plural(counts.updated, `${noun}`)} updated</p>
-                            )}
-                            {(counts as { deactivated?: number }).deactivated != null && (counts as { deactivated?: number }).deactivated! > 0 && (
-                              <p className="text-amber-600">
-                                {plural((counts as { deactivated?: number }).deactivated!, noun)} deactivated (not in file)
-                              </p>
-                            )}
-                          </div>
-                        );
-                      })}
-                    {importResult.delta.LogicParam && (importResult.delta.LogicParam.created + importResult.delta.LogicParam.updated) > 0 && (
-                      <p className="text-blue-600">
-                        {plural(
-                          importResult.delta.LogicParam.created + importResult.delta.LogicParam.updated,
-                          "business parameter"
-                        )} captured
+              {(() => {
+                // Done screen reports ONLY the primary entity's delta.
+                // Stub upserts for parent types (Supplier, Product, etc.)
+                // produce their own delta entries, but those are
+                // plumbing — surfacing them here just confuses the user.
+                const entity = uploadResult.entity as EntityType;
+                const primaryDelta = importResult.delta?.[entity];
+                const noun = ENTITY_NOUN[entity] ?? entity.toLowerCase();
+                const logicParam = importResult.delta?.LogicParam;
+                const hasAnything =
+                  !!primaryDelta ||
+                  (logicParam && logicParam.created + logicParam.updated > 0);
+                return hasAnything ? (
+                  <>
+                    <p className="text-lg font-semibold text-gray-900">Import complete</p>
+                    <div className="space-y-1 text-sm text-gray-700">
+                      {primaryDelta && primaryDelta.created > 0 && (
+                        <p>{plural(primaryDelta.created, `new ${noun}`)} added</p>
+                      )}
+                      {primaryDelta && primaryDelta.updated > 0 && (
+                        <p>{plural(primaryDelta.updated, `${noun}`)} updated</p>
+                      )}
+                      {primaryDelta &&
+                        (primaryDelta as { deactivated?: number }).deactivated != null &&
+                        (primaryDelta as { deactivated?: number }).deactivated! > 0 && (
+                          <p className="text-amber-600">
+                            {plural(
+                              (primaryDelta as { deactivated?: number }).deactivated!,
+                              noun,
+                            )}{" "}
+                            deactivated (not in file)
+                          </p>
+                        )}
+                      {logicParam && logicParam.created + logicParam.updated > 0 && (
+                        <p className="text-blue-600">
+                          {plural(
+                            logicParam.created + logicParam.updated,
+                            "business parameter",
+                          )}{" "}
+                          captured
+                        </p>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-lg font-semibold text-gray-900">
+                      {importResult.imported > 0
+                        ? `Done! ${plural(importResult.imported, ENTITY_NOUN[uploadResult.entity])} imported.`
+                        : "Import failed — no records were saved."}
+                    </p>
+                    {importResult.imported === 0 && importResult.errors.length === 0 && (
+                      <p className="text-sm text-gray-500">
+                        All rows were skipped. Check that your column mapping is correct and try again.
                       </p>
                     )}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="text-lg font-semibold text-gray-900">
-                    {importResult.imported > 0
-                      ? `Done! ${plural(importResult.imported, ENTITY_NOUN[uploadResult.entity])} imported.`
-                      : "Import failed — no records were saved."}
-                  </p>
-                  {importResult.imported === 0 && importResult.errors.length === 0 && (
-                    <p className="text-sm text-gray-500">
-                      All rows were skipped. Check that your column mapping is correct and try again.
-                    </p>
-                  )}
-                </>
-              )}
+                  </>
+                );
+              })()}
 
               {importResult.errors.length > 0 && (
                 <p className="text-sm text-gray-500">
