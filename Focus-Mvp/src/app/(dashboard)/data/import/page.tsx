@@ -64,6 +64,7 @@ import {
   type CompoundEntityType,
   type CompoundFileType,
 } from "@/lib/ingestion/field-mapper";
+import { DATASETS, type DatasetName } from "@/lib/ingestion/datasets";
 
 /** The upload API returns compound + single-entity matches, and the
  *  concept hub treats both as first-class entries. `ConceptId` is the
@@ -78,7 +79,11 @@ type ConceptEntity = EntityType | CompoundEntityType;
 // between the two at the upload boundary so the downstream UI — Confirm
 // summary, ENTITY_NOUN lookups, Done-screen delta — keeps working
 // unchanged.
-type DatasetName =
+// Local DatasetName was a structural duplicate of the canonical type in
+// @/lib/ingestion/datasets. Collapsed to the import above to keep a
+// single source of truth — the type is identical so nothing downstream
+// changes shape.
+type _LegacyDatasetNameKept =
   | "products"
   | "suppliers"
   | "customers"
@@ -281,7 +286,12 @@ interface ImportConcept {
   isCompound?: boolean;
 }
 
-const IMPORT_CONCEPTS: readonly ImportConcept[] = [
+// Renamed from IMPORT_CONCEPTS so the new dataset-vocabulary
+// IMPORT_CONCEPTS below can coexist. Downstream call sites in this file
+// that still read `concept.entity` / `concept.isCompound` were pointed
+// at this legacy constant; the new IMPORT_CONCEPTS is consumed via
+// getDatasetLabel / getDatasetUnit helpers only.
+const LEGACY_IMPORT_CONCEPTS: readonly ImportConcept[] = [
   {
     id: "Products",
     label: "Products",
@@ -358,6 +368,54 @@ const IMPORT_CONCEPTS: readonly ImportConcept[] = [
     isCompound: true,
   },
 ] as const;
+
+// ─── Dataset-vocabulary concept list ──────────────────────────────────────
+// Canonical source of truth for the 8 business concepts, keyed by
+// DatasetName. Read exclusively via getDatasetLabel / getDatasetUnit —
+// any hub rendering that still needs `entity` / `isCompound` uses
+// LEGACY_IMPORT_CONCEPTS above.
+const IMPORT_CONCEPTS = [
+  { id: "products" as DatasetName, label: "Products",
+    description: "Your product catalogue — SKUs, specs, costs",
+    icon: "📦", examples: "Item master, SKU list, parts catalogue",
+    unit: "products" },
+  { id: "suppliers" as DatasetName, label: "Suppliers",
+    description: "Your supplier and vendor list",
+    icon: "🏭", examples: "Vendor master, supplier directory",
+    unit: "suppliers" },
+  { id: "customers" as DatasetName, label: "Customers",
+    description: "Your customer accounts",
+    icon: "🤝", examples: "Customer master, account list",
+    unit: "customers" },
+  { id: "locations" as DatasetName, label: "Locations",
+    description: "Warehouses, stores, and sites",
+    icon: "📍", examples: "Warehouse list, store locations",
+    unit: "locations" },
+  { id: "inventory" as DatasetName, label: "Inventory",
+    description: "Current stock levels per item and location",
+    icon: "📊", examples: "Stock on hand, inventory balance",
+    unit: "records" },
+  { id: "purchase_orders" as DatasetName, label: "Purchase Orders",
+    description: "Orders placed with your suppliers",
+    icon: "🛒", examples: "Open POs, PO headers, purchase lines",
+    unit: "records" },
+  { id: "sales_orders" as DatasetName, label: "Sales Orders",
+    description: "Orders received from your customers",
+    icon: "💰", examples: "Open orders, sales backlog, order lines",
+    unit: "records" },
+  { id: "bom" as DatasetName, label: "Bill of Materials",
+    description: "Product structure and component lists",
+    icon: "🔧", examples: "BOM, recipe, formula, components list",
+    unit: "records" },
+] as const;
+
+function getDatasetLabel(name: string): string {
+  return IMPORT_CONCEPTS.find((c) => c.id === name)?.label ?? name;
+}
+
+function getDatasetUnit(name: string): string {
+  return IMPORT_CONCEPTS.find((c) => c.id === name)?.unit ?? "records";
+}
 
 /** Relative time helper used by the concept hub cards to surface
  *  "imported 2 days ago" under each populated entry. */
@@ -1653,7 +1711,7 @@ function ImportPageInner() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {IMPORT_CONCEPTS.map((concept) => {
+              {LEGACY_IMPORT_CONCEPTS.map((concept) => {
                 // Coverage for compounds is keyed by concept.id
                 // (e.g. "PurchaseOrders"); single entities fall back to
                 // the underlying EntityType key (e.g. "Product").
