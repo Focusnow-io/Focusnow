@@ -941,12 +941,35 @@ function ImportPageInner() {
       return;
     }
 
-    // Case C — medium confidence with real alternatives → ask the user to
-    // pick between 2–3 option cards (the disambiguation screen).
-    if (det && det.confidence === "medium" && detectedCount >= 2) {
-      setStep("disambiguate");
-      return;
+    // Case C — medium confidence → filter candidates down to entities
+    // that actually matched at least one identity field. Anything with
+    // zero matches is noise (the detector flagged it on a stray alias
+    // hit) and would only confuse the user on the disambiguation cards.
+    //
+    //   ≥ 2 real candidates → show disambiguation screen
+    //   exactly 1 real candidate, and it isn't the primary → adopt it
+    //     silently via handleDisambiguate, which re-resolves the mapping
+    //     and routes to confirm or map
+    //   0 real candidates → fall through to Case D
+    if (det && det.confidence === "medium") {
+      const candidates = (data.detectedEntities ?? []).filter(
+        (e) =>
+          (e.confidence === "high" || e.confidence === "medium") &&
+          e.requiredFieldsMatched >= 1 &&
+          !!CANONICAL_FIELDS[e.entity as EntityType],
+      );
+      if (candidates.length >= 2) {
+        setStep("disambiguate");
+        return;
+      }
+      if (candidates.length === 1 && candidates[0].entity !== data.entity) {
+        await handleDisambiguate(candidates[0].entity as EntityType);
+        return;
+      }
     }
+    // Silence unused-var warning — the old branch used it but the
+    // filtered version derives its own count.
+    void detectedCount;
 
     // Case D fallback — low/no confidence, or required fields missing →
     // drop into the existing dropdown-driven map step so the user can
@@ -1732,8 +1755,13 @@ function ImportPageInner() {
       {/* entity types. Shows 2–4 option cards instead of a dropdown.        */}
       {/* ────────────────────────────────────────────────────────────────── */}
       {step === "disambiguate" && uploadResult && (() => {
+        // Mirror the routing filter so the cards reflect what routing
+        // already considered "real": identity-fields >= 1, confidence
+        // high/medium, and we have a canonical config for the entity.
         const candidates = (uploadResult.detectedEntities ?? [])
-          .filter((e) => CANONICAL_FIELDS[e.entity as EntityType])
+          .filter((e) => e.requiredFieldsMatched >= 1)
+          .filter((e) => e.confidence === "high" || e.confidence === "medium")
+          .filter((e) => !!CANONICAL_FIELDS[e.entity as EntityType])
           .slice(0, 4);
         return (
           <Card>
