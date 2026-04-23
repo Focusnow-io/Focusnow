@@ -41,8 +41,6 @@ export function Sidebar({ userName, orgName, userRole, permissions }: SidebarPro
   const pathname = usePathname();
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     data: true,
-    brain: true,
-    apps: true,
   });
 
   const orgInitial = orgName ? orgName[0].toUpperCase() : "F";
@@ -152,29 +150,19 @@ export function Sidebar({ userName, orgName, userRole, permissions }: SidebarPro
         {/* Dashboard — always visible */}
         <NavItem href="/dashboard" icon={Home} label="Home" />
 
-        {/* Brain — permission controlled */}
+        {/* Brain — direct link to Rules page (dropdown removed). */}
         {permissions?.brain && (
-          <div>
-            <NavItem icon={Brain} label="Brain" expandable sectionId="brain" />
-            {expandedSections.brain && (
-              <div className="pl-4 space-y-px">
-                <NavItem href="/brain" icon={Brain} label="Rules" />
-              </div>
-            )}
-          </div>
+          <NavItem href="/rules" icon={Brain} label="Brain" />
         )}
 
-        {/* Apps — permission controlled */}
-        {(permissions?.apps || permissions?.chat) && (
-          <div>
-            <NavItem icon={LayoutGrid} label="Apps" expandable sectionId="apps" />
-            {expandedSections.apps && (
-              <div className="pl-4 space-y-px">
-                {permissions?.apps  && <NavItem href="/apps"      icon={LayoutGrid}    label="App Gallery" />}
-                {permissions?.chat  && <NavItem href="/chat"  icon={MessageSquare} label="Data Chat" />}
-              </div>
-            )}
-          </div>
+        {/* Apps — direct link to App Gallery (dropdown removed). */}
+        {permissions?.apps && (
+          <NavItem href="/apps" icon={LayoutGrid} label="Apps Gallery" />
+        )}
+
+        {/* Data Chat — sibling link to Apps, unchanged. */}
+        {permissions?.chat && (
+          <NavItem href="/chat" icon={MessageSquare} label="Data Chat" />
         )}
       </nav>
 
