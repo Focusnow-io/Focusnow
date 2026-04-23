@@ -223,6 +223,8 @@ interface ImportConcept {
   icon: string;
   entity: ConceptEntity;
   examples: string;
+  /** Plural noun the hub uses in coverage rows, e.g. "282 products". */
+  unit: string;
   isCompound?: boolean;
 }
 
@@ -234,6 +236,7 @@ const IMPORT_CONCEPTS: readonly ImportConcept[] = [
     icon: "📦",
     entity: "Product",
     examples: "Item master, SKU list, parts catalogue",
+    unit: "products",
   },
   {
     id: "Suppliers",
@@ -242,6 +245,7 @@ const IMPORT_CONCEPTS: readonly ImportConcept[] = [
     icon: "🏭",
     entity: "Supplier",
     examples: "Vendor master, supplier directory",
+    unit: "suppliers",
   },
   {
     id: "Customers",
@@ -250,6 +254,7 @@ const IMPORT_CONCEPTS: readonly ImportConcept[] = [
     icon: "🤝",
     entity: "Customer",
     examples: "Customer master, account list",
+    unit: "customers",
   },
   {
     id: "Locations",
@@ -258,6 +263,7 @@ const IMPORT_CONCEPTS: readonly ImportConcept[] = [
     icon: "📍",
     entity: "Location",
     examples: "Warehouse list, store locations",
+    unit: "locations",
   },
   {
     id: "Inventory",
@@ -266,6 +272,7 @@ const IMPORT_CONCEPTS: readonly ImportConcept[] = [
     icon: "📊",
     entity: "InventoryItem",
     examples: "Stock on hand, inventory balance",
+    unit: "records",
   },
   {
     id: "PurchaseOrders",
@@ -274,6 +281,7 @@ const IMPORT_CONCEPTS: readonly ImportConcept[] = [
     icon: "🛒",
     entity: "PurchaseOrders",
     examples: "Open POs, PO headers, purchase lines",
+    unit: "orders",
     isCompound: true,
   },
   {
@@ -283,6 +291,7 @@ const IMPORT_CONCEPTS: readonly ImportConcept[] = [
     icon: "💰",
     entity: "SalesOrders",
     examples: "Open orders, sales backlog, order lines",
+    unit: "orders",
     isCompound: true,
   },
   {
@@ -292,9 +301,24 @@ const IMPORT_CONCEPTS: readonly ImportConcept[] = [
     icon: "🔧",
     entity: "BillOfMaterials",
     examples: "BOM, recipe, formula, components list",
+    unit: "BOM records",
     isCompound: true,
   },
 ] as const;
+
+/** Relative time helper used by the concept hub cards to surface
+ *  "imported 2 days ago" under each populated entry. */
+function formatRelativeDate(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays <= 0) return "today";
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
+  return `${Math.floor(diffDays / 365)} years ago`;
+}
 
 // Rotated every 3 s while an import is running — gives the user a sense of
 // progress on long imports (5–60 s) without us needing real server-side
@@ -1389,21 +1413,15 @@ function ImportPageInner() {
       {/* STEP: Select — new 8-concept primary hub                           */}
       {/* ────────────────────────────────────────────────────────────────── */}
       {step === "select" && hubMode === "concepts" && (() => {
-        const conceptRelativeTime = (iso: string): string => {
-          const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-          if (days <= 0) return "today";
-          if (days === 1) return "yesterday";
-          if (days < 30) return `${days} days ago`;
-          if (days < 365) return `${Math.floor(days / 30)} months ago`;
-          return `${Math.floor(days / 365)} years ago`;
-        };
-
-        const startImport = (concept: ImportConcept, mode: "replace" | "merge") => {
+        const handleConceptImport = (
+          concept: ImportConcept,
+          mode: "merge" | "replace",
+        ) => {
           setImportMode(mode);
           if (concept.isCompound) {
-            // Compound concept — the upload API accepts either the header or
-            // line entity plus the compound hint. We seed with the header
-            // entity so pre-upload state (entity pickers etc.) reads naturally.
+            // Compound concept — upload API accepts the header entity plus
+            // the compound hint. Seed with the header entity so pre-upload
+            // state reads naturally.
             const def = COMPOUND_ENTITIES[concept.entity as CompoundEntityType];
             setEntity(def.headerEntity);
             setCompoundHint(concept.entity as CompoundEntityType);
@@ -1426,14 +1444,14 @@ function ImportPageInner() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {IMPORT_CONCEPTS.map((concept) => {
-                const entry = coverageMap[concept.id];
-                const hasData = (entry?.importedRows ?? 0) > 0;
-                const breakdown = (entry as CoverageEntry & { breakdown?: Record<string, number> } | undefined)?.breakdown;
-                const countLabel = hasData
-                  ? concept.isCompound && breakdown
-                    ? `${entry!.importedRows.toLocaleString()} records · ${breakdown.headers?.toLocaleString() ?? 0} headers, ${breakdown.lines?.toLocaleString() ?? 0} lines`
-                    : `${entry!.importedRows.toLocaleString()} ${concept.label.toLowerCase()}`
-                  : null;
+                // Coverage for compounds is keyed by concept.id
+                // (e.g. "PurchaseOrders"); single entities fall back to
+                // the underlying EntityType key (e.g. "Product").
+                const conceptCoverage =
+                  coverageMap[concept.id] ?? coverageMap[concept.entity] ?? null;
+                const hasData = (conceptCoverage?.importedRows ?? 0) > 0;
+                const breakdown = (conceptCoverage as CoverageEntry & { breakdown?: Record<string, number> } | null)
+                  ?.breakdown;
 
                 return (
                   <div
@@ -1459,30 +1477,41 @@ function ImportPageInner() {
                           )}
                         </div>
                         <p className="text-xs text-gray-500 mt-1">{concept.description}</p>
-                        <p className="text-[11px] text-gray-400 mt-1 italic">{concept.examples}</p>
+                        {!hasData && (
+                          <p className="text-[11px] text-gray-400 mt-1 italic">{concept.examples}</p>
+                        )}
                       </div>
                     </div>
 
-                    {hasData && entry ? (
-                      <div className="mt-auto pt-2 space-y-2">
-                        <div className="text-xs text-emerald-700 font-medium">
-                          {countLabel}
+                    {hasData && conceptCoverage ? (
+                      <div className="mt-auto pt-2 space-y-3">
+                        <div className="flex items-center gap-2 text-sm text-emerald-700">
+                          <CheckCircle className="w-4 h-4 shrink-0" />
+                          <span>
+                            {conceptCoverage.importedRows.toLocaleString()} {concept.unit}
+                            {breakdown && (
+                              <span className="text-gray-400 ml-1">
+                                · {(breakdown.headers ?? 0).toLocaleString()} headers,{" "}
+                                {(breakdown.lines ?? 0).toLocaleString()} lines
+                              </span>
+                            )}
+                            {conceptCoverage.lastImported && (
+                              <span className="text-gray-400 ml-1">
+                                · imported {formatRelativeDate(conceptCoverage.lastImported)}
+                              </span>
+                            )}
+                          </span>
                         </div>
-                        <div className="text-[11px] text-gray-400">
-                          Last imported {conceptRelativeTime(entry.lastImported)}
-                        </div>
-                        <div className="flex gap-2 pt-1">
+                        <div className="flex gap-2">
                           <button
-                            onClick={() => startImport(concept, "merge")}
+                            onClick={() => handleConceptImport(concept, "merge")}
                             className="flex-1 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-700 hover:border-slate-500 hover:bg-slate-50 transition-colors"
                           >
                             Update
                           </button>
                           <button
-                            onClick={() => {
-                              setReuploadModal({ entity: concept.entity, label: concept.label });
-                            }}
-                            className="flex-1 text-xs font-medium px-3 py-1.5 rounded-lg border border-amber-300 bg-white text-amber-700 hover:border-amber-500 hover:bg-amber-50 transition-colors"
+                            onClick={() => handleConceptImport(concept, "replace")}
+                            className="flex-1 text-xs font-medium px-3 py-1.5 rounded-lg border border-red-300 bg-white text-red-700 hover:border-red-500 hover:bg-red-50 transition-colors"
                           >
                             Replace
                           </button>
@@ -1491,7 +1520,7 @@ function ImportPageInner() {
                     ) : (
                       <div className="mt-auto pt-2">
                         <button
-                          onClick={() => startImport(concept, "merge")}
+                          onClick={() => handleConceptImport(concept, "merge")}
                           className="w-full text-sm font-semibold px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition-colors"
                         >
                           Import
