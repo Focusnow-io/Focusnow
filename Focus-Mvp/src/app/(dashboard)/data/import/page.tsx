@@ -2172,6 +2172,68 @@ function ImportPageInner() {
               </button>
             </div>
 
+            {/* Import mode — replaces the old Advanced Options toggle with
+                a visible two-card choice. Merge is the safe default; the
+                replace card carries an amber border when selected since it
+                is destructive (deletes existing rows before the import). */}
+            <div>
+              <p className="text-[11px] font-semibold text-gray-500 uppercase mb-1.5">
+                Import mode
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setImportMode("merge")}
+                  disabled={processing}
+                  aria-pressed={importMode === "merge"}
+                  className={`text-left rounded-xl border-2 px-4 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    importMode === "merge"
+                      ? "border-slate-900 bg-slate-50"
+                      : "border-gray-200 hover:border-slate-400"
+                  }`}
+                >
+                  <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                    <span
+                      className={`inline-block w-3.5 h-3.5 rounded-full border-2 ${
+                        importMode === "merge"
+                          ? "border-slate-900 bg-slate-900 ring-2 ring-white ring-inset"
+                          : "border-gray-300"
+                      }`}
+                    />
+                    Update existing
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1 ml-5">
+                    Add new records and update existing ones
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImportMode("replace")}
+                  disabled={processing}
+                  aria-pressed={importMode === "replace"}
+                  className={`text-left rounded-xl border-2 px-4 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    importMode === "replace"
+                      ? "border-amber-500 bg-amber-50/60"
+                      : "border-gray-200 hover:border-amber-400"
+                  }`}
+                >
+                  <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                    <span
+                      className={`inline-block w-3.5 h-3.5 rounded-full border-2 ${
+                        importMode === "replace"
+                          ? "border-amber-600 bg-amber-600 ring-2 ring-white ring-inset"
+                          : "border-gray-300"
+                      }`}
+                    />
+                    Replace all
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1 ml-5">
+                    Clear existing data and import fresh
+                  </p>
+                </button>
+              </div>
+            </div>
+
             {processing && (
               <div className="space-y-1.5">
                 <p className="text-sm text-gray-600">Importing…</p>
