@@ -10,89 +10,45 @@ import { Search, Upload, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Entity catalogue ───────────────────────────────────────────────────────────
+//
+// The 8 canonical concepts from the import hub, grouped for the Explorer
+// sidebar. Keys line up with DATASETS names in src/lib/ingestion/datasets.ts
+// and map to ImportRecord.datasetName rows. Legacy relational entity
+// names (POLine, BOMHeader, Shipment, …) are no longer surfaced here;
+// their rows live under the parent concept (purchase_orders, bom, etc.).
 
 const ENTITY_GROUPS = [
   {
     label: "Master Data",
     entities: [
-      { key: "Product", label: "Products" },
-      { key: "Supplier", label: "Suppliers" },
-      { key: "Customer", label: "Customers" },
-      { key: "Location", label: "Locations" },
-    ],
-  },
-  {
-    label: "Finance",
-    entities: [
-      { key: "ExchangeRate", label: "Exchange Rates" },
-      { key: "PriceList", label: "Price Lists" },
-      { key: "PriceListLine", label: "Price List Lines" },
-      { key: "CustomerPriceList", label: "Customer Price Lists" },
-    ],
-  },
-  {
-    label: "Engineering",
-    entities: [
-      { key: "BOMHeader", label: "BOM Headers" },
-      { key: "BOM", label: "Bill of Materials" },
-      { key: "BOMLine", label: "BOM Lines" },
-      { key: "Routing", label: "Routings" },
-      { key: "RoutingOperation", label: "Routing Ops" },
-      { key: "WorkCenter", label: "Work Centers" },
-      { key: "ShiftCalendar", label: "Shift Calendar" },
-      { key: "Equipment", label: "Equipment" },
-      { key: "MaintenanceLog", label: "Maintenance Logs" },
+      { key: "products", label: "Products" },
+      { key: "suppliers", label: "Suppliers" },
+      { key: "customers", label: "Customers" },
+      { key: "locations", label: "Locations" },
     ],
   },
   {
     label: "Inventory",
     entities: [
-      { key: "InventoryItem", label: "Inventory" },
-      { key: "Lot", label: "Lots" },
-      { key: "SerialNumber", label: "Serial Numbers" },
-      { key: "StockMovement", label: "Stock Movements" },
+      { key: "inventory", label: "Inventory" },
     ],
   },
   {
     label: "Procurement",
     entities: [
-      { key: "SupplierItem", label: "Supplier Items" },
-      { key: "PurchaseOrder", label: "Purchase Orders" },
-      { key: "POLine", label: "PO Lines" },
+      { key: "purchase_orders", label: "Purchase Orders" },
     ],
   },
   {
-    label: "Planning",
+    label: "Sales",
     entities: [
-      { key: "ForecastEntry", label: "Forecast" },
-      { key: "MpsEntry", label: "MPS" },
+      { key: "sales_orders", label: "Sales Orders" },
     ],
   },
   {
-    label: "Production",
+    label: "Engineering",
     entities: [
-      { key: "WorkOrder", label: "Work Orders" },
-      { key: "WorkOrderOperation", label: "WO Operations" },
-    ],
-  },
-  {
-    label: "Sales & Fulfilment",
-    entities: [
-      { key: "SalesOrder", label: "Sales Orders" },
-      { key: "SalesOrderLine", label: "SO Lines" },
-      { key: "Shipment", label: "Shipments" },
-      { key: "ShipmentLine", label: "Shipment Lines" },
-      { key: "Invoice", label: "Invoices" },
-      { key: "ReturnRma", label: "Returns / RMAs" },
-      { key: "Order", label: "Orders (Legacy)" },
-    ],
-  },
-  {
-    label: "Quality",
-    entities: [
-      { key: "QcInspection", label: "QC Inspections" },
-      { key: "Ncr", label: "NCRs" },
-      { key: "Capa", label: "CAPAs" },
+      { key: "bom", label: "Bill of Materials" },
     ],
   },
 ];
@@ -128,7 +84,10 @@ export default function ExplorePage() {
   const searchParams = useSearchParams();
   const pathname = usePathname();
 
-  const entityParam = searchParams.get("entity") ?? "BOM";
+  // Default to the first concept in the sidebar (Products) instead of the
+  // old "BOM" key so deep-linking /data/explore lands on a populated view
+  // rather than the engineering entry.
+  const entityParam = searchParams.get("entity") ?? "products";
   const pageParam = parseInt(searchParams.get("page") ?? "1", 10);
 
   const [search, setSearch] = useState(searchParams.get("q") ?? "");
