@@ -104,6 +104,29 @@ const DATASET_TO_ENTITY: Record<DatasetName, EntityType> = {
   bom: "BOMHeader",
 };
 
+/** Inverse of DATASET_TO_ENTITY — callers that still receive an
+ *  EntityType (disambiguation screen, legacy hub card, reupload modal)
+ *  translate through this before calling setDataset. */
+const ENTITY_TO_DATASET_NAME: Partial<Record<EntityType | string, DatasetName>> = {
+  Product: "products",
+  Supplier: "suppliers",
+  Customer: "customers",
+  Location: "locations",
+  InventoryItem: "inventory",
+  PurchaseOrder: "purchase_orders",
+  POLine: "purchase_orders",
+  SalesOrder: "sales_orders",
+  SalesOrderLine: "sales_orders",
+  BOMHeader: "bom",
+  BOMLine: "bom",
+  BOM: "bom",
+};
+
+function toDataset(value: EntityType | string | undefined | null): DatasetName {
+  if (!value) return "products";
+  return (ENTITY_TO_DATASET_NAME[value as EntityType] ?? "products") as DatasetName;
+}
+
 /** Shape returned by /api/data/import-v2 — dataset-vocabulary fields. */
 interface UploadV2Response {
   sourceId: string;
@@ -845,7 +868,7 @@ function ImportPageInner() {
   // bottom of the upload screen.
   const [step, setStep] = useState<Step>("upload");
   const [file, setFile] = useState<File | null>(null);
-  const [entity, setEntity] = useState<EntityType>("Product");
+  const [dataset, setDataset] = useState<DatasetName>("products");
   // True when the user explicitly picked an entity (hub card, re-upload
   // button, or Advanced hub override). Controls whether handleUpload sends
   // the `entity` hint to the API — without this flag we'd always pass the
@@ -986,9 +1009,12 @@ function ImportPageInner() {
   }, []);
 
   // ── Derived values ────────────────────────────────────────────────────────
+  // `dataset` state translates back to its legacy EntityType for
+  // CANONICAL_FIELDS lookup here; the mapping UI still consumes the
+  // PascalCase schema until it's rewritten against DATASETS.
   const fields = uploadResult
     ? CANONICAL_FIELDS[uploadResult.entity]
-    : CANONICAL_FIELDS[entity];
+    : CANONICAL_FIELDS[DATASET_TO_ENTITY[dataset]];
 
   const mappedFields = fields.filter((f) => mapping[f.field]);
 
@@ -1039,30 +1065,15 @@ function ImportPageInner() {
     const fd = new FormData();
     fd.append("file", file);
     // Dataset hint for /import-v2. Only sent when the user explicitly
-    // picked a concept (hub card / re-upload), so drag-and-drop uploads
-    // still auto-detect. EntityType → DatasetName translation mirrors
-    // DATASET_TO_ENTITY so the two vocabularies stay in lockstep.
+    // picked a concept (hub card / re-upload); drag-and-drop uploads
+    // auto-detect. `dataset` state is already a DatasetName so the
+    // append is direct — no per-entity lookup table needed.
     if (entityExplicit) {
-      const entityToDataset: Record<string, DatasetName> = {
-        Product: "products",
-        Supplier: "suppliers",
-        Customer: "customers",
-        Location: "locations",
-        InventoryItem: "inventory",
-        PurchaseOrder: "purchase_orders",
-        POLine: "purchase_orders",
-        SalesOrder: "sales_orders",
-        SalesOrderLine: "sales_orders",
-        BOMHeader: "bom",
-        BOMLine: "bom",
-      };
-      const dataset = entityToDataset[entity];
-      if (dataset) fd.append("dataset", dataset);
+      fd.append("dataset", dataset);
     }
     // Compound hint — legacy concept hub may still set this on
-    // Purchase Orders / Sales Orders / BOM cards. The compound's header
-    // entity is already translated above, so the /import-v2 endpoint
-    // ignores `compound`; we send nothing here.
+    // Purchase Orders / Sales Orders / BOM cards. The /import-v2
+    // endpoint ignores `compound`; we send nothing here.
     void compoundHint;
     fd.append("importMode", importMode);
     if (overrideSheet) fd.append("sheet", overrideSheet);
@@ -1196,7 +1207,7 @@ function ImportPageInner() {
     // Reflect the API's resolved entity in local state so every downstream
     // screen (confirm header, template picker, etc.) speaks in the same
     // terms the user just saw in the detection UI.
-    setEntity(data.entity);
+    setDataset(data.dataset ?? toDataset(data.entity));
 
     // ── Route based on auto-detection result ─────────────────────────────
     //   high / certain confidence + all required mapped → confirm
@@ -1223,7 +1234,11 @@ function ImportPageInner() {
         }
       : finalMapping;
     const allRequiredMapped = requiredFields.every((f) => !!mappingForCoverage[f.field]);
-    const det = data.detectedEntity;
+    // Spec'd rename: prefer the new detectedDataset block from
+    // /import-v2, falling back to the legacy detectedEntity so the
+    // confidence ladder still fires for any response that didn't go
+    // through the adapter.
+    const det = data.detectedDataset ?? data.detectedEntity;
 
     if (det && (det.confidence === "certain" || det.confidence === "high") && allRequiredMapped) {
       setStep("confirm");
@@ -1315,7 +1330,7 @@ function ImportPageInner() {
   async function handleDisambiguate(chosenEntity: EntityType) {
     if (!uploadResult) return;
 
-    setEntity(chosenEntity);
+    setDataset(toDataset(chosenEntity));
     setEntityExplicit(true);
     setAiMappingResult(null);
     setAiRescuedFields(new Set());
@@ -1489,7 +1504,7 @@ function ImportPageInner() {
   async function handleAddPass(newEntity: EntityType) {
     if (!parentSourceId) return;
     setAddingPass(true);
-    setEntity(newEntity);
+    setDataset(toDataset(newEntity));
     try {
       const res = await fetch(`/api/data/sources/${parentSourceId}/clone-pass`, {
         method: "POST",
@@ -1691,10 +1706,10 @@ function ImportPageInner() {
             // the compound hint. Seed with the header entity so pre-upload
             // state reads naturally.
             const def = COMPOUND_ENTITIES[concept.entity as CompoundEntityType];
-            setEntity(def.headerEntity);
+            setDataset(toDataset(def.headerEntity));
             setCompoundHint(concept.entity as CompoundEntityType);
           } else {
-            setEntity(concept.entity as EntityType);
+            setDataset(toDataset(concept.entity as EntityType));
             setCompoundHint(null);
           }
           setEntityExplicit(true);
@@ -1856,7 +1871,7 @@ function ImportPageInner() {
                   if (hasData) {
                     setReuploadModal({ entity: type, label: ENTITY_LABELS[type] });
                   } else {
-                    setEntity(type);
+                    setDataset(toDataset(type));
                     setEntityExplicit(true);
                     setCompoundHint(null);
                     setStep("upload");
@@ -1975,7 +1990,7 @@ function ImportPageInner() {
                   picked one; shows the chosen type only on hub re-upload. */}
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">
-                  {entityExplicit ? ENTITY_LABELS[entity] : "Upload your data"}
+                  {entityExplicit ? ENTITY_LABELS[DATASET_TO_ENTITY[dataset]] : "Upload your data"}
                 </h2>
                 <p className="text-sm text-gray-500 mt-0.5">
                   {entityExplicit
@@ -2212,7 +2227,7 @@ function ImportPageInner() {
             <div className="bg-slate-50 rounded-xl p-5 space-y-2">
               {/* Detection badge — differentiates "we figured this out for
                   you" from "you picked this type". */}
-              {uploadResult.detectedEntity?.wasAutoDetected ? (
+              {uploadResult.detectedDataset?.wasAutoDetected ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
                   <CheckCircle className="w-3 h-3" />
                   Auto-detected
@@ -2566,7 +2581,7 @@ function ImportPageInner() {
                 // hidden; they're plumbing, not a user-visible result.
                 const entity = uploadResult.entity as EntityType;
                 const primaryDelta = importResult.delta?.[entity];
-                const noun = ENTITY_NOUN[entity] ?? entity.toLowerCase();
+                const noun = ENTITY_NOUN[DATASET_TO_ENTITY[dataset]] ?? dataset;
                 const logicParam = importResult.delta?.LogicParam;
                 const compound = uploadResult.detectedCompound ?? null;
                 // Surface the line entity's delta only when the primary
@@ -2574,7 +2589,7 @@ function ImportPageInner() {
                 // already the line entity, so there is no separate
                 // secondary to show.
                 const secondaryEntity =
-                  compound && compound.headerEntity === entity
+                  compound && compound.headerEntity === DATASET_TO_ENTITY[dataset]
                     ? compound.lineEntity
                     : null;
                 const secondaryDelta = secondaryEntity
@@ -2792,10 +2807,10 @@ function ImportPageInner() {
                   const target = reuploadModal.entity;
                   if (target in COMPOUND_ENTITIES) {
                     const def = COMPOUND_ENTITIES[target as CompoundEntityType];
-                    setEntity(def.headerEntity);
+                    setDataset(toDataset(def.headerEntity));
                     setCompoundHint(target as CompoundEntityType);
                   } else {
-                    setEntity(target as EntityType);
+                    setDataset(toDataset(target as EntityType));
                     setCompoundHint(null);
                   }
                   setEntityExplicit(true);
@@ -2817,10 +2832,10 @@ function ImportPageInner() {
                   const target = reuploadModal.entity;
                   if (target in COMPOUND_ENTITIES) {
                     const def = COMPOUND_ENTITIES[target as CompoundEntityType];
-                    setEntity(def.headerEntity);
+                    setDataset(toDataset(def.headerEntity));
                     setCompoundHint(target as CompoundEntityType);
                   } else {
-                    setEntity(target as EntityType);
+                    setDataset(toDataset(target as EntityType));
                     setCompoundHint(null);
                   }
                   setEntityExplicit(true);
