@@ -2336,14 +2336,19 @@ export interface ColumnClassification {
  * InventoryItem wins over Product when both match the same column equally.
  */
 const CLASSIFIER_ENTITY_PRIORITY: string[] = [
-  "InventoryItem",
-  "Supplier",
+  "InventoryItem",   // highest priority — wins over Product on SKU columns
+  "Supplier",        // wins over Product on supplier-specific columns
   "Product",
   "PurchaseOrder",
+  "POLine",
   "SalesOrder",
+  "SalesOrderLine",
   "BOM",
-  "BOMHeader",
+  "BOMHeader",       // lower priority than InventoryItem
   "BOMLine",
+  "WorkOrder",
+  "Customer",
+  "Location",
   "Order",
 ];
 function entityPriorityForClassifier(entity: string | undefined): number {
@@ -2426,7 +2431,13 @@ export function classifyColumns(
 
   // Pre-compute entity mapping results for all entities — we'll pick the
   // best entity+field per header across ALL entity types.
-  const entityTypes = Object.keys(CANONICAL_FIELDS) as EntityType[];
+  // Compound entity keys (PurchaseOrders, SalesOrders, BillOfMaterials)
+  // are never used for per-column classification — they're detected as
+  // a post-processing step in the import route once atomic classification
+  // is done, and passing them through getCanonicalFields here would
+  // double-count their header + line fields against every column.
+  const entityTypes = (Object.keys(CANONICAL_FIELDS) as EntityType[])
+    .filter((e) => !(e in COMPOUND_ENTITIES));
 
   for (const header of headers) {
     const headerLower = header.toLowerCase();

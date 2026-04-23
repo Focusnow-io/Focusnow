@@ -82,35 +82,34 @@ function deriveDetectedEntities(
     results.push({ entity, confidence, columnsUsed, requiredFieldsMatched });
   }
 
-  // Compound promotion — if the classified entities together cover both
-  // sides of a compound concept, mark them so downstream code can treat
-  // them as a single upload. Also runs for header-only / line-only files.
-  const detectedSet = new Set(results.map((r) => r.entity));
+  // Compound promotion — runs strictly as a post-processing step after
+  // atomic classification. A compound concept (Purchase Orders / Sales
+  // Orders / Bill of Materials) is only promoted when classifyColumns
+  // actually attributed identity-field columns to BOTH the header and
+  // line entities. Using the per-entity requiredFieldsMatched tallies
+  // (rather than detectCompoundFileType's looser scoring) keeps single-
+  // side coincidences — an inventory file's SKU column being the FK on
+  // POLine, a PO headers file's `notes` column overlapping with BOMLine
+  // — from flipping a plain atomic import into a compound one.
   for (const key of Object.keys(COMPOUND_ENTITIES) as CompoundEntityType[]) {
     const def = COMPOUND_ENTITIES[key];
-    if (!detectedSet.has(def.headerEntity) && !detectedSet.has(def.lineEntity)) {
-      continue;
-    }
-    const { fileType, headerMatches, lineMatches } = detectCompoundFileType(headers, key);
+    const headerMatch = results.find(
+      (e) => e.entity === def.headerEntity && e.requiredFieldsMatched >= 1,
+    );
+    const lineMatch = results.find(
+      (e) => e.entity === def.lineEntity && e.requiredFieldsMatched >= 1,
+    );
+    if (!headerMatch || !lineMatch) continue;
+    const { fileType } = detectCompoundFileType(headers, key);
     if (fileType === "unknown") continue;
-    // Match the auto-detect guard in `detectCompound`: only promote when
-    // both sides have at least one identity signal. A single-side match
-    // (e.g. BOMHeader finding a SKU column on an inventory file) is too
-    // weak to justify flipping an entity's confidence to high.
-    if (headerMatches < 1 || lineMatches < 1) continue;
-    for (const r of results) {
-      if (r.entity === def.headerEntity) {
-        r.compoundType = key;
-        r.compoundFileType = fileType;
-        r.compoundRole = "header";
-        r.confidence = "high";
-      } else if (r.entity === def.lineEntity) {
-        r.compoundType = key;
-        r.compoundFileType = fileType;
-        r.compoundRole = "line";
-        r.confidence = "high";
-      }
-    }
+    headerMatch.compoundType = key;
+    headerMatch.compoundFileType = fileType;
+    headerMatch.compoundRole = "header";
+    headerMatch.confidence = "high";
+    lineMatch.compoundType = key;
+    lineMatch.compoundFileType = fileType;
+    lineMatch.compoundRole = "line";
+    lineMatch.confidence = "high";
   }
 
   // Sort high → medium → low, then by requiredFieldsMatched desc
@@ -180,30 +179,29 @@ function detectCompound(
   headerMapping: Record<string, string>;
   lineMapping: Record<string, string>;
 } | null {
-  const detectedSet = new Set(detectedEntities.map((e) => e.entity));
   let best: ReturnType<typeof detectCompoundFileType> & {
     compound: CompoundEntityType;
   } | null = null;
 
   for (const key of Object.keys(COMPOUND_ENTITIES) as CompoundEntityType[]) {
     const def = COMPOUND_ENTITIES[key];
-    // Require at least one of the compound's underlying entities to have been
-    // picked up by classifyColumns, otherwise we'd register a compound hit on
-    // e.g. a Product-only file just because `sku` / `lineNumber` happened to
-    // appear.
-    if (!detectedSet.has(def.headerEntity) && !detectedSet.has(def.lineEntity)) {
-      continue;
-    }
+    // Auto-detection requires the atomic classifier to have attributed an
+    // identity column to BOTH sides. Using the per-entity requiredFieldsMatched
+    // tally rather than detectCompoundFileType's looser scoring keeps
+    // single-side coincidences (an inventory file's SKU column matching
+    // BOMHeader.productId; a PO headers file matching POLine on nothing)
+    // from flipping a plain atomic import into a compound one. Header-only
+    // and line-only uploads still work through the explicit compound hint
+    // posted by the concept hub.
+    const headerMatch = detectedEntities.find(
+      (e) => e.entity === def.headerEntity && e.requiredFieldsMatched >= 1,
+    );
+    const lineMatch = detectedEntities.find(
+      (e) => e.entity === def.lineEntity && e.requiredFieldsMatched >= 1,
+    );
+    if (!headerMatch || !lineMatch) continue;
     const result = detectCompoundFileType(headers, key);
     if (result.fileType === "unknown") continue;
-    // Auto-detection requires identity matches on BOTH sides. A lone
-    // signal (e.g. an inventory file with a SKU that BOMHeader also
-    // treats as an identity field) isn't enough to promote to a
-    // compound — the user would see "Bill of Materials" on a 282-row
-    // inventory upload. Header-only / line-only compound imports are
-    // still reachable via the explicit compound hint (the concept hub's
-    // Purchase Orders card etc.).
-    if (result.headerMatches < 1 || result.lineMatches < 1) continue;
     // Prefer the compound with the strongest combined signal.
     const score = result.headerMatches + result.lineMatches;
     const bestScore = best ? best.headerMatches + best.lineMatches : -1;
