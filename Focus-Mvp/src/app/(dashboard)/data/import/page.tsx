@@ -54,15 +54,23 @@ import {
 } from "lucide-react";
 import {
   CANONICAL_FIELDS,
+  COMPOUND_ENTITIES,
   suggestMappingWithConfidence,
   type EntityType,
   type MappingConfidence,
   type ColumnClassification,
+  type CompoundEntityType,
+  type CompoundFileType,
 } from "@/lib/ingestion/field-mapper";
+
+/** The upload API returns compound + single-entity matches, and the
+ *  concept hub treats both as first-class entries. `ConceptId` is the
+ *  stable key stored on IMPORT_CONCEPTS and passed around the wizard. */
+type ConceptEntity = EntityType | CompoundEntityType;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const ENTITY_LABELS: Record<EntityType, string> = {
+const ENTITY_LABELS: Record<ConceptEntity, string> = {
   // Master Data
   Product: "Products / SKUs",
   Supplier: "Suppliers",
@@ -112,12 +120,17 @@ const ENTITY_LABELS: Record<EntityType, string> = {
   QcInspection: "QC Inspections",
   Ncr: "Non-Conformance Reports (NCR)",
   Capa: "CAPAs (Corrective Actions)",
+  // Compound concepts — shown in the new primary hub and returned by the
+  // import API when a flat PO/SO/BOM file is detected.
+  PurchaseOrders: "Purchase Orders",
+  SalesOrders: "Sales Orders",
+  BillOfMaterials: "Bill of Materials",
 };
 
 // Plain-English descriptions surfaced on the disambiguation and confirm
 // screens. Only the common-case entities need copy — anything missing
 // falls back to ENTITY_LABELS, which is already human-readable.
-const ENTITY_DESCRIPTIONS: Partial<Record<EntityType, string>> = {
+const ENTITY_DESCRIPTIONS: Partial<Record<ConceptEntity, string>> = {
   PurchaseOrder: "Orders placed with your suppliers",
   SalesOrder: "Orders received from your customers",
   InventoryItem: "Current stock levels per item",
@@ -132,10 +145,14 @@ const ENTITY_DESCRIPTIONS: Partial<Record<EntityType, string>> = {
   Customer: "Customer list",
   Location: "Locations / warehouses",
   SupplierItem: "Supplier item catalogue (AVL)",
+  // Compound
+  PurchaseOrders: "Orders placed with your suppliers (headers + lines)",
+  SalesOrders: "Orders received from your customers (headers + lines)",
+  BillOfMaterials: "Product structure and component lists",
 };
 
 // Plain-English nouns used in the summary sentence
-const ENTITY_NOUN: Record<EntityType, string> = {
+const ENTITY_NOUN: Record<ConceptEntity, string> = {
   // Master Data
   Product: "product",
   Supplier: "supplier",
@@ -185,7 +202,98 @@ const ENTITY_NOUN: Record<EntityType, string> = {
   QcInspection: "QC inspection",
   Ncr: "NCR",
   Capa: "CAPA",
+  // Compound
+  PurchaseOrders: "purchase order",
+  SalesOrders: "sales order",
+  BillOfMaterials: "BOM",
 };
+
+// ─── Primary import concepts (the new 8-card hub) ─────────────────────────────
+//
+// The primary import UI shows these 8 business concepts instead of the 30
+// Prisma-entity hub. Technical entities still get imported — compound
+// concepts fan out to header + line entities automatically on upload, and
+// the Advanced hub below remains reachable for anyone who wants to target
+// a specific table directly.
+interface ImportConcept {
+  id: string;
+  label: string;
+  description: string;
+  icon: string;
+  entity: ConceptEntity;
+  examples: string;
+  isCompound?: boolean;
+}
+
+const IMPORT_CONCEPTS: readonly ImportConcept[] = [
+  {
+    id: "Products",
+    label: "Products",
+    description: "Your product catalogue — SKUs, specs, costs",
+    icon: "📦",
+    entity: "Product",
+    examples: "Item master, SKU list, parts catalogue",
+  },
+  {
+    id: "Suppliers",
+    label: "Suppliers",
+    description: "Your supplier and vendor list",
+    icon: "🏭",
+    entity: "Supplier",
+    examples: "Vendor master, supplier directory",
+  },
+  {
+    id: "Customers",
+    label: "Customers",
+    description: "Your customer accounts",
+    icon: "🤝",
+    entity: "Customer",
+    examples: "Customer master, account list",
+  },
+  {
+    id: "Locations",
+    label: "Locations",
+    description: "Warehouses, stores, and sites",
+    icon: "📍",
+    entity: "Location",
+    examples: "Warehouse list, store locations",
+  },
+  {
+    id: "Inventory",
+    label: "Inventory",
+    description: "Current stock levels per item and location",
+    icon: "📊",
+    entity: "InventoryItem",
+    examples: "Stock on hand, inventory balance",
+  },
+  {
+    id: "PurchaseOrders",
+    label: "Purchase Orders",
+    description: "Orders placed with your suppliers",
+    icon: "🛒",
+    entity: "PurchaseOrders",
+    examples: "Open POs, PO headers, purchase lines",
+    isCompound: true,
+  },
+  {
+    id: "SalesOrders",
+    label: "Sales Orders",
+    description: "Orders received from your customers",
+    icon: "💰",
+    entity: "SalesOrders",
+    examples: "Open orders, sales backlog, order lines",
+    isCompound: true,
+  },
+  {
+    id: "BillOfMaterials",
+    label: "Bill of Materials",
+    description: "Product structure and component lists",
+    icon: "🔧",
+    entity: "BillOfMaterials",
+    examples: "BOM, recipe, formula, components list",
+    isCompound: true,
+  },
+] as const;
 
 // Rotated every 3 s while an import is running — gives the user a sense of
 // progress on long imports (5–60 s) without us needing real server-side
@@ -200,7 +308,6 @@ const IMPORT_MESSAGES = [
   "Just a few more seconds…",
 ];
 
-const ENTITY_OPTIONS = Object.entries(ENTITY_LABELS) as [EntityType, string][];
 
 // ─── Supply chain stages ──────────────────────────────────────────────────────
 
@@ -442,6 +549,21 @@ interface DetectedEntityResult {
   filenameEntity?: string | null;
 }
 
+/** Compound (PurchaseOrders / SalesOrders / BillOfMaterials) metadata
+ *  returned alongside the single-entity detection. Drives the Confirm
+ *  screen's grouped field chips and file-type notes. */
+interface DetectedCompoundResult {
+  type: CompoundEntityType;
+  label: string;
+  fileType: CompoundFileType;
+  headerEntity: EntityType;
+  lineEntity: EntityType;
+  headerMatches: number;
+  lineMatches: number;
+  headerMapping: Record<string, string>;
+  lineMapping: Record<string, string>;
+}
+
 interface UploadResult {
   sourceId: string;
   headers: string[];
@@ -457,6 +579,7 @@ interface UploadResult {
   columnClassification?: Record<string, ColumnClassification>;
   detectedEntities?: DetectedEntity[];
   detectedEntity?: DetectedEntityResult;
+  detectedCompound?: DetectedCompoundResult | null;
   detectedDescription?: string;
   selectedSheet: string | null;
   allSheets: string[];
@@ -593,7 +716,17 @@ function ImportPageInner() {
 
   // ── Re-upload mode ────────────────────────────────────────────────────────
   const [importMode, setImportMode] = useState<"replace" | "merge">("merge");
-  const [reuploadModal, setReuploadModal] = useState<{ entity: EntityType; label: string } | null>(null);
+  const [reuploadModal, setReuploadModal] = useState<{ entity: ConceptEntity; label: string } | null>(null);
+
+  // ── Compound hint — set when the user clicks a compound concept card so
+  //     the upload API treats the file as e.g. Purchase Orders even if
+  //     auto-detection picks a less specific entity. Cleared on reset.
+  const [compoundHint, setCompoundHint] = useState<CompoundEntityType | null>(null);
+
+  // ── Hub mode — default to the new 8-concept primary hub; switching to
+  //     "advanced" reveals the legacy 30-entity grid. Set when the user
+  //     explicitly opts into the Advanced view from the concept hub.
+  const [hubMode, setHubMode] = useState<"concepts" | "advanced">("concepts");
 
   // ── Supply chain hub: coverage data (all 16 entity types via DataSource) ──
   const [coverageMap, setCoverageMap] = useState<Record<string, CoverageEntry>>({});
@@ -705,6 +838,13 @@ function ImportPageInner() {
     // treat every upload as a hinted one.
     if (entityExplicit) {
       fd.append("entity", entity);
+    }
+    // Compound hint — set when the user clicked a compound concept card
+    // (Purchase Orders, Sales Orders, Bill of Materials). Tells the import
+    // API to run compound detection even if the file's column signals are
+    // weak enough that single-entity detection would fire first.
+    if (compoundHint) {
+      fd.append("compound", compoundHint);
     }
     fd.append("importMode", importMode);
     if (overrideSheet) fd.append("sheet", overrideSheet);
@@ -1106,6 +1246,7 @@ function ImportPageInner() {
     setLoadingPreview(false);
     setUndoing(false);
     setUndoComplete(false);
+    setCompoundHint(null);
   }, []);
 
   // ── Inline helpers ────────────────────────────────────────────────────────
@@ -1227,9 +1368,143 @@ function ImportPageInner() {
       )}
 
       {/* ────────────────────────────────────────────────────────────────── */}
-      {/* STEP: Select (supply chain hub)                                    */}
+      {/* STEP: Select — new 8-concept primary hub                           */}
       {/* ────────────────────────────────────────────────────────────────── */}
-      {step === "select" && (() => {
+      {step === "select" && hubMode === "concepts" && (() => {
+        const conceptRelativeTime = (iso: string): string => {
+          const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+          if (days <= 0) return "today";
+          if (days === 1) return "yesterday";
+          if (days < 30) return `${days} days ago`;
+          if (days < 365) return `${Math.floor(days / 30)} months ago`;
+          return `${Math.floor(days / 365)} years ago`;
+        };
+
+        const startImport = (concept: ImportConcept, mode: "replace" | "merge") => {
+          setImportMode(mode);
+          if (concept.isCompound) {
+            // Compound concept — the upload API accepts either the header or
+            // line entity plus the compound hint. We seed with the header
+            // entity so pre-upload state (entity pickers etc.) reads naturally.
+            const def = COMPOUND_ENTITIES[concept.entity as CompoundEntityType];
+            setEntity(def.headerEntity);
+            setCompoundHint(concept.entity as CompoundEntityType);
+          } else {
+            setEntity(concept.entity as EntityType);
+            setCompoundHint(null);
+          }
+          setEntityExplicit(true);
+          setStep("upload");
+        };
+
+        return (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Connect your operational data</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Pick what you want to import — we&apos;ll handle the rest.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {IMPORT_CONCEPTS.map((concept) => {
+                const entry = coverageMap[concept.id];
+                const hasData = (entry?.importedRows ?? 0) > 0;
+                const breakdown = (entry as CoverageEntry & { breakdown?: Record<string, number> } | undefined)?.breakdown;
+                const countLabel = hasData
+                  ? concept.isCompound && breakdown
+                    ? `${entry!.importedRows.toLocaleString()} records · ${breakdown.headers?.toLocaleString() ?? 0} headers, ${breakdown.lines?.toLocaleString() ?? 0} lines`
+                    : `${entry!.importedRows.toLocaleString()} ${concept.label.toLowerCase()}`
+                  : null;
+
+                return (
+                  <div
+                    key={concept.id}
+                    className={cn(
+                      "rounded-2xl border p-5 transition-shadow flex flex-col gap-3",
+                      hasData
+                        ? "border-emerald-200 bg-emerald-50/50"
+                        : "border-gray-200 bg-white hover:shadow-sm"
+                    )}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className="text-3xl leading-none mt-0.5" aria-hidden>
+                        {concept.icon}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="text-base font-semibold text-gray-900 leading-tight">
+                            {concept.label}
+                          </p>
+                          {hasData && (
+                            <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" aria-label="Imported" />
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">{concept.description}</p>
+                        <p className="text-[11px] text-gray-400 mt-1 italic">{concept.examples}</p>
+                      </div>
+                    </div>
+
+                    {hasData && entry ? (
+                      <div className="mt-auto pt-2 space-y-2">
+                        <div className="text-xs text-emerald-700 font-medium">
+                          {countLabel}
+                        </div>
+                        <div className="text-[11px] text-gray-400">
+                          Last imported {conceptRelativeTime(entry.lastImported)}
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <button
+                            onClick={() => startImport(concept, "merge")}
+                            className="flex-1 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-700 hover:border-slate-500 hover:bg-slate-50 transition-colors"
+                          >
+                            Update
+                          </button>
+                          <button
+                            onClick={() => {
+                              setReuploadModal({ entity: concept.entity, label: concept.label });
+                            }}
+                            className="flex-1 text-xs font-medium px-3 py-1.5 rounded-lg border border-amber-300 bg-white text-amber-700 hover:border-amber-500 hover:bg-amber-50 transition-colors"
+                          >
+                            Replace
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-auto pt-2">
+                        <button
+                          onClick={() => startImport(concept, "merge")}
+                          className="w-full text-sm font-semibold px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition-colors"
+                        >
+                          Import
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Advanced escape hatch — the old 30-entity hub is still available
+                for anyone who needs to target a specific Prisma table
+                (e.g. StockMovement only, RoutingOperation only). */}
+            <div className="pt-2 text-center">
+              <button
+                type="button"
+                onClick={() => setHubMode("advanced")}
+                className="text-xs text-slate-600 hover:text-slate-900 underline underline-offset-2"
+              >
+                Working with specific data types? → Advanced import
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ────────────────────────────────────────────────────────────────── */}
+      {/* STEP: Select — Advanced 30-entity hub (demoted)                    */}
+      {/* ────────────────────────────────────────────────────────────────── */}
+      {step === "select" && hubMode === "advanced" && (() => {
         const renderCard = (type: EntityType, blurb: string, category: string, isEssential: boolean) => {
           const entry = coverageMap[type];
           const hasData = (entry?.importedRows ?? 0) > 0;
@@ -1268,6 +1543,7 @@ function ImportPageInner() {
                   } else {
                     setEntity(type);
                     setEntityExplicit(true);
+                    setCompoundHint(null);
                     setStep("upload");
                   }
                 }}
@@ -1284,15 +1560,23 @@ function ImportPageInner() {
         ).length;
         const pct = Math.round((uploadedEssentials / ESSENTIAL_ENTITIES.length) * 100);
 
-        const additionalEntities = (Object.keys(ENTITY_LABELS) as EntityType[])
-          .filter((t) => !ESSENTIAL_TYPES.has(t));
+        const additionalEntities = (Object.keys(ENTITY_LABELS) as ConceptEntity[])
+          .filter((t): t is EntityType => !(t in COMPOUND_ENTITIES) && !ESSENTIAL_TYPES.has(t as EntityType));
 
         return (
           <div className="space-y-6">
+            <button
+              type="button"
+              onClick={() => setHubMode("concepts")}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Back to concepts
+            </button>
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">Connect your operational data</h2>
+              <h2 className="text-2xl font-bold text-gray-900">Advanced import</h2>
               <p className="text-sm text-gray-500 mt-1">
-                Upload the files Focus needs to answer inventory and procurement questions. Start with the essentials.
+                Target a specific data type directly. Useful for partial re-imports.
               </p>
             </div>
 
@@ -1459,16 +1743,19 @@ function ImportPageInner() {
                 )}
               </Button>
 
-              {/* Advanced escape hatch — the old 30-entity hub is still the
-                  best tool when the user already knows which type they want,
-                  or when auto-detection needs overriding. */}
+              {/* Browse by concept — the primary entry point to the 8-card
+                  concept hub. A further "Advanced import" link inside that
+                  hub exposes the full 30-entity grid for power users. */}
               <div className="pt-1 text-center">
                 <button
                   type="button"
-                  onClick={() => setStep("select")}
+                  onClick={() => {
+                    setHubMode("concepts");
+                    setStep("select");
+                  }}
                   className="text-xs text-slate-600 hover:text-slate-900 underline underline-offset-2"
                 >
-                  Advanced: choose data type manually →
+                  Browse by concept →
                 </button>
               </div>
             </CardContent>
@@ -1578,7 +1865,32 @@ function ImportPageInner() {
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* STEP: Confirm                                                      */}
       {/* ────────────────────────────────────────────────────────────────── */}
-      {step === "confirm" && uploadResult && (
+      {step === "confirm" && uploadResult && (() => {
+        // Compound-aware Confirm rendering. When the API detected a compound
+        // concept, the Confirm screen speaks in the business term
+        // ("Purchase Orders") and groups mapped fields as header vs line so
+        // the user sees a faithful picture of the two-pass import.
+        const compound = uploadResult.detectedCompound ?? null;
+        const headerFields = compound
+          ? CANONICAL_FIELDS[compound.headerEntity] ?? []
+          : [];
+        const lineFields = compound
+          ? CANONICAL_FIELDS[compound.lineEntity] ?? []
+          : [];
+        const headerMatched = compound
+          ? headerFields.filter((f) => !!compound.headerMapping[f.field])
+          : [];
+        const lineMatched = compound
+          ? lineFields.filter((f) => !!compound.lineMapping[f.field])
+          : [];
+
+        const chipClass = (s: number, rescued: boolean): string => {
+          if (rescued || (s >= 0.8 && s < 0.95)) return "bg-blue-50 border-blue-200 text-blue-700";
+          if (s >= 0.95) return "bg-emerald-50 border-emerald-200 text-emerald-700";
+          return "bg-amber-50 border-amber-200 text-amber-700";
+        };
+
+        return (
         <Card>
           <CardContent className="p-6 space-y-5">
             {/* Plain-language summary */}
@@ -1592,67 +1904,144 @@ function ImportPageInner() {
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700">
-                  📁 {ENTITY_LABELS[uploadResult.entity] ?? uploadResult.entity}
+                  📁 {compound ? compound.label : (ENTITY_LABELS[uploadResult.entity] ?? uploadResult.entity)}
                 </span>
               )}
-              <p className="text-base font-semibold text-slate-900">
-                Ready to import{" "}
-                {plural(
-                  uploadResult.rowCount,
-                  ENTITY_NOUN[uploadResult.entity]
-                )}{" "}
-                from{" "}
-                <span className="text-slate-600">
-                  {uploadResult.sourceId
-                    ? uploadResult.selectedSheet
-                      ? `${uploadResult.selectedSheet}`
-                      : "your file"
-                    : "your file"}
-                </span>
-              </p>
-              {uploadResult.detectedDescription && (
-                <p className="text-xs text-gray-500">
-                  {uploadResult.detectedDescription}
-                </p>
+              {compound ? (
+                <>
+                  <p className="text-base font-semibold text-slate-900">
+                    Ready to import your {compound.label}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {uploadResult.rowCount.toLocaleString()} rows ·{" "}
+                    {compound.fileType === "flat"
+                      ? "headers + lines detected"
+                      : compound.fileType === "header-only"
+                        ? "headers only detected"
+                        : compound.fileType === "line-only"
+                          ? "lines only detected"
+                          : "detected"}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-base font-semibold text-slate-900">
+                    Ready to import{" "}
+                    {plural(
+                      uploadResult.rowCount,
+                      ENTITY_NOUN[uploadResult.entity]
+                    )}{" "}
+                    from{" "}
+                    <span className="text-slate-600">
+                      {uploadResult.sourceId
+                        ? uploadResult.selectedSheet
+                          ? `${uploadResult.selectedSheet}`
+                          : "your file"
+                        : "your file"}
+                    </span>
+                  </p>
+                  {uploadResult.detectedDescription && (
+                    <p className="text-xs text-gray-500">
+                      {uploadResult.detectedDescription}
+                    </p>
+                  )}
+                </>
               )}
 
-              {/* Mapped-fields pill list */}
-              <p className="text-xs text-gray-500">
-                {mappedFields.length > 0
-                  ? `${mappedFields.length} field${mappedFields.length !== 1 ? "s" : ""} matched`
-                  : "No fields matched"}{" "}
-                {attributeKeys.length > 0 &&
-                  `· ${attributeKeys.length} extra column${attributeKeys.length !== 1 ? "s" : ""} saved as attributes`}
-              </p>
-              <div className="flex flex-wrap gap-1.5 pt-0.5">
-                {mappedFields.map(({ field, label }) => {
-                  const s = score[field] ?? 0;
-                  const rescued = aiRescuedFields.has(field);
-                  // Three-tier confidence: green = solid auto-match, blue =
-                  // AI-rescued or fuzzy match, amber = review suggested.
-                  let tone: "green" | "blue" | "amber";
-                  if (rescued) tone = "blue";
-                  else if (s >= 0.95) tone = "green";
-                  else if (s >= 0.8) tone = "blue";
-                  else tone = "amber";
-                  const toneClass =
-                    tone === "green"
-                      ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                      : tone === "blue"
-                      ? "bg-blue-50 border-blue-200 text-blue-700"
-                      : "bg-amber-50 border-amber-200 text-amber-700";
-                  return (
-                    <span
-                      key={field}
-                      title={rescued ? "Matched by AI" : undefined}
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium border ${toneClass}`}
-                    >
-                      {tone === "green" ? <CheckCircle className="w-2.5 h-2.5" /> : null}
-                      {label}
-                    </span>
-                  );
-                })}
-              </div>
+              {/* Mapped-fields pill list — compound imports group the chips
+                  by header vs line; single-entity imports show one flat row. */}
+              {compound ? (
+                <div className="space-y-3 pt-1">
+                  {(compound.fileType === "flat" || compound.fileType === "header-only") && (
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
+                        Header — {headerMatched.length} field{headerMatched.length === 1 ? "" : "s"} matched
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {headerMatched.length === 0 && (
+                          <span className="text-[11px] text-gray-400 italic">No header columns detected</span>
+                        )}
+                        {headerMatched.map((f) => (
+                          <span
+                            key={`h-${f.field}`}
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium border bg-emerald-50 border-emerald-200 text-emerald-700"
+                          >
+                            <CheckCircle className="w-2.5 h-2.5" />
+                            {f.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(compound.fileType === "flat" || compound.fileType === "line-only") && (
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
+                        Lines — {lineMatched.length} field{lineMatched.length === 1 ? "" : "s"} matched
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {lineMatched.length === 0 && (
+                          <span className="text-[11px] text-gray-400 italic">No line columns detected</span>
+                        )}
+                        {lineMatched.map((f) => (
+                          <span
+                            key={`l-${f.field}`}
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium border bg-emerald-50 border-emerald-200 text-emerald-700"
+                          >
+                            <CheckCircle className="w-2.5 h-2.5" />
+                            {f.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* File-type specific guidance — explains what will and
+                      won't happen so the user isn't surprised by auto-stubs. */}
+                  {compound.fileType === "line-only" && (
+                    <div className="flex items-start gap-2 text-xs text-blue-800 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                      <Sparkles className="w-3.5 h-3.5 shrink-0 mt-0.5 text-blue-500" />
+                      <p>
+                        No {ENTITY_NOUN[compound.headerEntity] ?? "header"} columns detected — headers will be created automatically from your line data.
+                      </p>
+                    </div>
+                  )}
+                  {compound.fileType === "header-only" && (
+                    <div className="flex items-start gap-2 text-xs text-blue-800 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                      <Sparkles className="w-3.5 h-3.5 shrink-0 mt-0.5 text-blue-500" />
+                      <p>
+                        No line item columns detected — only {compound.label.toLowerCase()} headers will be imported.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-500">
+                    {mappedFields.length > 0
+                      ? `${mappedFields.length} field${mappedFields.length !== 1 ? "s" : ""} matched`
+                      : "No fields matched"}{" "}
+                    {attributeKeys.length > 0 &&
+                      `· ${attributeKeys.length} extra column${attributeKeys.length !== 1 ? "s" : ""} saved as attributes`}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {mappedFields.map(({ field, label }) => {
+                      const s = score[field] ?? 0;
+                      const rescued = aiRescuedFields.has(field);
+                      const toneClass = chipClass(s, rescued);
+                      return (
+                        <span
+                          key={field}
+                          title={rescued ? "Matched by AI" : undefined}
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium border ${toneClass}`}
+                        >
+                          {s >= 0.95 && !rescued ? <CheckCircle className="w-2.5 h-2.5" /> : null}
+                          {label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Snapshot deactivation warning */}
@@ -1836,7 +2225,8 @@ function ImportPageInner() {
             </div>
           </CardContent>
         </Card>
-      )}
+        );
+      })()}
 
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* STEP: Done                                                         */}
@@ -2057,7 +2447,18 @@ function ImportPageInner() {
               <button
                 onClick={() => {
                   setImportMode("replace");
-                  setEntity(reuploadModal.entity);
+                  // Compound concepts seed the header entity + compound hint;
+                  // single entities set the entity directly and clear any
+                  // lingering compound hint from a prior session.
+                  const target = reuploadModal.entity;
+                  if (target in COMPOUND_ENTITIES) {
+                    const def = COMPOUND_ENTITIES[target as CompoundEntityType];
+                    setEntity(def.headerEntity);
+                    setCompoundHint(target as CompoundEntityType);
+                  } else {
+                    setEntity(target as EntityType);
+                    setCompoundHint(null);
+                  }
                   setEntityExplicit(true);
                   setReuploadModal(null);
                   setStep("upload");
@@ -2074,7 +2475,15 @@ function ImportPageInner() {
               <button
                 onClick={() => {
                   setImportMode("merge");
-                  setEntity(reuploadModal.entity);
+                  const target = reuploadModal.entity;
+                  if (target in COMPOUND_ENTITIES) {
+                    const def = COMPOUND_ENTITIES[target as CompoundEntityType];
+                    setEntity(def.headerEntity);
+                    setCompoundHint(target as CompoundEntityType);
+                  } else {
+                    setEntity(target as EntityType);
+                    setCompoundHint(null);
+                  }
                   setEntityExplicit(true);
                   setReuploadModal(null);
                   setStep("upload");

@@ -477,6 +477,8 @@ export async function POST(req: Request) {
           lineEntity: COMPOUND_ENTITIES[compoundDetection.compound].lineEntity,
           headerMatches: compoundDetection.headerMatches,
           lineMatches: compoundDetection.lineMatches,
+          headerMapping: compoundDetection.headerMapping,
+          lineMapping: compoundDetection.lineMapping,
         }
       : null,
     // Sheet metadata — always included so the UI can offer an escape hatch
