@@ -1661,6 +1661,10 @@ const REGISTRY: Record<string, RegistryField[]> = {
       aliases: [
         "ponumber", "po_number", "po", "purchaseordernumber", "purchase_order_number",
         "ponr", "po_nr", "orderreference", "po_ref", "po_num",
+        // Common ERP export column labels for a flat-file PO export where
+        // the header key is rendered alongside per-line data.
+        "poheadernumber", "po_header_number", "po_header_#", "poheader",
+        "po_header", "poheader#", "po#", "po_#", "po_nbr", "ponum",
       ],
       example: "PO-20250901",
     },
@@ -1798,7 +1802,8 @@ const REGISTRY: Record<string, RegistryField[]> = {
       aliases: [
         "purchaseorderid", "purchase_order_id", "ponumber", "po_number",
         "po", "orderid", "order_id", "poheadernumber", "po_header_number",
-        "poheader", "po_header", "pohdr",
+        "poheader", "po_header", "pohdr", "po_header_#", "po#", "po_#",
+        "ponum", "ponr",
       ],
       example: "PO-20250901",
     },
@@ -1811,6 +1816,9 @@ const REGISTRY: Record<string, RegistryField[]> = {
       aliases: [
         "linenumber", "line_number", "line", "lineno", "line_no",
         "linenum", "line_num", "line#", "seq", "sequence",
+        // Flat-file PO exports commonly label the line key like the header.
+        "polinenumber", "po_line_number", "po_line_#", "po_line#",
+        "polineno", "po_line_no", "polinenum",
       ],
       example: "1",
     },

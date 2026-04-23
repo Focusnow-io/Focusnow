@@ -55,6 +55,7 @@ import {
 import {
   CANONICAL_FIELDS,
   COMPOUND_ENTITIES,
+  getCanonicalFields,
   suggestMappingWithConfidence,
   type EntityType,
   type MappingConfidence,
@@ -981,9 +982,26 @@ function ImportPageInner() {
     //   medium confidence + ≥ 2 plausible candidates        → disambiguate
     //   exactly one medium candidate (not the primary)      → adopt it
     //   anything else                                       → map
-    const requiredFields =
-      CANONICAL_FIELDS[data.entity as EntityType]?.filter((f) => f.required) ?? [];
-    const allRequiredMapped = requiredFields.every((f) => !!finalMapping[f.field]);
+    // For a compound import (Purchase Orders / Sales Orders / BOM), check
+    // required-field coverage against the *merged* header + line field
+    // set — a line-only file still needs to satisfy the compound's
+    // represented side, not both sides.
+    const coverageEntity = data.detectedCompound
+      ? (data.detectedCompound.fileType === "line-only"
+          ? data.detectedCompound.lineEntity
+          : data.detectedCompound.fileType === "header-only"
+            ? data.detectedCompound.headerEntity
+            : data.detectedCompound.type)
+      : data.entity;
+    const requiredFields = getCanonicalFields(coverageEntity).filter((f) => f.required);
+    const mappingForCoverage = data.detectedCompound
+      ? {
+          ...data.detectedCompound.headerMapping,
+          ...data.detectedCompound.lineMapping,
+          ...finalMapping,
+        }
+      : finalMapping;
+    const allRequiredMapped = requiredFields.every((f) => !!mappingForCoverage[f.field]);
     const det = data.detectedEntity;
 
     if (det && (det.confidence === "certain" || det.confidence === "high") && allRequiredMapped) {

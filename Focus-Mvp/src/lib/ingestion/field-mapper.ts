@@ -620,18 +620,60 @@ export const CANONICAL_FIELDS = {
 
 export type EntityType = keyof typeof CANONICAL_FIELDS;
 
+/** Shape of a single entry in CANONICAL_FIELDS — the `as const` on the
+ *  registry deep-freezes the literal types, so this is the widened view we
+ *  hand back from helpers like `getCanonicalFields`. */
+export interface CanonicalField {
+  field: string;
+  label: string;
+  required?: boolean;
+  identity?: boolean;
+}
+
+/** Resolve canonical fields for any entity key — single Prisma entity or
+ *  compound concept. Compound entities return the merged header + line
+ *  fields, deduplicated by canonical field name so callers can treat the
+ *  result exactly like a single-entity field list.
+ *
+ *  Used by `suggestMappingWithConfidence`, the import wizard's required-
+ *  field coverage check, and anywhere else downstream code needs to
+ *  enumerate "all fields this entity can accept from a CSV". */
+export function getCanonicalFields(entity: string): readonly CanonicalField[] {
+  if (entity in CANONICAL_FIELDS) {
+    return CANONICAL_FIELDS[entity as EntityType] as readonly CanonicalField[];
+  }
+  if (entity in COMPOUND_ENTITIES) {
+    const compound = COMPOUND_ENTITIES[entity as CompoundEntityType];
+    const headerFields = (CANONICAL_FIELDS[compound.headerEntity] ?? []) as readonly CanonicalField[];
+    const lineFields = (CANONICAL_FIELDS[compound.lineEntity] ?? []) as readonly CanonicalField[];
+    // Merge + dedupe by canonical field name. On collision the header's
+    // entry wins so e.g. `status`, `currency`, `notes` keep their header
+    // semantics when a line entity happens to re-declare the same field.
+    const seen = new Set<string>();
+    const merged: CanonicalField[] = [];
+    for (const f of [...headerFields, ...lineFields]) {
+      if (!seen.has(f.field)) {
+        seen.add(f.field);
+        merged.push(f);
+      }
+    }
+    return merged;
+  }
+  return [];
+}
+
 /** Fields that form the entity's unique identity — used for multi-entity detection. */
-export function getIdentityFields(entity: EntityType): string[] {
-  return (CANONICAL_FIELDS[entity] as readonly Record<string, unknown>[])
+export function getIdentityFields(entity: string): string[] {
+  return getCanonicalFields(entity)
     .filter((f) => f.identity === true)
-    .map((f) => f.field as string);
+    .map((f) => f.field);
 }
 
 /** Required fields that are NOT identity — candidates for defaulting when missing. */
-export function getRequiredNonIdentityFields(entity: EntityType): string[] {
-  return (CANONICAL_FIELDS[entity] as readonly Record<string, unknown>[])
+export function getRequiredNonIdentityFields(entity: string): string[] {
+  return getCanonicalFields(entity)
     .filter((f) => f.required === true && f.identity !== true)
-    .map((f) => f.field as string);
+    .map((f) => f.field);
 }
 
 // ─── Compound entities ────────────────────────────────────────────────────────
@@ -717,10 +759,17 @@ export function detectCompoundFileType(
     (f) => !!lineResult.mapping[f],
   ).length;
 
+  // The first header identity field is typically the primary key (poNumber,
+  // soNumber, productId) which also appears in a line-only file as the FK.
+  // So a single header match on its own can't distinguish "flat" from
+  // "line-only" — we require ≥2 header signals (PK + at least one real
+  // header field like supplierId / orderDate) to call it flat. Header-only
+  // and line-only still accept a single signal on their respective side.
   let fileType: CompoundFileType;
-  if (headerMatches >= 1 && lineMatches >= 1) fileType = "flat";
-  else if (headerMatches >= 1) fileType = "header-only";
+  if (headerMatches >= 2 && lineMatches >= 1) fileType = "flat";
+  else if (headerMatches >= 1 && lineMatches === 0) fileType = "header-only";
   else if (lineMatches >= 1) fileType = "line-only";
+  else if (headerMatches >= 1) fileType = "header-only";
   else fileType = "unknown";
 
   return {
@@ -1070,6 +1119,9 @@ const FIELD_ALIASES: Record<string, string[]> = {
   poNumber: [
     "ponumber", "po_number", "po", "purchaseordernumber", "purchase_order_number",
     "ponr", "po_nr", "orderreference", "po_ref", "ponumbe", "po_num",
+    // Flat PO export column labels
+    "poheadernumber", "po_header_number", "poheader", "po_header",
+    "ponum",
   ],
   supplierId: [
     "supplierid", "supplier_id", "suppliercode", "supplier_code",
@@ -1262,6 +1314,8 @@ const FIELD_ALIASES: Record<string, string[]> = {
   lineNumber: [
     "linenumber", "line_number", "lineno", "line_no", "lineitem",
     "line_item", "seq", "sequence",
+    // Flat PO exports frequently label the line key as "PO Line Number"
+    "polinenumber", "po_line_number", "polineno", "po_line_no",
   ],
   section: [
     "section", "bomsection", "bom_section", "group", "assembly_group",
@@ -1822,15 +1876,25 @@ const FIELD_ALIASES: Record<string, string[]> = {
 
 export function suggestMappingWithConfidence(
   headers: string[],
-  entity: EntityType
+  entity: string
 ): MappingWithConfidence {
   const mapping: Record<string, string> = {};
   const confidence: Record<string, MappingConfidence> = {};
   const score: Record<string, number> = {};
-  const fields = CANONICAL_FIELDS[entity];
+  // Use getCanonicalFields so compound entity keys (PurchaseOrders,
+  // SalesOrders, BillOfMaterials) resolve to the merged header + line
+  // field set rather than falling through to an empty array.
+  const fields = getCanonicalFields(entity);
 
   // Pull registry for this entity once — used for alias lookups below.
-  const registryForEntity = getRegistryForEntity(entity);
+  // For compound entities we concatenate both sides' registries so aliases
+  // from either the header or line map correctly.
+  const registryForEntity = entity in COMPOUND_ENTITIES
+    ? [
+        ...getRegistryForEntity(COMPOUND_ENTITIES[entity as CompoundEntityType].headerEntity),
+        ...getRegistryForEntity(COMPOUND_ENTITIES[entity as CompoundEntityType].lineEntity),
+      ]
+    : getRegistryForEntity(entity);
 
   // Normalise each header once — reused across every field's exact, alias,
   // and fuzzy checks rather than being recomputed per field.
@@ -1942,7 +2006,7 @@ export function suggestMappingWithConfidence(
 /** Backwards-compatible wrapper (drops score). */
 export function suggestMapping(
   headers: string[],
-  entity: EntityType
+  entity: string
 ): Record<string, string> {
   return suggestMappingWithConfidence(headers, entity).mapping;
 }
