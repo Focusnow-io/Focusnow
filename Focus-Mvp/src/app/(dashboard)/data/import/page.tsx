@@ -2348,6 +2348,15 @@ function ImportPageInner() {
                   <div className="space-y-1 text-sm text-gray-700">
                     {Object.entries(importResult.delta)
                       .filter(([k]) => k !== "LogicParam")
+                      // Hide secondary-entity rows where nothing new was
+                      // actually created — the primary entity is what the
+                      // user cared about; a line like "476 suppliers
+                      // updated" on a PO-lines import is noise from stub
+                      // re-upserts, not a meaningful change.
+                      .filter(([k, counts]) => {
+                        if (k === uploadResult.entity) return true;
+                        return counts.created > 0;
+                      })
                       .map(([entityKey, counts]) => {
                         const noun = ENTITY_NOUN[entityKey as EntityType] ?? entityKey.toLowerCase();
                         return (

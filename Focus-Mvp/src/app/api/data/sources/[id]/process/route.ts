@@ -332,6 +332,18 @@ export async function POST(
           } else {
             errors.push(`Row ${rowNum + 1}: Skipped — validation failed`);
           }
+        } else if (result === UPSERTED_CACHED) {
+          // The upsertEntity call short-circuited on the in-run cache —
+          // we've already handled this identity in this pass. Count the
+          // row as imported so totals still line up with the file but
+          // skip the delta bump so we don't report 476 supplier updates
+          // when only 19 unique suppliers exist.
+          imported++;
+          entityTypeCounts[entity].importedRows++;
+          if (snapshotConfig) {
+            const key = snapshotConfig.uniqueKeyExtractor(canonical);
+            if (key) processedKeys.add(key);
+          }
         } else if (result === UPSERTED_CREATE || result === UPSERTED_UPDATE) {
           imported++;
           entityTypeCounts[entity].importedRows++;
@@ -565,10 +577,17 @@ async function runNormalizationPipeline(
 /** Sentinels: upsert ran but this entity type doesn't track IDs. */
 const UPSERTED_CREATE = Symbol("upserted_create");
 const UPSERTED_UPDATE = Symbol("upserted_update");
+/** Returned when a per-row upsert short-circuits on the cache because we've
+ *  already processed that identity (supplier code, product sku, …) in this
+ *  run. The row is considered "already handled" for delta purposes — no
+ *  double-count of 476 rows → 476 supplier updates when only 19 unique
+ *  codes exist. */
+const UPSERTED_CACHED = Symbol("upserted_cached");
 type UpsertResult =
   | { entityType: ResolvableEntityType; id: string; wasUpdate: boolean }
   | typeof UPSERTED_CREATE
   | typeof UPSERTED_UPDATE
+  | typeof UPSERTED_CACHED
   | null;
 
 /** Per-import-run caches so we don't re-upsert the same parent entity for
@@ -633,6 +652,13 @@ async function upsertEntity(
   switch (entity) {
     case "Product": {
       if (!data.sku || !data.name) return null;
+      // Same short-circuit as Supplier: clone-pass of a 282-row inventory
+      // file running entity=Product would otherwise report the primary
+      // row count as supplier-like noise.
+      const prodCacheKey = `${orgId}:${data.sku}`;
+      if (ctx?.productCache.has(prodCacheKey)) {
+        return UPSERTED_CACHED;
+      }
       const prodOpt = optFields(data, [
         { k: "description" }, { k: "category" }, { k: "unit" },
         { k: "unitCost", t: "d" }, { k: "unitPrice", t: "d" },
@@ -677,10 +703,19 @@ async function upsertEntity(
         update: { name: data.name, ...prodOpt, attributes: prodUpdateAttrs },
         select: { id: true },
       });
+      ctx?.productCache.set(prodCacheKey, product.id);
       return { entityType: "Product", id: product.id, wasUpdate: !!existingProduct };
     }
     case "Supplier": {
       if (!data.code || !data.name) return null;
+      // Short-circuit when we've already processed this supplier code in
+      // this run. Typical trigger: multi-entity clone-pass runs entity=
+      // Supplier against a 476-row PO Lines file whose 19 unique codes
+      // repeat; without this, delta["Supplier"].updated would reach 457.
+      const supCacheKey = `${orgId}:${data.code}`;
+      if (ctx?.supplierCache.has(supCacheKey)) {
+        return UPSERTED_CACHED;
+      }
       const supOpt = optFields(data, [
         { k: "email" }, { k: "phone" }, { k: "country" },
         { k: "leadTimeDays", t: "i" }, { k: "paymentTerms" },
@@ -716,6 +751,7 @@ async function upsertEntity(
         update: { name: data.name, ...supOpt, attributes: updateAttrs },
         select: { id: true },
       });
+      ctx?.supplierCache.set(supCacheKey, supplier.id);
       return { entityType: "Supplier", id: supplier.id, wasUpdate: !!existingSupplier };
     }
     case "InventoryItem": {
@@ -1014,6 +1050,10 @@ async function upsertEntity(
     }
     case "Customer": {
       if (!data.code || !data.name) return null;
+      const custCacheKey = `${orgId}:${data.code}`;
+      if (ctx?.customerCache.has(custCacheKey)) {
+        return UPSERTED_CACHED;
+      }
       const custOpt = optFields(data, [
         { k: "contactName" }, { k: "email" }, { k: "phone" },
         { k: "country" }, { k: "currency" }, { k: "paymentTerms" },
@@ -1031,6 +1071,7 @@ async function upsertEntity(
         update: { name: data.name, ...custOpt, attributes: attrs },
         select: { id: true },
       });
+      ctx?.customerCache.set(custCacheKey, customer.id);
       return { entityType: "Customer", id: customer.id, wasUpdate: !!existingCust };
     }
     case "PurchaseOrder": {
@@ -1222,6 +1263,10 @@ async function upsertEntity(
       const locCode = data.locationId || data.code;
       const locName = data.name || locCode;
       if (!locCode) return null;
+      const locCacheKey = `${orgId}:${locCode}`;
+      if (ctx?.locationCache.has(locCacheKey)) {
+        return UPSERTED_CACHED;
+      }
       const locOpt = optFields(data, [
         { k: "type" }, { k: "city" }, { k: "countryCode" }, { k: "notes" },
       ]);
@@ -1229,12 +1274,13 @@ async function upsertEntity(
         where: { organizationId_code: { organizationId: orgId, code: locCode } },
         select: { id: true },
       });
-      await prisma.location.upsert({
+      const location = await prisma.location.upsert({
         where: { organizationId_code: { organizationId: orgId, code: locCode } },
         create: { organizationId: orgId, code: locCode, name: locName, ...locOpt, attributes: attrs },
         update: { name: locName, ...locOpt, attributes: attrs },
         select: { id: true },
       });
+      ctx?.locationCache.set(locCacheKey, location.id);
       return existingLoc ? UPSERTED_UPDATE : UPSERTED_CREATE;
     }
     case "Equipment": {
