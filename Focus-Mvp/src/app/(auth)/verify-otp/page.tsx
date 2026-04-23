@@ -8,7 +8,7 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 
 function VerifyOtpForm() {
   const router = useRouter();
@@ -17,7 +17,7 @@ function VerifyOtpForm() {
 
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
   const [resending, setResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
 
@@ -29,7 +29,7 @@ function VerifyOtpForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    setLoading(true);
+    setIsVerifying(true);
 
     try {
       // Step 1: verify the OTP code and exchange it for a one-time sign-in token
@@ -75,7 +75,7 @@ function VerifyOtpForm() {
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {
-      setLoading(false);
+      setIsVerifying(false);
     }
   }
 
@@ -180,6 +180,7 @@ function VerifyOtpForm() {
                 className="text-center tracking-[0.4em] text-lg font-mono"
                 required
                 autoFocus
+                disabled={isVerifying}
               />
             </div>
 
@@ -199,13 +200,13 @@ function VerifyOtpForm() {
             <Button
               type="submit"
               className="w-full mt-1"
-              disabled={loading || code.length < 6}
+              disabled={isVerifying || code.length < 6}
             >
-              {loading ? (
-                <span className="flex items-center gap-2">
-                  <span className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  Verifying…
-                </span>
+              {isVerifying ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Signing you in…
+                </>
               ) : (
                 "Verify & sign in"
               )}
