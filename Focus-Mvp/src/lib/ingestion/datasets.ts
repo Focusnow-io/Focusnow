@@ -193,6 +193,12 @@ export const DATASETS = {
       component_cost:   { label: "Component Cost",      type: "number" },
       extended_cost:    { label: "Extended Cost",       type: "number" },
       revision:         { label: "BOM Revision",        type: "string" },
+      // Optional BOM identifier — distinct from fg_sku. A "BOM ID" is
+      // the header's own key (e.g. "BOM-DF-02-A"), whereas fg_sku is
+      // the finished-good SKU the BOM produces (e.g. "DF-02"). Files
+      // that carry both columns used to collapse onto fg_sku via the
+      // alias list, which broke component rollups.
+      bom_id:           { label: "BOM ID",              type: "string" },
     },
     identityFields: ["fg_sku", "component_sku"],
   },
@@ -368,9 +374,14 @@ export const DATASET_FIELD_ALIASES: Record<DatasetName, Record<string, string[]>
     notes: ["notes", "comments", "remarks"],
   },
   bom: {
-    fg_sku: ["fg_sku", "finished_good_sku", "parent_sku", "assembly_sku", "bom_id",
-             "bom id", "bomid", "fg_code", "parent_code", "finished good sku",
-             "fgsku"],
+    // fg_sku is the finished-good SKU (e.g. "DF-02") the BOM produces.
+    // Previously carried bom_id / bomid aliases, which pulled values
+    // like "BOM-DF-02-A" into fg_sku. Those aliases now belong to the
+    // separate bom_id field below. The remaining aliases cover the
+    // FG-SKU column variants we see in real exports.
+    fg_sku: ["fg_sku", "fgsku", "finished_good_sku", "finished good sku",
+             "parent_sku", "assembly_sku", "fg_code", "parent_code",
+             "bom_parent_sku", "assembly_code"],
     fg_name: ["fg_name", "finished_good_name", "parent_name", "assembly_name",
               "product_name", "fg name"],
     component_sku: ["component_sku", "component_id", "child_sku", "part_sku",
@@ -387,5 +398,9 @@ export const DATASET_FIELD_ALIASES: Record<DatasetName, Record<string, string[]>
     component_cost: ["component_cost", "unit_cost", "cost", "part_cost"],
     extended_cost: ["extended_cost", "extended cost", "total_cost", "line_cost"],
     revision: ["revision", "bom_revision", "rev", "version"],
+    // Header-level BOM identifier. Kept separate from fg_sku so files
+    // that carry both columns don't collapse onto fg_sku.
+    bom_id: ["bom_id", "bomid", "bom id", "bom_code", "bom_number",
+             "bom_header_id", "bom header id"],
   },
 };
