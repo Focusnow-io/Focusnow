@@ -214,5 +214,8 @@ async function buildContextInternal(orgId: string): Promise<string> {
     sections.push("");
   }
 
-  return sections.join("\n");
+  // Belt-and-suspenders sanitize at the source — every caller of
+  // buildOrgContext now gets a byte-string-safe payload regardless
+  // of what slipped through the per-field wrapping above.
+  return sanitizeForApi(sections.join("\n"));
 }

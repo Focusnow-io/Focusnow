@@ -471,6 +471,20 @@ ${orgContext}`),
     },
   ];
 
+  // Belt-and-suspenders: sweep the final system-prompt structure one
+  // more time. If a future block gets appended without its own
+  // sanitize call, this pass still strips non-Latin-1 before the API
+  // call. Handles both text-typed blocks and the legacy plain-string
+  // form (Anthropic.MessageCreateParams["system"] accepts both).
+  const safeSystemPrompt: Anthropic.MessageCreateParams["system"] =
+    Array.isArray(systemPrompt)
+      ? systemPrompt.map((block) =>
+          block.type === "text"
+            ? { ...block, text: sanitizeForApi(block.text) }
+            : block,
+        )
+      : sanitizeForApi(systemPrompt);
+
   // Load conversation history
   const historyMessages = await prisma.conversationMessage.findMany({
     where: { conversationId: id },
@@ -516,7 +530,7 @@ ${orgContext}`),
               anthropic.messages.create({
                 model: finalModel,
                 max_tokens: MAX_TOKENS,
-                system: systemPrompt,
+                system: safeSystemPrompt,
                 messages: anthropicMessages,
                 tools: toolDefinitions,
                 stream: true,
