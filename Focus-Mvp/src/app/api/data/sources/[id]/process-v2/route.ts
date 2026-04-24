@@ -25,122 +25,141 @@ export async function POST(
   if (!ctx) return unauthorized();
   const { id } = await params;
 
-  const source = await prisma.dataSource.findFirst({
-    where: { id, organizationId: ctx.org.id },
-  });
-  if (!source) return notFound();
+  try {
+    const source = await prisma.dataSource.findFirst({
+      where: { id, organizationId: ctx.org.id },
+    });
+    if (!source) return notFound();
 
-  const config = source.mappingConfig as {
-    dataset?: DatasetName;
-    mapping?: Record<string, string>;
-    importMode?: "merge" | "replace";
-    rawFileBase64?: string;
-    rawFileType?: "csv" | "xlsx";
-  } | null;
+    const config = source.mappingConfig as {
+      dataset?: DatasetName;
+      mapping?: Record<string, string>;
+      importMode?: "merge" | "replace";
+      rawFileBase64?: string;
+      rawFileType?: "csv" | "xlsx";
+    } | null;
 
-  if (!config?.dataset || !config?.mapping) {
-    return NextResponse.json({ error: "No mapping configured" }, { status: 400 });
-  }
-  if (!(config.dataset in DATASETS)) {
-    return NextResponse.json(
-      { error: `Unknown dataset: ${config.dataset}` },
-      { status: 400 },
+    if (!config?.dataset || !config?.mapping) {
+      return NextResponse.json({ error: "No mapping configured" }, { status: 400 });
+    }
+    if (!(config.dataset in DATASETS)) {
+      return NextResponse.json(
+        { error: `Unknown dataset: ${config.dataset}` },
+        { status: 400 },
+      );
+    }
+    // Defensive guard — without this, Buffer.from(undefined, "base64")
+    // throws and the client sees an empty response body.
+    if (!config.rawFileBase64) {
+      return NextResponse.json(
+        { error: "File data not found. Please re-upload your file." },
+        { status: 400 },
+      );
+    }
+    if (!config.rawFileType) {
+      return NextResponse.json(
+        { error: "File type missing from upload metadata. Please re-upload your file." },
+        { status: 400 },
+      );
+    }
+
+    const importMode: "merge" | "replace" = config.importMode ?? "merge";
+
+    // Re-parse the stored file. The import-v2 route persists the raw
+    // bytes (base64) alongside the mapping so /process-v2 doesn't need
+    // another client upload round-trip.
+    const buffer = Buffer.from(config.rawFileBase64, "base64");
+    const parsed =
+      config.rawFileType === "xlsx" ? parseXLSXBuffer(buffer) : parseCSVBuffer(buffer);
+
+    // Transform every raw row into canonical-key shape. Coercion to types
+    // (number/boolean/date) happens inside record-importer so the dataset
+    // definitions stay the single source of truth.
+    const canonicalRows = parsed.rows.map((row) =>
+      applyDatasetMapping(row, config.mapping!),
     );
-  }
-  if (!config.rawFileBase64 || !config.rawFileType) {
-    return NextResponse.json(
-      { error: "Source file has been discarded — please re-upload" },
-      { status: 410 },
-    );
-  }
 
-  const importMode: "merge" | "replace" = config.importMode ?? "merge";
+    const datasetDef = DATASETS[config.dataset];
+    const importDataset = await prisma.importDataset.create({
+      data: {
+        organizationId: ctx.org.id,
+        name: config.dataset,
+        label: datasetDef.label,
+        sourceFile: source.originalName,
+        rowCount: parsed.rowCount,
+        columnMap: config.mapping as Prisma.InputJsonValue,
+        rawHeaders: source.rawHeaders,
+        importMode,
+        importedBy: ctx.session.user.id,
+        status: "complete",
+      },
+    });
 
-  // Re-parse the stored file. The import-v2 route persists the raw
-  // bytes (base64) alongside the mapping so /process-v2 doesn't need
-  // another client upload round-trip.
-  const buffer = Buffer.from(config.rawFileBase64, "base64");
-  const parsed =
-    config.rawFileType === "xlsx" ? parseXLSXBuffer(buffer) : parseCSVBuffer(buffer);
-
-  // Transform every raw row into canonical-key shape. Coercion to types
-  // (number/boolean/date) happens inside record-importer so the dataset
-  // definitions stay the single source of truth.
-  const canonicalRows = parsed.rows.map((row) =>
-    applyDatasetMapping(row, config.mapping!),
-  );
-
-  const datasetDef = DATASETS[config.dataset];
-  const importDataset = await prisma.importDataset.create({
-    data: {
-      organizationId: ctx.org.id,
-      name: config.dataset,
-      label: datasetDef.label,
-      sourceFile: source.originalName,
-      rowCount: parsed.rowCount,
-      columnMap: config.mapping as Prisma.InputJsonValue,
-      rawHeaders: source.rawHeaders,
+    const result = await importRecords(
+      ctx.org.id,
+      importDataset.id,
+      config.dataset,
+      canonicalRows,
       importMode,
-      importedBy: ctx.session.user.id,
-      status: "complete",
-    },
-  });
+    );
 
-  const result = await importRecords(
-    ctx.org.id,
-    importDataset.id,
-    config.dataset,
-    canonicalRows,
-    importMode,
-  );
+    const importedRows = result.created + result.updated;
+    const datasetStatus =
+      result.skipped === parsed.rowCount
+        ? "failed"
+        : result.skipped > 0
+          ? "partial"
+          : "complete";
 
-  const importedRows = result.created + result.updated;
-  const datasetStatus =
-    result.skipped === parsed.rowCount
-      ? "failed"
-      : result.skipped > 0
-        ? "partial"
-        : "complete";
+    await prisma.importDataset.update({
+      where: { id: importDataset.id },
+      data: {
+        importedRows,
+        skippedRows: result.skipped,
+        status: datasetStatus,
+        errorSummary:
+          result.errors.length > 0
+            ? result.errors.slice(0, 5).map((e) => `Row ${e.row}: ${e.message}`).join("; ")
+            : null,
+      },
+    });
 
-  await prisma.importDataset.update({
-    where: { id: importDataset.id },
-    data: {
-      importedRows,
-      skippedRows: result.skipped,
-      status: datasetStatus,
-      errorSummary:
-        result.errors.length > 0
-          ? result.errors.slice(0, 5).map((e) => `Row ${e.row}: ${e.message}`).join("; ")
-          : null,
-    },
-  });
+    // Mark the originating DataSource complete so the legacy Sources UI
+    // still shows the upload as done — we don't yet have a separate
+    // ImportDataset listing view.
+    await prisma.dataSource.update({
+      where: { id },
+      data: {
+        status:
+          datasetStatus === "failed" ? "FAILED" : "COMPLETED",
+        importedRows,
+        errorMessage:
+          result.errors.length > 0
+            ? result.errors
+                .slice(0, 5)
+                .map((e) => `Row ${e.row}: ${e.message}`)
+                .join("; ")
+            : null,
+      },
+    });
 
-  // Mark the originating DataSource complete so the legacy Sources UI
-  // still shows the upload as done — we don't yet have a separate
-  // ImportDataset listing view.
-  await prisma.dataSource.update({
-    where: { id },
-    data: {
-      status:
-        datasetStatus === "failed" ? "FAILED" : "COMPLETED",
-      importedRows,
-      errorMessage:
-        result.errors.length > 0
-          ? result.errors
-              .slice(0, 5)
-              .map((e) => `Row ${e.row}: ${e.message}`)
-              .join("; ")
-          : null,
-    },
-  });
-
-  return NextResponse.json({
-    imported: importedRows,
-    created: result.created,
-    updated: result.updated,
-    skipped: result.skipped,
-    errors: result.errors.slice(0, 10),
-    dataset: config.dataset,
-    datasetId: importDataset.id,
-  });
+    return NextResponse.json({
+      imported: importedRows,
+      created: result.created,
+      updated: result.updated,
+      skipped: result.skipped,
+      errors: result.errors.slice(0, 10),
+      dataset: config.dataset,
+      datasetId: importDataset.id,
+    });
+  } catch (err) {
+    // Last-resort safety net — without this any throw above (Prisma
+    // client init, file-parse failure, raw SQL panic) returns an empty
+    // response body and the client throws "Unexpected end of JSON input".
+    console.error("[process-v2] Unhandled error:", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Import failed" },
+      { status: 500 },
+    );
+  }
 }

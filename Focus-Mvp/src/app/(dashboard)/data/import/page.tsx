@@ -123,6 +123,16 @@ function plural(n: number, noun: string) {
   return `${n.toLocaleString()} ${noun}${n === 1 ? "" : "s"}`;
 }
 
+/** Idempotent pluralisation for dataset units. The IMPORT_CONCEPTS
+ *  unit field already comes through pre-pluralised ("products",
+ *  "suppliers", "records") so the standard `plural()` helper would
+ *  produce "productss". This helper appends "s" only when the unit
+ *  doesn't already end in one, matching the natural English form. */
+function pluralise(count: number, unit: string): string {
+  const suffix = unit.endsWith("s") ? "" : "s";
+  return `${count.toLocaleString()} ${unit}${suffix}`;
+}
+
 function formatRelativeDate(dateStr: string): string {
   const days = Math.floor(
     (Date.now() - new Date(dateStr).getTime()) / 86_400_000,
@@ -622,7 +632,7 @@ function ImportPageInner() {
                   </span>
                 )}
                 <p className="text-base font-semibold text-slate-900">
-                  Ready to import {plural(uploadResult.rowCount, getDatasetUnit(ds))} from your file
+                  Ready to import {pluralise(uploadResult.rowCount, getDatasetUnit(ds))} from your file
                 </p>
                 {uploadResult.detectedDescription && (
                   <p className="text-xs text-gray-500">{uploadResult.detectedDescription}</p>
