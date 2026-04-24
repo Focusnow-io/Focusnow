@@ -121,7 +121,7 @@ interface CoverageEntry {
   lastImported: string;
 }
 
-type Step = "hub" | "upload" | "disambiguate" | "confirm" | "done";
+type Step = "select" | "upload" | "confirm" | "done";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -165,10 +165,12 @@ function ImportPageInner() {
   const searchParams = useSearchParams();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [step, setStep] = useState<Step>("hub");
+  const [step, setStep] = useState<Step>("select");
   const [file, setFile] = useState<File | null>(null);
   const [dataset, setDataset] = useState<DatasetName>("products");
-  const [datasetExplicit, setDatasetExplicit] = useState(false);
+  // `datasetExplicit` went away with auto-detection — every path to
+  // the upload screen now seeds a dataset via the hub, so the API
+  // always receives an explicit `dataset` form field.
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
@@ -240,9 +242,13 @@ function ImportPageInner() {
     setUploading(true);
     setUploadError(null);
 
+    // The concept hub is the only entry point to the upload screen, so
+    // the dataset hint is always set. If somehow it isn't (e.g. a user
+    // deep-links into /upload), the API will 400 and we surface that
+    // error inline rather than trying to auto-detect.
     const fd = new FormData();
     fd.append("file", file);
-    if (datasetExplicit) fd.append("dataset", dataset);
+    fd.append("dataset", dataset);
     fd.append("importMode", importMode);
 
     try {
@@ -256,35 +262,16 @@ function ImportPageInner() {
       const result = data as UploadResult;
       setUploadResult(result);
       setDataset(result.dataset);
-
-      const det = result.detectedDataset;
-      if (!det) {
-        setStep("confirm");
-      } else if (det.confidence === "certain" || det.confidence === "high") {
-        setStep("confirm");
-      } else if (det.confidence === "medium" && det.alternatives.length > 0) {
-        setStep("disambiguate");
-      } else {
-        setStep("confirm");
-      }
+      // Always land on Confirm — the dataset is already locked in by
+      // the concept card the user clicked, so there's nothing to
+      // disambiguate. The Confirm screen surfaces matched fields and
+      // the user can cancel + restart from the hub if the file's wrong.
+      setStep("confirm");
     } catch {
       setUploadError("Network error — please try again.");
     } finally {
       setUploading(false);
     }
-  }
-
-  async function handleDisambiguate(chosen: DatasetName) {
-    if (!uploadResult) return;
-    // Re-upload the file under the new dataset hint — simpler than a
-    // client-side re-run of the column mapper and keeps the server as
-    // the single source of truth for suggested mappings.
-    setDataset(chosen);
-    setDatasetExplicit(true);
-    setUploadResult(null);
-    setStep("upload");
-    // Immediately re-run upload with the new hint.
-    setTimeout(() => handleUpload(), 0);
   }
 
   async function handleProcess() {
@@ -306,19 +293,17 @@ function ImportPageInner() {
   }
 
   const handleReset = useCallback(() => {
-    setStep("hub");
+    setStep("select");
     setCoverageVersion((v) => v + 1);
     setFile(null);
     setUploadResult(null);
     setUploadError(null);
-    setDatasetExplicit(false);
     setImportResult(null);
     setImportMode("merge");
   }, []);
 
   function startImport(conceptId: DatasetName, mode: "merge" | "replace") {
     setDataset(conceptId);
-    setDatasetExplicit(true);
     setImportMode(mode);
     setFile(null);
     setUploadResult(null);
@@ -329,16 +314,16 @@ function ImportPageInner() {
   // ── Render ───────────────────────────────────────────────────────────────
 
   const MILESTONES = ["Upload", "Confirm", "Done"] as const;
-  const milestoneIdx = step === "done" ? 2 : step === "upload" || step === "hub" ? 0 : 1;
+  const milestoneIdx = step === "done" ? 2 : step === "upload" || step === "select" ? 0 : 1;
 
   return (
     <div
       className={cn(
         "space-y-6 mx-auto w-full",
-        step === "hub" ? "max-w-5xl" : "max-w-2xl",
+        step === "select" ? "max-w-5xl" : "max-w-2xl",
       )}
     >
-      {step !== "hub" && (
+      {step !== "select" && (
         <div>
           <h1 className="text-xl font-bold text-gray-900">Import Data</h1>
           <p className="text-sm text-gray-500 mt-0.5">
@@ -347,7 +332,7 @@ function ImportPageInner() {
         </div>
       )}
 
-      {step !== "hub" && (
+      {step !== "select" && (
         <div className="flex items-center gap-2">
           {MILESTONES.map((label, i) => (
             <div key={label} className="flex items-center gap-2">
@@ -376,7 +361,7 @@ function ImportPageInner() {
       )}
 
       {/* ── HUB ─────────────────────────────────────────────────────────── */}
-      {step === "hub" && (
+      {step === "select" && (
         <div className="space-y-8">
           <div>
             <h2 className="text-2xl font-semibold text-foreground">Connect your operational data</h2>
@@ -473,14 +458,19 @@ function ImportPageInner() {
         <Card>
           <CardContent className="p-8 space-y-6">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">
-                {datasetExplicit ? getDatasetLabel(dataset) : "Upload your data"}
-              </h2>
-              <p className="text-sm text-gray-500 mt-0.5">
-                {datasetExplicit
-                  ? "Upload a CSV or Excel file — we'll map your columns automatically."
-                  : "Drop any CSV or Excel file — we'll figure out what it contains."}
-              </p>
+              <h2 className="text-lg font-semibold text-gray-900">Upload your data</h2>
+              <div className="mt-0.5 flex items-center gap-2 text-sm text-muted-foreground">
+                <span>
+                  Uploading: <span className="font-medium text-foreground">{getDatasetLabel(dataset)}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setStep("select")}
+                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-4"
+                >
+                  ← Change
+                </button>
+              </div>
             </div>
 
             <div
@@ -559,66 +549,6 @@ function ImportPageInner() {
               )}
             </Button>
 
-            <div className="pt-1 text-center">
-              <button
-                type="button"
-                onClick={() => setStep("hub")}
-                className="text-xs text-slate-600 hover:text-slate-900 underline underline-offset-2"
-              >
-                Browse by concept →
-              </button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ── DISAMBIGUATE ──────────────────────────────────────────────── */}
-      {step === "disambiguate" && uploadResult && (
-        <Card>
-          <CardContent className="p-6 space-y-5">
-            <div>
-              <p className="text-base font-semibold text-gray-900">
-                What does this file contain?
-              </p>
-              <p className="text-sm text-gray-500 mt-1">
-                We found a few possibilities. Pick the one that matches your file.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {[uploadResult.dataset, ...uploadResult.detectedDataset.alternatives.map((a) => a.dataset)]
-                .filter((d, i, arr) => arr.indexOf(d) === i)
-                .slice(0, 4)
-                .map((ds) => (
-                  <button
-                    key={ds}
-                    type="button"
-                    onClick={() => handleDisambiguate(ds)}
-                    className="text-left border border-gray-200 hover:border-slate-400 hover:bg-slate-50 rounded-xl p-4 transition-colors"
-                  >
-                    <p className="text-sm font-semibold text-gray-900">{getDatasetLabel(ds)}</p>
-                    <p className="text-xs text-gray-500 mt-1">{DATASETS[ds]?.description ?? ""}</p>
-                    <p className="text-[11px] text-gray-400 mt-2">
-                      {uploadResult.rowCount.toLocaleString()} rows
-                    </p>
-                  </button>
-                ))}
-            </div>
-
-            <div className="pt-1 flex items-center justify-end">
-              <button
-                type="button"
-                onClick={() => {
-                  setFile(null);
-                  setUploadResult(null);
-                  setDatasetExplicit(false);
-                  setStep("upload");
-                }}
-                className="text-xs text-gray-500 hover:text-gray-700"
-              >
-                ← Start over
-              </button>
-            </div>
           </CardContent>
         </Card>
       )}

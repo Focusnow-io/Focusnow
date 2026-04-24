@@ -6,20 +6,18 @@ import { resolvePermissions } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { parseCSVBuffer } from "@/lib/ingestion/csv-parser";
 import { parseXLSXBuffer, getXLSXWorkbookInfo } from "@/lib/ingestion/xlsx-parser";
-import { detectDataset, suggestDatasetMapping } from "@/lib/ingestion/dataset-mapper";
+import { suggestDatasetMapping } from "@/lib/ingestion/dataset-mapper";
 import { DATASETS, type DatasetName } from "@/lib/ingestion/datasets";
 
 /**
  * POST /api/data/import-v2
  *
- * New JSONB import entry point. Parses the uploaded file, detects which
- * of the 8 canonical datasets it most resembles, suggests a canonical
- * mapping, and stores the file + config on DataSource.mappingConfig so
- * the companion /process-v2 route can materialise the rows into
- * ImportRecord.
- *
- * Runs in parallel with the legacy /api/data/import endpoint — nothing
- * here mutates the old per-entity Prisma tables.
+ * Upload entry point for the JSONB import pipeline. The dataset must be
+ * supplied explicitly by the caller — the 8-concept hub is the only
+ * entry point, and every click seeds the `dataset` form field before
+ * the file is submitted. Auto-detection has been retired (it produced
+ * surprising results often enough that users ended up in the wrong
+ * dataset); requiring an explicit pick keeps the mapping deterministic.
  */
 export async function POST(req: Request) {
   const ctx = await getSessionOrg();
@@ -32,17 +30,20 @@ export async function POST(req: Request) {
 
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
-  const datasetHintRaw = formData.get("dataset") as string | null;
-  const datasetHint: DatasetName | null =
-    datasetHintRaw && datasetHintRaw in DATASETS
-      ? (datasetHintRaw as DatasetName)
-      : null;
+  const datasetRaw = formData.get("dataset") as string | null;
   const importMode =
     (formData.get("importMode") as "replace" | "merge" | null) ?? "merge";
 
   if (!file) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
+  if (!datasetRaw || !(datasetRaw in DATASETS)) {
+    return NextResponse.json(
+      { error: "Please select a data type before uploading." },
+      { status: 400 },
+    );
+  }
+  const dataset = datasetRaw as DatasetName;
 
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
@@ -75,41 +76,12 @@ export async function POST(req: Request) {
     );
   }
 
-  // Detect which dataset the file most resembles.
-  const detectionResults = detectDataset(
-    parsed.headers,
-    parsed.rows.slice(0, 10),
-    file.name,
-  );
-
-  // Resolve the dataset + confidence level. A user-supplied hint takes
-  // precedence over auto-detection; we still surface the auto-detected
-  // top result so the UI can note "hint accepted" vs "hint overrode".
-  let resolvedDataset: DatasetName;
-  let detectionConfidence: "certain" | "high" | "medium" | "low" | "inferred";
-  let wasAutoDetected = false;
-
-  if (datasetHint) {
-    const hintMatch = detectionResults.find((r) => r.dataset === datasetHint);
-    resolvedDataset = datasetHint;
-    detectionConfidence =
-      hintMatch && hintMatch.identityFieldsMatched >= 1 ? "certain" : "inferred";
-  } else if (detectionResults.length > 0) {
-    const top = detectionResults[0];
-    resolvedDataset = top.dataset;
-    wasAutoDetected = true;
-    if (top.identityFieldsMatched >= 2) detectionConfidence = "high";
-    else if (top.identityFieldsMatched >= 1) detectionConfidence = "medium";
-    else detectionConfidence = "low";
-  } else {
-    resolvedDataset = "products";
-    detectionConfidence = "low";
-    wasAutoDetected = true;
-  }
-
+  // Column mapping is still needed — the dataset tells us WHICH set of
+  // canonical fields to map against; suggestDatasetMapping figures out
+  // which source column feeds each field via the alias registry.
   const { mapping, confidence, unmappedColumns } = suggestDatasetMapping(
     parsed.headers,
-    resolvedDataset,
+    dataset,
   );
 
   // First-three-values preview per column, reused by the UI's mapping
@@ -133,7 +105,7 @@ export async function POST(req: Request) {
       rowCount: parsed.rowCount,
       rawHeaders: parsed.headers,
       mappingConfig: {
-        dataset: resolvedDataset,
+        dataset,
         mapping,
         confidence,
         importMode,
@@ -148,14 +120,17 @@ export async function POST(req: Request) {
   return NextResponse.json({
     sourceId: dataSource.id,
     headers: parsed.headers,
-    dataset: resolvedDataset,
+    dataset,
+    // `detectedDataset` still present for backward compat with UI code
+    // that reads it — flagged as an explicit selection so the Confirm
+    // screen doesn't render an "auto-detected" badge.
     detectedDataset: {
-      dataset: resolvedDataset,
-      confidence: detectionConfidence,
-      wasAutoDetected,
-      alternatives: detectionResults.slice(1, 4),
+      dataset,
+      confidence: "certain",
+      wasAutoDetected: false,
+      alternatives: [],
     },
-    detectedDescription: `${parsed.rowCount.toLocaleString()} rows of ${resolvedDataset.replace(/_/g, " ")}`,
+    detectedDescription: `${parsed.rowCount.toLocaleString()} rows of ${dataset.replace(/_/g, " ")}`,
     suggestedMapping: mapping,
     confidence,
     sampleValues,
