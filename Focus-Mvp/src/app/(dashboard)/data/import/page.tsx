@@ -381,35 +381,38 @@ function ImportPageInner() {
           <div>
             <h2 className="text-2xl font-semibold text-foreground">Connect your operational data</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Pick what you want to import — we&apos;ll handle the rest.
+              Select a data type to import or update.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {IMPORT_CONCEPTS.map((concept) => {
+          <div className="border border-border rounded-xl bg-background overflow-hidden">
+            {IMPORT_CONCEPTS.map((concept, i) => {
               const cov = coverageMap[concept.id] ?? null;
               const hasData = (cov?.importedRows ?? 0) > 0;
+              const isLast = i === IMPORT_CONCEPTS.length - 1;
               return (
                 <div
                   key={concept.id}
-                  className="rounded-xl border border-border bg-card p-6 flex flex-col gap-4 hover:shadow-md transition-shadow"
+                  className={cn(
+                    "flex items-center justify-between gap-4 px-4 py-3 hover:bg-muted/30 transition-colors",
+                    !isLast && "border-b border-border",
+                  )}
                 >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-base font-semibold text-foreground leading-tight">
+                  <div className="flex items-baseline gap-3 min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground shrink-0">
                       {concept.label}
                     </p>
-                    <p className="text-sm text-muted-foreground mt-1">
+                    <span className="text-sm text-muted-foreground shrink-0" aria-hidden>·</span>
+                    <p className="text-sm text-muted-foreground truncate">
                       {concept.description}
                     </p>
-                    {!hasData && (
-                      <p className="text-xs text-muted-foreground/70 mt-1 italic">
-                        {concept.examples}
-                      </p>
-                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
                     {hasData && cov && (
-                      <p className="flex items-center gap-1 text-xs text-emerald-600 mt-3">
+                      <p className="flex items-center gap-1 text-xs text-emerald-600 mr-2">
                         <CheckCircle2 className="w-3 h-3 shrink-0" />
-                        <span>
+                        <span className="whitespace-nowrap">
                           {cov.importedRows.toLocaleString()} {concept.unit}
                           <span className="text-muted-foreground">
                             {" "}· {formatRelativeDate(cov.lastImported)}
@@ -417,37 +420,37 @@ function ImportPageInner() {
                         </span>
                       </p>
                     )}
-                  </div>
 
-                  {hasData ? (
-                    <div className="flex gap-2">
+                    {hasData ? (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => startImport(concept.id, "merge")}
+                          className="w-20"
+                        >
+                          Update
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => startImport(concept.id, "replace")}
+                          className="w-20 text-destructive border-destructive/30 hover:bg-destructive/5 hover:text-destructive"
+                        >
+                          Replace
+                        </Button>
+                      </>
+                    ) : (
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => startImport(concept.id, "merge")}
-                        className="flex-1"
+                        className="w-24"
                       >
-                        Update
+                        Import
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => startImport(concept.id, "replace")}
-                        className="flex-1 text-destructive border-destructive/30 hover:bg-destructive/5 hover:text-destructive"
-                      >
-                        Replace
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => startImport(concept.id, "merge")}
-                      className="w-full"
-                    >
-                      Import
-                    </Button>
-                  )}
+                    )}
+                  </div>
                 </div>
               );
             })}
