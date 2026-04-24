@@ -5,7 +5,13 @@ import { getSessionOrg, unauthorized, badRequest } from "@/lib/api-helpers";
 import { prisma } from "@/lib/prisma";
 import Anthropic from "@anthropic-ai/sdk";
 import { checkTokenBudget, recordTokenUsage } from "@/lib/usage/token-tracker";
+import { buildOrgContext } from "@/lib/chat/build-context";
 
+/**
+ * Apps chat — streaming Anthropic response with a dataset-vocabulary
+ * context block. Uses the same buildOrgContext as the Brain chat so
+ * widgets and Brain chat give consistent answers.
+ */
 export async function POST(req: Request) {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
@@ -20,191 +26,59 @@ export async function POST(req: Request) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json(
       { error: "ANTHROPIC_API_KEY is not configured on the server" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
-  // Token budget pre-flight check
-  const budget = await checkTokenBudget(ctx.org.id, ctx.session.user!.id!, ctx.org.plan ?? "free");
+  const budget = await checkTokenBudget(
+    ctx.org.id,
+    ctx.session.user!.id!,
+    ctx.org.plan ?? "free",
+  );
   if (!budget.allowed) {
     return NextResponse.json({ error: budget.message }, { status: 429 });
   }
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-  // Use count() queries for accurate totals; sample rows are limited to avoid token overflow
-  const [
-    inventory,
-    inventoryCount,
-    products,
-    productCount,
-    suppliers,
-    orders,
-    orderCount,
-    rules,
-    workOrders,
-    bomHeaders,
-    equipment,
-  ] = await Promise.all([
-    prisma.inventoryItem.findMany({
-      where: { organizationId: ctx.org.id },
-      select: {
-        quantity: true, reorderPoint: true, uom: true, unitCost: true,
-        product: { select: { sku: true, name: true, category: true } },
-        location: { select: { code: true, name: true } },
-      },
-      take: 100,
-    }),
-    prisma.inventoryItem.count({
-      where: { organizationId: ctx.org.id },
-    }),
-    prisma.product.findMany({
-      where: { organizationId: ctx.org.id },
-      select: { sku: true, name: true, category: true, unit: true, type: true, unitCost: true, reorderPoint: true, leadTimeDays: true, productFamily: true, abcClass: true },
-      take: 100,
-    }),
-    prisma.product.count({
-      where: { organizationId: ctx.org.id },
-    }),
-    prisma.supplier.findMany({
-      where: { organizationId: ctx.org.id },
-      select: { code: true, name: true, country: true, leadTimeDays: true, qualityRating: true, onTimePct: true, status: true },
-    }),
-    prisma.order.findMany({
-      where: { organizationId: ctx.org.id },
-      select: { orderNumber: true, type: true, status: true, totalAmount: true, orderDate: true, expectedDate: true, supplier: { select: { name: true } } },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    }),
-    prisma.order.count({
-      where: { organizationId: ctx.org.id },
-    }),
-    prisma.brainRule.findMany({
-      where: { organizationId: ctx.org.id, status: "ACTIVE" },
-      select: { name: true, category: true },
-    }),
-    prisma.workOrder.findMany({
-      where: { organizationId: ctx.org.id },
-      select: { orderNumber: true, sku: true, status: true, plannedQty: true, actualQty: true, workCenter: true, scheduledDate: true, dueDate: true, productionLine: true, yieldPct: true },
-      orderBy: { dueDate: "asc" },
-      take: 30,
-    }),
-    prisma.bOMHeader.findMany({
-      where: { orgId: ctx.org.id, isActive: true },
-      select: { version: true, yieldPct: true, totalComponents: true, totalBomCost: true, product: { select: { sku: true, name: true } }, lines: { select: { qty: true, uom: true, component: { select: { sku: true, name: true } } }, take: 10 } },
-      take: 30,
-    }),
-    prisma.equipment.findMany({
-      where: { orgId: ctx.org.id },
-      select: { code: true, name: true, type: true, status: true, nextMaintenanceAt: true },
-      take: 30,
-    }),
-  ]);
+  // Data availability gate — if the org has no ImportRecord rows the
+  // chat can still stream, but the AI is told so up-front rather than
+  // fabricating counts from a stale context.
+  const counts = await prisma.importRecord.groupBy({
+    by: ["datasetName"],
+    where: { organizationId: ctx.org.id },
+    _count: { id: true },
+  });
+  const countMap: Record<string, number> = {};
+  for (const c of counts) countMap[c.datasetName] = c._count.id;
+  const totalRecords = Object.values(countMap).reduce((a, b) => a + b, 0);
 
-  const belowReorder = inventory.filter(
-    (i) => i.reorderPoint !== null && Number(i.quantity) <= Number(i.reorderPoint)
-  );
-  const zeroStock = inventory.filter((i) => Number(i.quantity) === 0);
-  const totalOrderValue = orders.reduce(
-    (sum, o) => sum + Number(o.totalAmount ?? 0),
-    0
-  );
+  // Dynamic per-dataset context block. Same builder the Brain chat uses
+  // — one section per imported dataset, with canonical + custom fields
+  // and a truncated sample row so the AI sees real-world field shapes.
+  const orgContext =
+    totalRecords > 0
+      ? await buildOrgContext(ctx.org.id)
+      : "_No data has been imported yet. Ask the user to upload a CSV from the Import page before answering operational questions._";
 
-  const systemPrompt = `You are Focus, a world-class supply chain and operations expert serving ${ctx.org.name}. You bring the depth of a seasoned VP of Supply Chain with 20+ years across procurement, inventory management, demand planning, manufacturing operations, and supplier relationship management. You are fluent in best practices (lean, JIT, S&OP, ABC/XYZ analysis, safety stock optimization, EOQ, MRP/MRP II) and apply them naturally when advising. You help users understand and optimize their operational data: inventory, products, suppliers, orders, and manufacturing.
+  // Active Brain rules — lightweight, useful for the AI to reference
+  // policy when making recommendations.
+  const rules = await prisma.brainRule.findMany({
+    where: { organizationId: ctx.org.id, status: "ACTIVE" },
+    select: { name: true, category: true },
+  });
 
-IMPORTANT: When the user asks about totals or counts, always use the "total in database" numbers below — NOT the number of sample rows shown.
+  const systemPrompt = `You are Focus, a world-class supply chain and operations expert serving ${ctx.org.name}. You bring the depth of a seasoned VP of Supply Chain with 20+ years across procurement, inventory management, demand planning, manufacturing operations, and supplier relationship management. You are fluent in best practices (lean, JIT, S&OP, ABC/XYZ analysis, safety stock optimization, EOQ, MRP/MRP II) and apply them naturally when advising.
 
-## Live Data Summary
-
-### Inventory Overview
-- Total inventory items in database: ${inventoryCount}
-- Sample items loaded below: ${inventory.length}
-- Items below reorder point (in sample): ${belowReorder.length}
-- Items at zero stock (in sample): ${zeroStock.length}
-
-### Products (${productCount} total in database)
-Sample of ${Math.min(products.length, 40)} products:
-${
-  products
-    .slice(0, 40)
-    .map(
-      (p) =>
-        `- ${p.sku}: ${p.name}${p.category ? ` [${p.category}]` : ""}${p.unit ? `, unit: ${p.unit}` : ""}${p.type ? `, type: ${p.type}` : ""}${p.reorderPoint ? `, reorder point: ${p.reorderPoint}` : ""}${p.leadTimeDays ? `, lead time: ${p.leadTimeDays}d` : ""}${p.abcClass ? `, ABC: ${p.abcClass}` : ""}`
-    )
-    .join("\n") || "No products on record"
-}${productCount > 40 ? `\n... and ${productCount - 40} more products not shown` : ""}
-
-### Suppliers (${suppliers.length} total)
-${
-  suppliers
-    .map(
-      (sup) =>
-        `- ${sup.code}: ${sup.name}${sup.country ? ` (${sup.country})` : ""}${sup.leadTimeDays ? `, lead time: ${sup.leadTimeDays} days` : ""}${sup.qualityRating ? `, quality: ${sup.qualityRating}` : ""}${sup.onTimePct ? `, on-time: ${sup.onTimePct}%` : ""}${sup.status ? ` [${sup.status}]` : ""}`
-    )
-    .join("\n") || "No suppliers on record"
-}
-
-### Orders (${orderCount} total in database, showing ${Math.min(orders.length, 20)} most recent)
-${
-  orders
-    .slice(0, 20)
-    .map(
-      (o) =>
-        `- #${o.orderNumber}: ${o.supplier?.name ?? "unknown supplier"}, status: ${o.status}, amount: $${Number(o.totalAmount ?? 0).toLocaleString()}`
-    )
-    .join("\n") || "No orders on record"
-}
-- Total value of shown orders: $${totalOrderValue.toLocaleString()}
+## Available Data
+${orgContext}
 
 ### Active Brain Rules (${rules.length})
 ${rules.map((r) => `- ${r.name} (${r.category})`).join("\n") || "No active rules"}
 
-### Current Inventory Details (${inventoryCount} total, showing sample of ${Math.min(inventory.length, 60)})
-${
-  inventory
-    .slice(0, 60)
-    .map(
-      (i) =>
-        `- ${i.product.sku} @ ${i.location?.name ?? "—"}: qty ${i.quantity}${i.reorderPoint ? `, reorder at ${i.reorderPoint}` : ""}${Number(i.quantity) <= Number(i.reorderPoint ?? Infinity) && i.reorderPoint ? " ⚠️ REORDER" : ""}`
-    )
-    .join("\n") || "No inventory items"
-}${inventoryCount > 60 ? `\n... and ${inventoryCount - 60} more items not shown` : ""}
-
-### Work Orders (${workOrders.length} total)
-${
-  workOrders
-    .slice(0, 20)
-    .map(
-      (wo) =>
-        `- ${wo.orderNumber}: ${wo.sku}, status: ${wo.status}, planned: ${wo.plannedQty}${wo.actualQty ? `, actual: ${wo.actualQty}` : ""}${wo.workCenter ? `, WC: ${wo.workCenter}` : ""}${wo.productionLine ? `, line: ${wo.productionLine}` : ""}${wo.yieldPct ? `, yield: ${wo.yieldPct}%` : ""}${wo.dueDate ? `, due: ${wo.dueDate.toISOString().split("T")[0]}` : ""}`
-    )
-    .join("\n") || "No work orders on record"
-}
-
-### Active BOMs (${bomHeaders.length} total)
-${
-  bomHeaders
-    .slice(0, 15)
-    .map(
-      (bom) =>
-        `- ${bom.product.sku} v${bom.version}: ${bom.totalComponents ?? bom.lines.length} components${bom.totalBomCost ? `, cost: $${Number(bom.totalBomCost).toLocaleString()}` : ""}${bom.yieldPct ? `, yield: ${bom.yieldPct}%` : ""}\n${bom.lines.map((l) => `  · ${l.component.sku} (${l.component.name}): ${l.qty} ${l.uom}`).join("\n")}`
-    )
-    .join("\n") || "No active BOMs on record"
-}
-
-### Equipment (${equipment.length} total)
-${
-  equipment
-    .map(
-      (eq) =>
-        `- ${eq.code}: ${eq.name}${eq.type ? ` (${eq.type})` : ""}, status: ${eq.status}${eq.nextMaintenanceAt ? `, next maint: ${eq.nextMaintenanceAt.toISOString().split("T")[0]}` : ""}`
-    )
-    .join("\n") || "No equipment on record"
-}
-
 ## Response Guidelines
 
-You are a world-class supply chain expert and precise operations analyst. Respond with the confidence and depth of a top-tier consultant who has seen every supply chain scenario. When relevant, reference industry best practices (safety stock formulas, reorder strategies, supplier diversification, lead time optimization, ABC classification) and explain *why* something matters, not just *what* the data shows. Follow these rules for every response:
+You are a world-class supply chain expert and precise operations analyst. Respond with the confidence and depth of a top-tier consultant. When relevant, reference industry best practices (safety stock formulas, reorder strategies, supplier diversification, lead time optimization, ABC classification) and explain *why* something matters, not just *what* the data shows.
 
 **Structure**
 - Use **bold** for key metrics and important values
@@ -222,7 +96,8 @@ You are a world-class supply chain expert and precise operations analyst. Respon
 **Data Accuracy**
 - Only reference data provided above; if something is missing, say so in one sentence
 - Always include units (qty, $, days) next to numbers
-- Flag ⚠️ items (reorder alerts, zero stock) visually when mentioned`;
+- Flag ⚠️ items (reorder alerts, zero stock) visually when mentioned
+- Field names use snake_case matching the canonical dataset vocabulary (quantity, reorder_point, po_number, supplier_code, etc.)`;
 
   const enc = new TextEncoder();
 
@@ -255,7 +130,6 @@ You are a world-class supply chain expert and precise operations analyst. Respon
           }
         }
 
-        // Record token usage
         await recordTokenUsage(ctx.org.id, ctx.session.user!.id!, "apps-chat", {
           inputTokens,
           outputTokens,

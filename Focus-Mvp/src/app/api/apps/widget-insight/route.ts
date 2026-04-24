@@ -1,5 +1,5 @@
 import { getSessionOrg, unauthorized, badRequest } from "@/lib/api-helpers";
-import { runQuery, buildOrgWhere, toWhereClause, filterCompatibleFilters } from "@/lib/widget-query";
+import { runQuery, filterCompatibleFilters } from "@/lib/widget-query";
 import type { DataQuery } from "@/components/apps/widgets/types";
 import Anthropic from "@anthropic-ai/sdk";
 import { checkTokenBudget, recordTokenUsage } from "@/lib/usage/token-tracker";
@@ -40,16 +40,12 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Run all queries in parallel
+    // Run all queries in parallel. Org scoping is now applied inside
+    // runQuery against ImportRecord — we only forward the filters.
     const queryResults = await Promise.all(
       body.queries.map(async (query, i) => {
-        const orgWhere = buildOrgWhere(query.entity, ctx.org.id);
-        // Strip relation-based filters that aren't valid for this entity
-        // (e.g. "product.sku" filters on purchase_orders which has no product relation)
         const compatibleFilters = filterCompatibleFilters(query.entity, query.filters);
-        const filterWhere = toWhereClause(compatibleFilters);
-        const where = { ...orgWhere, ...filterWhere };
-        const data = await runQuery(ctx.org.id, query, where);
+        const data = await runQuery(ctx.org.id, query, compatibleFilters);
         return { index: i, entity: query.entity, data };
       })
     );

@@ -29,80 +29,53 @@ Given a user's natural-language request, respond with:
 
 ## Available Data Entities
 
+Field names are snake_case and match the canonical dataset vocabulary stored in ImportRecord.data. All entity queries resolve to the matching dataset in the JSONB import store.
+
 ### products
-Fields: id, sku, name, category, unit, unitCost, leadTimeDays, reorderPoint, safetyStock, type (FINISHED_GOOD/RAW_MATERIAL/COMPONENT/SUBASSEMBLY/SERVICE)
-Aggregation: unitCost (sum/avg), leadTimeDays (avg), count
-groupBy: category | type
+Fields: sku, name, type, uom, unit_cost, list_price, make_buy, lead_time_days, moq, order_multiple, product_family, abc_class, safety_stock, reorder_point
+Aggregation: unit_cost (sum/avg), lead_time_days (avg), count
+groupBy: type | make_buy | abc_class | product_family
 
 ### inventory
-Fields: id, quantity (primary stock field), reservedQty, reorderPoint, reorderQty, daysOfSupply, unitValue
-Nested: product.sku, product.name, product.category, location.name, location.code
-Computed: unitValue = quantity × unitCost (auto-calculated)
-Aggregation: quantity (sum/avg/count)
-groupBy: product.category | location.name
-IMPORTANT: Always use "quantity" for stock levels — NOT qtyOnHand (which is always 0).
-IMPORTANT: location.name and location.code are automatically populated from either a linked Location record OR the raw locationCode stored during import — both cases return the location label correctly. Always use groupBy: "location.name" on inventory (not the locations entity) to break down stock by warehouse/location.
-
-### orders (legacy)
-Fields: id, orderNumber, type (PURCHASE/SALES/TRANSFER), status (PENDING/CONFIRMED/IN_TRANSIT/RECEIVED/CANCELLED), totalAmount, orderDate, expectedDate
-Nested: supplier.name, supplier.code
-Aggregation: totalAmount (sum), count
-groupBy: status | type | supplier.name
+Fields: sku, location_code, quantity, reorder_point, safety_stock, unit_cost, total_value, uom, lead_time_days, moq, order_multiple, on_hold_qty, reserved_qty, open_po_qty, days_of_supply, demand_per_day, buy_recommendation, recommended_qty, last_receipt_date
+Aggregation: quantity (sum/avg/count), total_value (sum), days_of_supply (avg)
+groupBy: location_code | uom
+IMPORTANT: Always use "quantity" for stock levels. Nested relations (product.*, location.*) are not available — use the snake_case fields above.
 
 ### suppliers
-Fields: id, code, name, country, email, leadTimeDays, paymentTerms
-Aggregation: leadTimeDays (avg), count
-groupBy: country
-
-### purchase_orders
-Fields: id, poNumber, status (DRAFT/SENT/CONFIRMED/PARTIAL/RECEIVED/CANCELLED), totalAmount, expectedDate, receivedDate, confirmedETA, createdAt
-Nested: supplier.name, supplier.code
-Aggregation: totalAmount (sum/avg), count
-groupBy: status | supplier.name
-timeBucket on: createdAt, expectedDate
-
-### sales_orders
-Fields: id, soNumber, status (DRAFT/CONFIRMED/IN_PRODUCTION/SHIPPED/DELIVERED/CANCELLED), totalAmount, requestedDate, confirmedDate, createdAt
-Nested: customer.name, customer.code
-Aggregation: totalAmount (sum/avg), count
-groupBy: status | customer.name
-timeBucket on: createdAt, requestedDate
-
-### work_orders
-Fields: id, woNumber, sku, status (PLANNED/RELEASED/IN_PROGRESS/COMPLETED/CANCELLED), plannedQty, actualQty, scheduledDate, dueDate, priority
-Nested: product.sku, product.name
-Aggregation: plannedQty (sum), actualQty (sum), count
-groupBy: status
-timeBucket on: scheduledDate, dueDate
-IMPORTANT: Use "plannedQty" and "actualQty" — NOT qtyPlanned/qtyProduced/qtyScrapped (which are always 0).
-
-### lots
-Fields: id, lotNumber, expiryDate, manufacturedDate, createdAt
-Nested: product.sku, product.name, product.category
-groupBy: product.category
-timeBucket on: expiryDate, manufacturedDate
+Fields: supplier_code, name, country, city, email, phone, lead_time_days, payment_terms, currency, quality_rating, on_time_pct, certifications, status, approved_since
+Aggregation: lead_time_days (avg), quality_rating (avg), on_time_pct (avg), count
+groupBy: country | status
 
 ### customers
-Fields: id, code, name, contactName, email, country, paymentTerms, creditLimit, isActive
-Aggregation: creditLimit (sum/avg), count
-groupBy: country | paymentTerms
+Fields: customer_code, name, country, city, email, currency, payment_terms, credit_limit, type, status
+Aggregation: credit_limit (sum/avg), count
+groupBy: country | type | status
+
+### purchase_orders
+Fields: po_number, supplier_code, supplier_name, sku, item_name, line_number, qty_ordered, qty_received, qty_open, unit_cost, line_value, currency, status, order_date, expected_date, confirmed_eta, uom, buyer, notes
+Aggregation: line_value (sum/avg), qty_ordered (sum), qty_open (sum), count
+groupBy: supplier_code | supplier_name | status | currency
+timeBucket on: order_date, expected_date, confirmed_eta
+
+### sales_orders
+Fields: so_number, customer_code, customer_name, sku, item_name, line_number, qty_ordered, qty_shipped, qty_open, unit_price, line_value, currency, status, order_date, requested_date, uom, notes
+Aggregation: line_value (sum/avg), qty_ordered (sum), count
+groupBy: customer_code | customer_name | status | currency
+timeBucket on: order_date, requested_date
 
 ### locations
-Fields: id, code, name, type, active, inventoryItems (count)
+Fields: location_code, name, type, city, country, parent_code
 Aggregation: count
-groupBy: type
+groupBy: type | country
 
-### bom (Bill of Materials)
-Fields: id, version, isActive, yieldPct, componentCount
-Nested: product.sku, product.name
-Aggregation: count
-Note: Use to show product structure complexity, active BOM count, etc.
+### bom
+Fields: fg_sku, fg_name, component_sku, component_name, qty_per, uom, section, make_buy, is_critical, component_cost, extended_cost, revision
+Aggregation: extended_cost (sum), qty_per (sum/avg), count
+groupBy: fg_sku | section | make_buy
 
-### forecasts (Demand Forecasts)
-Fields: id, period (YYYY-MM), type (STARTING/SALES_ADJ/BACKLOG_CATCHUP/FINAL), qty
-Nested: product.sku, product.name
-Aggregation: qty (sum/avg), count
-groupBy: period | type
+### work_orders, forecasts, lots
+Not yet in the new data layer — these return an empty dataset. Do NOT generate widgets for these entities; pick a supported one from the list above.
 
 ## Filter Syntax
 Filters are an array of objects: { field, op, value }
@@ -419,231 +392,89 @@ const dec = (v: unknown): number => {
   return isNaN(n) ? 0 : n;
 };
 
-async function buildDataContext(orgId: string, orgName: string, currentConfig?: CustomAppConfig): Promise<string> {
-  // Counts — all entities
-  const [
-    productCount, supplierCount, inventoryCount, poCount, soCount,
-    woCount, lotCount, customerCount, locationCount, bomCount, forecastCount,
-  ] = await Promise.all([
-    // Count only real products (exclude auto-created stubs where name = sku)
-    prisma.$queryRaw<[{ cnt: bigint }]>`
-      SELECT COUNT(*)::bigint AS cnt FROM "Product"
-      WHERE "organizationId" = ${orgId} AND "name" != "sku"
-    `.then(r => Number(r[0]?.cnt ?? 0)),
-    prisma.supplier.count({ where: { organizationId: orgId } }),
-    prisma.inventoryItem.count({ where: { organizationId: orgId } }),
-    prisma.purchaseOrder.count({ where: { orgId } }),
-    prisma.salesOrder.count({ where: { orgId } }),
-    prisma.workOrder.count({ where: { organizationId: orgId } }),
-    prisma.lot.count({ where: { orgId } }),
-    prisma.customer.count({ where: { orgId } }),
-    // Count distinct locations: from Location table or, when no locations are imported,
-    // from the locationCode stored in inventory attributes JSON
-    prisma.location.count({ where: { organizationId: orgId } }).then(async (count) => {
-      if (count > 0) return count;
-      const result = await prisma.$queryRaw<[{ cnt: bigint }]>`
-        SELECT COUNT(DISTINCT "attributes"->>'locationCode')::bigint AS cnt
-        FROM "InventoryItem"
-        WHERE "organizationId" = ${orgId}
-          AND "attributes"->>'locationCode' IS NOT NULL
-      `;
-      return Number(result[0]?.cnt ?? 0);
-    }),
-    prisma.bOMHeader.count({ where: { orgId } }),
-    prisma.demandForecast.count({ where: { orgId } }),
-  ]);
-
-  // Metadata
-  const [categories, productTypes, poStatuses, soStatuses, woStatuses, supplierCountries, customerCountries] = await Promise.all([
-    prisma.product.findMany({
-      where: { organizationId: orgId, category: { not: null } },
-      select: { category: true },
-      distinct: ["category"],
-      take: 15,
-    }),
-    prisma.product.findMany({
-      where: { organizationId: orgId, type: { not: null } },
-      select: { type: true },
-      distinct: ["type"],
-    }),
-    prisma.purchaseOrder.findMany({
-      where: { orgId },
-      select: { status: true },
-      distinct: ["status"],
-    }),
-    prisma.salesOrder.findMany({
-      where: { orgId },
-      select: { status: true },
-      distinct: ["status"],
-    }),
-    prisma.workOrder.findMany({
-      where: { organizationId: orgId },
-      select: { status: true },
-      distinct: ["status"],
-    }),
-    prisma.supplier.findMany({
-      where: { organizationId: orgId, country: { not: null } },
-      select: { country: true },
-      distinct: ["country"],
-      take: 10,
-    }),
-    prisma.customer.findMany({
-      where: { orgId, country: { not: null } },
-      select: { country: true },
-      distinct: ["country"],
-      take: 10,
-    }),
-  ]);
-
-  // KPIs
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const [inventoryWithCost, openPOs, openSOs, stockOuts, woInProgress, woAll, lotsSoon] = await Promise.all([
-    prisma.inventoryItem.findMany({
-      where: { organizationId: orgId },
-      select: { quantity: true, unitCost: true, product: { select: { unitCost: true } } },
-    }),
-    prisma.purchaseOrder.findMany({
-      where: { orgId, status: { notIn: ["RECEIVED", "CANCELLED"] } },
-      select: { totalAmount: true, expectedDate: true },
-    }),
-    prisma.salesOrder.findMany({
-      where: { orgId, status: { notIn: ["DELIVERED", "CANCELLED"] } },
-      select: { totalAmount: true },
-    }),
-    prisma.inventoryItem.count({
-      where: { organizationId: orgId, quantity: 0 },
-    }),
-    prisma.workOrder.count({
-      where: { organizationId: orgId, status: "IN_PROGRESS" },
-    }),
-    prisma.workOrder.findMany({
-      where: { organizationId: orgId },
-      select: { plannedQty: true, actualQty: true },
-    }),
-    prisma.lot.count({
-      where: {
-        orgId,
-        expiryDate: { not: null, lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) },
-      },
-    }),
-  ]);
-
-  const totalInventoryValue = inventoryWithCost.reduce(
-    (sum, i) => sum + dec(i.quantity) * dec(i.unitCost ?? i.product.unitCost), 0
-  );
-  const openPOValue = openPOs.reduce((sum, po) => sum + dec(po.totalAmount), 0);
-  const openSOValue = openSOs.reduce((sum, so) => sum + dec(so.totalAmount), 0);
-  const overduePOCount = openPOs.filter(
-    (po) => po.expectedDate && po.expectedDate < today
-  ).length;
-
-  // WO fill rate (actualQty / plannedQty)
-  const totalPlanned = woAll.reduce((s, w) => s + dec(w.plannedQty), 0);
-  const totalProduced = woAll.reduce((s, w) => s + dec(w.actualQty), 0);
-  const fillRate = totalPlanned > 0 ? Math.round((totalProduced / totalPlanned) * 1000) / 10 : 0;
-
-  // Avg supplier lead time
-  const supplierLeadTimes = await prisma.supplier.findMany({
-    where: { organizationId: orgId, leadTimeDays: { not: null } },
-    select: { leadTimeDays: true },
+// ImportRecord-backed data context. One groupBy + one sample per
+// dataset — the AI sees the same numbers the chat tools see.
+async function buildDataContext(
+  orgId: string,
+  orgName: string,
+  currentConfig?: CustomAppConfig,
+): Promise<string> {
+  const counts = await prisma.importRecord.groupBy({
+    by: ["datasetName"],
+    where: { organizationId: orgId },
+    _count: { id: true },
   });
-  const avgLeadTime = supplierLeadTimes.length > 0
-    ? Math.round(supplierLeadTimes.reduce((s, sl) => s + (sl.leadTimeDays ?? 0), 0) / supplierLeadTimes.length)
-    : null;
+  const countMap: Record<string, number> = {};
+  for (const c of counts) countMap[c.datasetName] = c._count.id;
 
-  // Sample data (top 5 of key entities for AI context)
-  const [sampleProducts, sampleSuppliers, sampleCustomers, samplePOs] = await Promise.all([
-    prisma.product.findMany({
-      where: { organizationId: orgId },
-      select: { sku: true, name: true, category: true, unitCost: true, type: true },
-      take: 5,
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.supplier.findMany({
-      where: { organizationId: orgId },
-      select: { name: true, country: true, leadTimeDays: true },
-      take: 5,
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.customer.findMany({
-      where: { orgId },
-      select: { name: true, country: true, creditLimit: true },
-      take: 5,
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.purchaseOrder.findMany({
-      where: { orgId },
-      select: { poNumber: true, status: true, totalAmount: true, expectedDate: true },
-      take: 5,
-      orderBy: { createdAt: "desc" },
-    }),
-  ]);
+  const productCount      = countMap["products"] ?? 0;
+  const supplierCount     = countMap["suppliers"] ?? 0;
+  const customerCount     = countMap["customers"] ?? 0;
+  const locationCount     = countMap["locations"] ?? 0;
+  const inventoryCount    = countMap["inventory"] ?? 0;
+  const poCount           = countMap["purchase_orders"] ?? 0;
+  const soCount           = countMap["sales_orders"] ?? 0;
+  const bomCount          = countMap["bom"] ?? 0;
 
-  const catList = categories.map((c: { category: string | null }) => c.category).filter(Boolean);
-  const typeList = productTypes.map((t: { type: string | null }) => t.type).filter(Boolean);
+  // Pull 5 sample rows per populated dataset so the AI sees real
+  // field values / status vocabularies / date formats for this org.
+  const datasetsWithData = Object.keys(countMap).filter((k) => (countMap[k] ?? 0) > 0);
+  const samples: Record<string, Array<Record<string, unknown>>> = {};
+  await Promise.all(
+    datasetsWithData.map(async (ds) => {
+      const rows = await prisma.importRecord.findMany({
+        where: { organizationId: orgId, datasetName: ds },
+        select: { data: true },
+        take: 5,
+        orderBy: { importedAt: "desc" },
+      });
+      samples[ds] = rows.map((r) => r.data as Record<string, unknown>);
+    }),
+  );
+
+  // Lightweight KPIs derived client-side from samples — gives the
+  // AI enough signal to suggest the right widgets without running a
+  // second round-trip of aggregations.
+  const sampleInventory = samples["inventory"] ?? [];
+  const totalInventoryValue = sampleInventory.reduce((sum, r) => sum + dec(r.total_value ?? Number(r.quantity) * Number(r.unit_cost ?? 0)), 0);
+  const stockOuts = sampleInventory.filter((r) => Number(r.quantity ?? 0) === 0).length;
+  const belowReorder = sampleInventory.filter((r) => r.reorder_point != null && Number(r.quantity ?? 0) <= Number(r.reorder_point)).length;
+
+  const samplePOs = samples["purchase_orders"] ?? [];
+  const openPOValue = samplePOs
+    .filter((r) => !(["RECEIVED", "CANCELLED"].includes(String(r.status ?? ""))))
+    .reduce((sum, r) => sum + dec(r.line_value), 0);
 
   let ctx = `
 ## Data Profile (${orgName})
 
-### Entity Counts
-- Products: ${productCount}${catList.length ? ` (categories: ${catList.join(", ")})` : ""}${typeList.length ? ` (types: ${typeList.join(", ")})` : ""}
-- Inventory items: ${inventoryCount}
-- Suppliers: ${supplierCount}${supplierCountries.length ? ` (countries: ${supplierCountries.map((s: { country: string | null }) => s.country).filter(Boolean).join(", ")})` : ""}
-- Purchase Orders: ${poCount}${poStatuses.length ? ` (statuses: ${poStatuses.map((o: { status: string }) => o.status).join(", ")})` : ""}
-- Sales Orders: ${soCount}${soStatuses.length ? ` (statuses: ${soStatuses.map((o: { status: string }) => o.status).join(", ")})` : ""}
-- Work Orders: ${woCount}${woStatuses.length ? ` (statuses: ${woStatuses.map((o: { status: string }) => o.status).join(", ")})` : ""}
-- Lots: ${lotCount}
-- Customers: ${customerCount}${customerCountries.length ? ` (countries: ${customerCountries.map((c: { country: string | null }) => c.country).filter(Boolean).join(", ")})` : ""}
+### Dataset Counts
+- Products: ${productCount}
+- Inventory: ${inventoryCount}
+- Suppliers: ${supplierCount}
+- Customers: ${customerCount}
 - Locations: ${locationCount}
-- BOMs: ${bomCount}
-- Demand Forecasts: ${forecastCount}
+- Purchase Orders: ${poCount}
+- Sales Orders: ${soCount}
+- Bill of Materials: ${bomCount}
 
-### Key Metrics
-- Inventory value: $${totalInventoryValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}
-- Open PO value: $${openPOValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}
-- Open SO value: $${openSOValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}
-- Overdue POs: ${overduePOCount}
-- Stock-outs (qty=0): ${stockOuts}
-- WOs in progress: ${woInProgress}
-${totalPlanned > 0 ? `- WO fill rate: ${fillRate}% (${totalProduced.toLocaleString()} actual / ${totalPlanned.toLocaleString()} planned)\n` : ""}${avgLeadTime !== null ? `- Avg supplier lead time: ${avgLeadTime} days\n` : ""}${lotsSoon > 0 ? `- Lots expiring within 30 days: ${lotsSoon}\n` : ""}
-### Insights for Dashboard Design`;
+### Sample-derived Signals
+- Items at zero stock (in sample): ${stockOuts}
+- Items below reorder_point (in sample): ${belowReorder}
+- Inventory value (sum of sample total_value / qty×cost): \$${Math.round(totalInventoryValue).toLocaleString()}
+- Open PO value (non-RECEIVED/CANCELLED sample): \$${Math.round(openPOValue).toLocaleString()}`;
 
-  if (overduePOCount > 0) ctx += `\n- WARNING: ${overduePOCount} overdue purchase orders — consider an alert widget`;
-  if (stockOuts > 0) ctx += `\n- WARNING: ${stockOuts} items at zero stock — consider a stock alert widget`;
-  if (woInProgress > 0) ctx += `\n- ${woInProgress} work orders in progress — production tracking + fill rate widgets useful`;
-  if (fillRate > 0 && fillRate < 80) ctx += `\n- WARNING: Fill rate at ${fillRate}% — consider a fill rate progress_bar widget`;
-  if (lotsSoon > 0) ctx += `\n- ${lotsSoon} lots expiring soon — consider an expiry alert widget`;
-  if (customerCount > 0) ctx += `\n- ${customerCount} customers available — customer analytics possible (country breakdown, credit analysis)`;
-  if (forecastCount > 0) ctx += `\n- ${forecastCount} demand forecasts — trend line and forecast vs actual widgets available`;
-  if (bomCount > 0) ctx += `\n- ${bomCount} BOMs — product structure complexity analysis available`;
-  if (locationCount > 1) ctx += `\n- ${locationCount} locations — inventory by location analysis available`;
-  if (poCount === 0 && soCount === 0) ctx += "\n- No POs or SOs yet — focus on inventory and product widgets";
+  if (productCount === 0 && inventoryCount === 0) {
+    ctx += "\n\n_No data imported yet. Suggest the user upload at minimum products + inventory before generating widgets._";
+  }
 
-  // Sample data
-  if (sampleProducts.length > 0) {
-    ctx += `\n\n### Sample Products (recent ${sampleProducts.length})`;
-    for (const p of sampleProducts) {
-      ctx += `\n- ${p.sku}: ${p.name}${p.category ? ` [${p.category}]` : ""}${p.type ? ` (${p.type})` : ""} — $${Number(p.unitCost ?? 0).toFixed(2)}`;
-    }
-  }
-  if (sampleSuppliers.length > 0) {
-    ctx += `\n\n### Sample Suppliers (recent ${sampleSuppliers.length})`;
-    for (const s of sampleSuppliers) {
-      ctx += `\n- ${s.name}${s.country ? ` (${s.country})` : ""}${s.leadTimeDays ? ` — ${s.leadTimeDays}d lead time` : ""}`;
-    }
-  }
-  if (sampleCustomers.length > 0) {
-    ctx += `\n\n### Sample Customers (recent ${sampleCustomers.length})`;
-    for (const c of sampleCustomers) {
-      ctx += `\n- ${c.name}${c.country ? ` (${c.country})` : ""}${c.creditLimit ? ` — $${Number(c.creditLimit).toLocaleString()} credit limit` : ""}`;
-    }
-  }
-  if (samplePOs.length > 0) {
-    ctx += `\n\n### Sample POs (recent ${samplePOs.length})`;
-    for (const po of samplePOs) {
-      ctx += `\n- ${po.poNumber}: ${po.status} — $${Number(po.totalAmount ?? 0).toLocaleString()}${po.expectedDate ? ` (expected ${po.expectedDate.toISOString().slice(0, 10)})` : ""}`;
+  for (const ds of datasetsWithData) {
+    const rows = samples[ds] ?? [];
+    if (rows.length === 0) continue;
+    ctx += `\n\n### Sample ${ds} (${rows.length} of ${countMap[ds] ?? 0})`;
+    for (const row of rows) {
+      const json = JSON.stringify(row);
+      ctx += `\n- ${json.length > 300 ? json.slice(0, 300) + "…" : json}`;
     }
   }
 
