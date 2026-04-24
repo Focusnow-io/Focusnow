@@ -32,7 +32,7 @@ const ENTITY_TO_DATASET: Record<string, DatasetName> = {
   purchase_orders: "purchase_orders",
   sales_orders: "sales_orders",
   bom: "bom",
-  // Legacy tool names
+  // Legacy snake_case tool names
   product: "products",
   supplier: "suppliers",
   customer: "customers",
@@ -44,7 +44,16 @@ const ENTITY_TO_DATASET: Record<string, DatasetName> = {
   so_line: "sales_orders",
   bom_header: "bom",
   bom_line: "bom",
-  // Old CamelCase names from even earlier versions
+  // Legacy camelCase aliases — the AI may still emit these from chat
+  // histories that predate the snake_case migration. Map them all so
+  // the tool call resolves without a re-prompt round.
+  inventoryItem: "inventory",
+  purchaseOrder: "purchase_orders",
+  poLine: "purchase_orders",
+  salesOrder: "sales_orders",
+  soLine: "sales_orders",
+  bomLine: "bom",
+  // Legacy PascalCase (older still)
   Product: "products",
   Supplier: "suppliers",
   Customer: "customers",
@@ -56,6 +65,7 @@ const ENTITY_TO_DATASET: Record<string, DatasetName> = {
   SOLine: "sales_orders",
   BOMHeader: "bom",
   BOMLine: "bom",
+  BOM: "bom",
 };
 
 function resolveDataset(entity: unknown): DatasetName {
@@ -112,12 +122,13 @@ export const toolDefinitions: Anthropic.Tool[] = [
       properties: {
         entity: {
           type: "string",
-          description: `Dataset name: ${DATASET_LIST} (legacy entity names like po_line, bom_line, product are also accepted).`,
+          description:
+            "Dataset to query. One of: inventory, purchase_orders, products, suppliers, customers, sales_orders, bom, locations. Legacy aliases (product, poLine, PurchaseOrder, BOMLine, …) are also accepted and mapped to the canonical dataset.",
         },
         filters: {
           type: "object",
           description:
-            "Field filter map. Operators: { status: { in: ['OPEN','PARTIAL'] } }, { quantity: { gt: 0 } }, { name: { contains: 'steel' } }, { expected_date: { gte: '2025-01-01' } }. Simple equality: { status: 'OPEN' }. Cross-column comparisons are NOT supported here — use rawWhere in aggregate_records for those.",
+            "Field filters using snake_case field names from the dataset. Example: { quantity: { lt: 100 } } or { status: 'Open' }. Use exact status values from the build context. Operators: eq / ne / gt / gte / lt / lte / contains / in / not. Cross-column comparisons are NOT supported here — use rawWhere in aggregate_records.",
           additionalProperties: true,
         },
         search: {
@@ -127,11 +138,12 @@ export const toolDefinitions: Anthropic.Tool[] = [
         searchFields: {
           type: "array",
           items: { type: "string" },
-          description: "Canonical fields to search in (must be string-typed).",
+          description: "Canonical snake_case fields to search in (must be string-typed).",
         },
         orderBy: {
           type: "object",
-          description: "{ field: 'quantity', direction: 'asc' | 'desc' }. Numeric fields are sorted arithmetically.",
+          description:
+            "Sort order. `field` must be snake_case. Example: { field: 'quantity', direction: 'asc' }. Numeric fields are sorted arithmetically.",
           additionalProperties: true,
         },
         limit: {
@@ -153,7 +165,8 @@ export const toolDefinitions: Anthropic.Tool[] = [
       properties: {
         entity: {
           type: "string",
-          description: `Dataset name: ${DATASET_LIST}.`,
+          description:
+            "Dataset to query. One of: inventory, purchase_orders, products, suppliers, customers, sales_orders, bom, locations.",
         },
         metric: {
           type: "string",
@@ -162,21 +175,24 @@ export const toolDefinitions: Anthropic.Tool[] = [
         },
         valueField: {
           type: "string",
-          description: "Field to compute SUM or AVG on (required for SUM/AVG).",
+          description:
+            "The snake_case field name to aggregate. Examples: quantity, line_value, unit_cost, qty_ordered. Required for SUM/AVG.",
         },
         groupByField: {
           type: "string",
-          description: "Field to group results by. Returns { [groupValue]: aggregateResult }.",
+          description:
+            "The snake_case field name to group by. Examples: status, supplier_code, location_code, type. Returns { [groupValue]: aggregateResult }.",
         },
         filters: {
           type: "object",
-          description: "Same filter shape as query_records.",
+          description:
+            "Field filter map using snake_case field names. Same operator shape as query_records. Use exact status values from the build context.",
           additionalProperties: true,
         },
         rawWhere: {
           type: "string",
           description:
-            "Simple two-operand comparison across canonical fields, e.g. 'quantity < reorder_point' or 'days_of_supply <= 10'. Operators: <, <=, >, >=, =, !=. Field references must be snake_case canonical names.",
+            "Simple two-operand comparison across canonical snake_case fields. Example: 'quantity < reorder_point' or 'days_of_supply <= 10'. Operators: <, <=, >, >=, =, !=. Both sides must be snake_case canonical names or numeric literals.",
         },
       },
       required: ["entity", "metric"],

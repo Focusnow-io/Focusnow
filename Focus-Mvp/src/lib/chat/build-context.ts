@@ -9,8 +9,19 @@
  * the tool descriptions in tools.ts.
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { DATASETS, type DatasetName } from "@/lib/ingestion/datasets";
+
+// Datasets that carry a status field worth surfacing to the AI. The
+// value is the JSONB key to aggregate on. When a dataset isn't here,
+// we skip the status-value lookup entirely to keep context small.
+const STATUS_FIELDS: Partial<Record<string, string>> = {
+  purchase_orders: "status",
+  sales_orders: "status",
+  suppliers: "status",
+  inventory: "status",
+};
 
 // ─── Cache ─────────────────────────────────────────────────────────────────
 
@@ -149,12 +160,50 @@ async function buildContextInternal(orgId: string): Promise<string> {
     if (extraFields.length > 0) {
       sections.push(`- Custom fields in this org's data: ${extraFields.join(", ")}`);
     }
+
+    // Status-value sampling — surface the exact literals that live in
+    // this org's data so the AI never invents legacy enums when
+    // filtering. Scoped to datasets where a status field actually
+    // exists per STATUS_FIELDS.
+    const statusField = STATUS_FIELDS[datasetName];
+    if (statusField) {
+      try {
+        const statusRows = await prisma.$queryRaw<
+          Array<{ val: string | null; cnt: bigint }>
+        >(Prisma.sql`
+          SELECT "data"->>${statusField} AS val, COUNT(*)::bigint AS cnt
+          FROM "ImportRecord"
+          WHERE "organizationId" = ${orgId}
+            AND "datasetName" = ${datasetName}
+            AND "data"->>${statusField} IS NOT NULL
+          GROUP BY "data"->>${statusField}
+          ORDER BY COUNT(*) DESC
+          LIMIT 10
+        `);
+        if (statusRows.length > 0) {
+          const statusList = statusRows
+            .filter((r) => r.val)
+            .map((r) => `"${r.val}" (${Number(r.cnt)} records)`)
+            .join(", ");
+          sections.push(`- Exact status values: ${statusList}`);
+          sections.push(
+            `- Use ONLY these literals when filtering by status — no legacy enums.`,
+          );
+        }
+      } catch (err) {
+        // Non-fatal — missing status column just means no list appears.
+        console.warn(`[build-context] status sampling failed for ${datasetName}:`, err);
+      }
+    }
+
+    // Sample record — first 8 fields only, so the AI sees the shape
+    // and value formats without the context ballooning.
     if (Object.keys(sampleData).length > 0) {
-      // JSON.stringify truncated to 600 chars so context stays bounded.
-      const sampleStr = JSON.stringify(sampleData);
-      sections.push(
-        `- Sample record: ${sampleStr.length > 600 ? sampleStr.slice(0, 600) + "…" : sampleStr}`,
-      );
+      const preview = Object.entries(sampleData)
+        .slice(0, 8)
+        .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+        .join(", ");
+      sections.push(`- Sample record: { ${preview} }`);
     }
     sections.push("");
   }

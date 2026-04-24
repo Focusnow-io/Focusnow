@@ -83,6 +83,10 @@ function buildFilterFragment(
   const asNumeric = type === "number";
 
   // Operator object: { gt: 5 }, { in: [...] }, { contains: "abc" }, …
+  // String comparisons (eq / ne / in / contains) go through LOWER()
+  // on both sides so the AI can emit any case variant of a status
+  // value ("Open", "OPEN", "open") and still match the literal the
+  // org actually stored. Numeric / boolean comparisons stay exact.
   if (typeof value === "object" && !Array.isArray(value)) {
     const f = value as Record<string, unknown>;
     const col = colExpr(dataset, field, asNumeric);
@@ -97,19 +101,22 @@ function buildFilterFragment(
     }
     if ("in" in f && Array.isArray(f.in)) {
       if (f.in.length === 0) return Prisma.sql`FALSE`;
-      const bound = f.in.map((v) => String(v));
-      return Prisma.sql`"data"->>${field} IN (${Prisma.join(bound)})`;
+      const bound = f.in.map((v) => String(v).toLowerCase());
+      return Prisma.sql`LOWER("data"->>${field}) IN (${Prisma.join(bound)})`;
     }
     if ("not" in f) {
       const str = String(f.not);
-      return Prisma.sql`("data"->>${field} != ${str} OR "data"->>${field} IS NULL)`;
+      if (asNumeric) {
+        return Prisma.sql`(${col} != ${Number(f.not)} OR "data"->>${field} IS NULL)`;
+      }
+      return Prisma.sql`(LOWER("data"->>${field}) != LOWER(${str}) OR "data"->>${field} IS NULL)`;
     }
     return null;
   }
 
   // Direct equality
   if (typeof value === "string") {
-    return Prisma.sql`"data"->>${field} = ${value}`;
+    return Prisma.sql`LOWER("data"->>${field}) = LOWER(${value})`;
   }
   if (typeof value === "number") {
     return Prisma.sql`(${colExpr(dataset, field, true)}) = ${value}`;
