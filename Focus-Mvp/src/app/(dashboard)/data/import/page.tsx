@@ -19,6 +19,7 @@ import {
   Upload,
   FileText,
   CheckCircle,
+  CheckCircle2,
   ChevronRight,
   AlertCircle,
   AlertTriangle,
@@ -31,35 +32,35 @@ import { DATASETS, type DatasetName } from "@/lib/ingestion/datasets";
 const IMPORT_CONCEPTS = [
   { id: "products" as DatasetName, label: "Products",
     description: "Your product catalogue — SKUs, specs, costs",
-    icon: "📦", examples: "Item master, SKU list, parts catalogue",
+    examples: "Item master, SKU list, parts catalogue",
     unit: "products" },
   { id: "suppliers" as DatasetName, label: "Suppliers",
     description: "Your supplier and vendor list",
-    icon: "🏭", examples: "Vendor master, supplier directory",
+    examples: "Vendor master, supplier directory",
     unit: "suppliers" },
   { id: "customers" as DatasetName, label: "Customers",
     description: "Your customer accounts",
-    icon: "🤝", examples: "Customer master, account list",
+    examples: "Customer master, account list",
     unit: "customers" },
   { id: "locations" as DatasetName, label: "Locations",
     description: "Warehouses, stores, and sites",
-    icon: "📍", examples: "Warehouse list, store locations",
+    examples: "Warehouse list, store locations",
     unit: "locations" },
   { id: "inventory" as DatasetName, label: "Inventory",
     description: "Current stock levels per item and location",
-    icon: "📊", examples: "Stock on hand, inventory balance",
+    examples: "Stock on hand, inventory balance",
     unit: "records" },
   { id: "purchase_orders" as DatasetName, label: "Purchase Orders",
     description: "Orders placed with your suppliers",
-    icon: "🛒", examples: "Open POs, PO headers, purchase lines",
+    examples: "Open POs, PO headers, purchase lines",
     unit: "records" },
   { id: "sales_orders" as DatasetName, label: "Sales Orders",
     description: "Orders received from your customers",
-    icon: "💰", examples: "Open orders, sales backlog, order lines",
+    examples: "Open orders, sales backlog, order lines",
     unit: "records" },
   { id: "bom" as DatasetName, label: "Bill of Materials",
     description: "Product structure and component lists",
-    icon: "🔧", examples: "BOM, recipe, formula, components list",
+    examples: "BOM, recipe, formula, components list",
     unit: "records" },
 ] as const;
 
@@ -371,87 +372,90 @@ function ImportPageInner() {
 
       {/* ── HUB ─────────────────────────────────────────────────────────── */}
       {step === "hub" && (
-        <div className="space-y-6">
+        <div className="space-y-8">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Connect your operational data</h2>
-            <p className="text-sm text-gray-500 mt-1">
+            <h2 className="text-2xl font-semibold text-foreground">Connect your operational data</h2>
+            <p className="text-sm text-muted-foreground mt-1">
               Pick what you want to import — we&apos;ll handle the rest.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {IMPORT_CONCEPTS.map((concept) => {
               const cov = coverageMap[concept.id] ?? null;
               const hasData = (cov?.importedRows ?? 0) > 0;
               return (
                 <div
                   key={concept.id}
-                  className={cn(
-                    "rounded-2xl border p-5 transition-shadow flex flex-col gap-3",
-                    hasData
-                      ? "border-emerald-200 bg-emerald-50/50"
-                      : "border-gray-200 bg-white hover:shadow-sm",
-                  )}
+                  className="rounded-xl border border-border bg-card p-6 flex flex-col gap-4 hover:shadow-md transition-shadow"
                 >
-                  <div className="flex items-start gap-3">
-                    <span className="text-3xl leading-none mt-0.5" aria-hidden>
-                      {concept.icon}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="text-base font-semibold text-gray-900 leading-tight">
-                          {concept.label}
-                        </p>
-                        {hasData && (
-                          <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1">{concept.description}</p>
-                      {!hasData && (
-                        <p className="text-[11px] text-gray-400 mt-1 italic">{concept.examples}</p>
-                      )}
-                    </div>
-                  </div>
-
-                  {hasData && cov ? (
-                    <div className="mt-auto pt-2 space-y-3">
-                      <div className="flex items-center gap-2 text-sm text-emerald-700">
-                        <CheckCircle className="w-4 h-4 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-base font-semibold text-foreground leading-tight">
+                      {concept.label}
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {concept.description}
+                    </p>
+                    {!hasData && (
+                      <p className="text-xs text-muted-foreground/70 mt-1 italic">
+                        {concept.examples}
+                      </p>
+                    )}
+                    {hasData && cov && (
+                      <p className="flex items-center gap-1 text-xs text-emerald-600 mt-3">
+                        <CheckCircle2 className="w-3 h-3 shrink-0" />
                         <span>
                           {cov.importedRows.toLocaleString()} {concept.unit}
-                          <span className="text-gray-400 ml-1">
-                            · imported {formatRelativeDate(cov.lastImported)}
+                          <span className="text-muted-foreground">
+                            {" "}· {formatRelativeDate(cov.lastImported)}
                           </span>
                         </span>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => startImport(concept.id, "merge")}
-                          className="flex-1 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-700 hover:border-slate-500 hover:bg-slate-50 transition-colors"
-                        >
-                          Update
-                        </button>
-                        <button
-                          onClick={() => startImport(concept.id, "replace")}
-                          className="flex-1 text-xs font-medium px-3 py-1.5 rounded-lg border border-red-300 bg-white text-red-700 hover:border-red-500 hover:bg-red-50 transition-colors"
-                        >
-                          Replace
-                        </button>
-                      </div>
+                      </p>
+                    )}
+                  </div>
+
+                  {hasData ? (
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => startImport(concept.id, "merge")}
+                        className="flex-1"
+                      >
+                        Update
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => startImport(concept.id, "replace")}
+                        className="flex-1 text-destructive border-destructive/30 hover:bg-destructive/5 hover:text-destructive"
+                      >
+                        Replace
+                      </Button>
                     </div>
                   ) : (
-                    <div className="mt-auto pt-2">
-                      <button
-                        onClick={() => startImport(concept.id, "merge")}
-                        className="w-full text-sm font-semibold px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition-colors"
-                      >
-                        Import
-                      </button>
-                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => startImport(concept.id, "merge")}
+                      className="w-full"
+                    >
+                      Import
+                    </Button>
                   )}
                 </div>
               );
             })}
+          </div>
+
+          <div className="pt-2 text-center">
+            <button
+              type="button"
+              onClick={() => setStep("upload")}
+              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-4"
+            >
+              Working with specific data types? → Advanced import
+            </button>
           </div>
         </div>
       )}
