@@ -440,16 +440,6 @@ function ImportPageInner() {
               );
             })}
           </div>
-
-          <div className="pt-2 text-center">
-            <button
-              type="button"
-              onClick={() => setStep("upload")}
-              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-4"
-            >
-              Working with specific data types? → Advanced import
-            </button>
-          </div>
         </div>
       )}
 
