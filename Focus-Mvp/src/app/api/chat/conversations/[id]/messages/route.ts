@@ -609,7 +609,10 @@ ${orgContext}`),
                   });
                   currentToolUse = null;
                 } else if (currentText) {
-                  contentBlocks.push({ type: "text", text: currentText });
+                  // Sanitize so the assistant's own em-dashed prose
+                  // doesn't round-trip back into the next request and
+                  // blow up the same way a tool_result would.
+                  contentBlocks.push({ type: "text", text: sanitizeForApi(currentText) });
                   currentText = "";
                 }
                 break;
@@ -668,8 +671,16 @@ ${orgContext}`),
                   )
                 );
 
-                // Truncate large results to stay within TPM budget (row-aware)
-                const truncatedResult = truncateToolResult(result, TOOL_RESULT_CHAR_LIMIT);
+                // Truncate large results to stay within TPM budget (row-aware).
+                // Sanitize here — ImportRecord.data routinely carries em
+                // dashes and smart quotes in product names / notes /
+                // section labels, and those values land in tool_result
+                // content verbatim. Without the sanitize, the next
+                // Anthropic call throws "Cannot convert argument to a
+                // ByteString" the moment any tool output includes —.
+                const truncatedResult = sanitizeForApi(
+                  truncateToolResult(result, TOOL_RESULT_CHAR_LIMIT),
+                );
 
                 toolResults.push({
                   type: "tool_result",
@@ -681,7 +692,7 @@ ${orgContext}`),
                 toolResults.push({
                   type: "tool_result",
                   tool_use_id: toolBlock.id,
-                  content: JSON.stringify({ error: errorMsg }),
+                  content: sanitizeForApi(JSON.stringify({ error: errorMsg })),
                   is_error: true,
                 });
               }
@@ -856,11 +867,15 @@ function buildAnthropicMessages(
       }> | null;
 
       if (toolCalls && toolCalls.length > 0) {
-        // Build assistant content: text (if any) + tool_use blocks
+        // Build assistant content: text (if any) + tool_use blocks.
+        // Both the historical assistant prose and the stored tool
+        // results can contain em dashes (from ImportRecord.data or
+        // the model's own previous output), so sanitize every string
+        // we replay back to the API.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const assistantContent: any[] = [];
         if (msg.content) {
-          assistantContent.push({ type: "text", text: msg.content });
+          assistantContent.push({ type: "text", text: sanitizeForApi(msg.content) });
         }
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
@@ -876,12 +891,14 @@ function buildAnthropicMessages(
           const resultStr = typeof tc.result === "string"
             ? tc.result
             : JSON.stringify(tc.result ?? {});
+          const truncated =
+            resultStr.length > TOOL_RESULT_CHAR_LIMIT
+              ? resultStr.slice(0, TOOL_RESULT_CHAR_LIMIT) + "\n... (truncated)"
+              : resultStr;
           toolResults.push({
             type: "tool_result",
             tool_use_id: toolUseId,
-            content: resultStr.length > TOOL_RESULT_CHAR_LIMIT
-              ? resultStr.slice(0, TOOL_RESULT_CHAR_LIMIT) + "\n... (truncated)"
-              : resultStr,
+            content: sanitizeForApi(truncated),
           });
         }
 
@@ -889,8 +906,9 @@ function buildAnthropicMessages(
         // Hold tool results to merge with the next user message
         pendingToolResults = toolResults;
       } else {
-        // Plain text assistant message
-        messages.push({ role: "assistant", content: msg.content });
+        // Plain text assistant message — sanitize historical prose
+        // the same way the live-loop contentBlocks path does.
+        messages.push({ role: "assistant", content: sanitizeForApi(msg.content) });
       }
     }
   }
