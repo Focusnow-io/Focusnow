@@ -373,9 +373,17 @@ line_number, qty_ordered, qty_shipped, qty_open, unit_price, line_value,
 currency, status, order_date, requested_date
 
 ### bom
-Key fields: fg_sku, fg_name, component_sku, component_name, qty_per,
-uom, section, make_buy, is_critical, component_cost, extended_cost,
-revision
+Key fields: fg_sku (the finished good SKU e.g. "DF-02"), fg_name,
+component_sku, component_name, qty_per, uom, section, make_buy,
+is_critical, component_cost, extended_cost, revision,
+bom_id (the BOM identifier e.g. "BOM-DF-02-A")
+
+Rules:
+- Filter by finished good using \`fg_sku\` (e.g. \`fg_sku = "DF-02"\`).
+- Do NOT filter by \`bom_id\` when the user asks about a product SKU —
+  \`bom_id\` is the BOM header's own identifier, not the product's.
+- Total BOM cost = SUM(\`extended_cost\`) grouped by \`fg_sku\`.
+- Component count = COUNT(*) grouped by \`fg_sku\`.
 
 ### locations
 Key fields: location_code, name, type, city, country
