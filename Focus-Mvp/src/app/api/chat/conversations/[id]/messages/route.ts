@@ -14,19 +14,19 @@ const SONNET_MODEL = "claude-sonnet-4-20250514";
 const HAIKU_MODEL = "claude-haiku-4-5-20251001";
 const MAX_TOKENS = 4096;
 const TOOL_CALL_CAP = 5;
-const TOOL_RESULT_CHAR_LIMIT = 40_000; // ~10K tokens — enough for 100 rows of any entity
+const TOOL_RESULT_CHAR_LIMIT = 40_000; // ~10K tokens -- enough for 100 rows of any entity
 const HISTORY_TOKEN_LIMIT = 160_000;
 
 /**
  * Strip low-value fields and compact Decimal values from query_records rows
- * to reduce serialization size. Only used in the truncation path — full rows
+ * to reduce serialization size. Only used in the truncation path -- full rows
  * still go to toolCallsLog and the client UI so no data is lost for display.
  */
 
 /**
  * Compact a Prisma Decimal / numeric string to a plain number.
  * Prisma serialises DECIMAL(65,30) as "170.000000000000000000000000000000"
- * — 35+ chars of trailing zeroes per value. This compacts to "170" or "3.14".
+ * -- 35+ chars of trailing zeroes per value. This compacts to "170" or "3.14".
  */
 function compactNumeric(v: unknown): unknown {
   if (typeof v === "number") return v;
@@ -42,7 +42,7 @@ function compactNumeric(v: unknown): unknown {
 }
 
 function slimRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
-  // `attributes` stays in STRIP_KEYS so it isn't emitted as a nested blob —
+  // `attributes` stays in STRIP_KEYS so it isn't emitted as a nested blob --
   // we flatten it into `custom:<key>` entries below so the AI can read the
   // org's custom fields inline with the rest of the row.
   const STRIP_KEYS = new Set([
@@ -125,7 +125,7 @@ function truncateToolResult(result: unknown, charLimit: number): string {
       if (candidate.length <= charLimit) return candidate;
     }
 
-    // Even zero rows doesn't fit — return metadata only
+    // Even zero rows doesn't fit -- return metadata only
     return JSON.stringify({
       ...obj,
       rows: [],
@@ -134,8 +134,52 @@ function truncateToolResult(result: unknown, charLimit: number): string {
     });
   }
 
-  // Non-row results (aggregate, traceability) — fall back to char slice
+  // Non-row results (aggregate, traceability) -- fall back to char slice
   return fullStr.slice(0, charLimit) + "\n... (truncated)";
+}
+
+/**
+ * Final defence-in-depth sweep over the message array before it hits
+ * the Anthropic API. Every upstream entry point (user text, tool
+ * results, assistant prose, replayed history) already sanitizes at the
+ * source; this pass catches anything that slips through, including
+ * em-dashed literals carried inside tool_result.content or the text
+ * portion of a nested content-block array.
+ */
+function sanitizeMessages(
+  messages: Anthropic.MessageParam[],
+): Anthropic.MessageParam[] {
+  return messages.map((m) => {
+    if (typeof m.content === "string") {
+      return { ...m, content: sanitizeForApi(m.content) };
+    }
+    return {
+      ...m,
+      content: m.content.map((block) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const b = block as any;
+        if (b.type === "text" && typeof b.text === "string") {
+          return { ...b, text: sanitizeForApi(b.text) };
+        }
+        if (b.type === "tool_result") {
+          if (typeof b.content === "string") {
+            return { ...b, content: sanitizeForApi(b.content) };
+          }
+          if (Array.isArray(b.content)) {
+            return {
+              ...b,
+              content: b.content.map((c: { type?: string; text?: string }) =>
+                c?.type === "text" && typeof c.text === "string"
+                  ? { ...c, text: sanitizeForApi(c.text) }
+                  : c,
+              ),
+            };
+          }
+        }
+        return block;
+      }),
+    };
+  });
 }
 
 async function callWithRetry<T>(
@@ -162,7 +206,7 @@ async function callWithRetry<T>(
 }
 
 // ---------------------------------------------------------------------------
-// GET — load message history
+// GET -- load message history
 // ---------------------------------------------------------------------------
 
 export async function GET(
@@ -196,7 +240,7 @@ export async function GET(
 }
 
 // ---------------------------------------------------------------------------
-// POST — send a message, stream response
+// POST -- send a message, stream response
 // ---------------------------------------------------------------------------
 
 export async function POST(
@@ -286,7 +330,7 @@ export async function POST(
 
   if (!hasAnyData) {
     const noDataMessage =
-      "It looks like there's no operational data in your account yet. Please import at least one file — Products, Inventory, Suppliers, or Purchase Orders — before asking questions. You can do this from the **Import** page.";
+      "It looks like there's no operational data in your account yet. Please import at least one file -- Products, Inventory, Suppliers, or Purchase Orders -- before asking questions. You can do this from the **Import** page.";
 
     await prisma.conversationMessage.create({
       data: { conversationId: id, role: "ASSISTANT", content: noDataMessage },
@@ -311,7 +355,7 @@ export async function POST(
     );
   }
 
-  // Build context. Sanitize the whole thing once here — the context
+  // Build context. Sanitize the whole thing once here -- the context
   // may contain smart-quoted / em-dashed values pulled from user CSVs,
   // and some fetch polyfills reject those when downstream layers
   // assemble byte strings (headers / proxy paths / trace metadata).
@@ -357,10 +401,10 @@ line_number, qty_ordered, qty_received, qty_open, unit_cost, line_value,
 currency, status, order_date, expected_date, confirmed_eta, buyer
 
 Rules:
-- Status values are raw from CSV — check context for actual values
+- Status values are raw from CSV -- check context for actual values
 - "Open" POs = whatever status value(s) the context shows as open
-- Total value = SUM(\`line_value\`) — never \`totalAmount\`
-- Filter by supplier using \`supplier_code\` — never \`supplierId\`
+- Total value = SUM(\`line_value\`) -- never \`totalAmount\`
+- Filter by supplier using \`supplier_code\` -- never \`supplierId\`
 
 ### products
 Key fields: sku, name, type, uom, unit_cost, list_price, make_buy,
@@ -388,7 +432,7 @@ bom_id (the BOM identifier e.g. "BOM-DF-02-A")
 
 Rules:
 - Filter by finished good using \`fg_sku\` (e.g. \`fg_sku = "DF-02"\`).
-- Do NOT filter by \`bom_id\` when the user asks about a product SKU —
+- Do NOT filter by \`bom_id\` when the user asks about a product SKU --
   \`bom_id\` is the BOM header's own identifier, not the product's.
 - Total BOM cost = SUM(\`extended_cost\`) grouped by \`fg_sku\`.
 - Component count = COUNT(*) grouped by \`fg_sku\`.
@@ -398,31 +442,31 @@ Key fields: location_code, name, type, city, country
 
 ## Query Rules
 1. Always use snake_case field names.
-2. Status values: use EXACT values from the context — never assume
+2. Status values: use EXACT values from the context -- never assume
    a legacy enum (no DRAFT / SENT / CONFIRMED / Open / Partial unless
    the context shows that exact literal). If a question asks about
    "open" POs, read the context's "Exact status values" list and
    pick whichever literal(s) represent open state for this org.
 3. Numeric comparisons: \`quantity\`, \`unit_cost\`, \`line_value\`,
-   \`qty_ordered\`, etc. are stored as numbers in JSONB — use numeric
+   \`qty_ordered\`, etc. are stored as numbers in JSONB -- use numeric
    filters, not string equality.
 4. Date fields: stored as ISO date strings (YYYY-MM-DD). Compare
    against ISO strings, not Date objects.
 5. Boolean fields: \`buy_recommendation\`, \`is_critical\` are stored
    as \`true\`/\`false\`.
 6. Cross-dataset questions: run separate queries per dataset and
-   combine the results yourself — do NOT attempt SQL joins.
+   combine the results yourself -- do NOT attempt SQL joins.
 
 ## Hallucination Guard
 - Only report values that appear in tool results.
-- If a tool returns 0 results, say so — do not invent data.
+- If a tool returns 0 results, say so -- do not invent data.
 - If the status values in your query don't match any in the context's
   status-value list, re-query with the correct literals shown in the
   context before answering.
 
 ## Numeric threshold operator precision
 **STRICT RULE: "below X", "under X", "fewer than X", "less than X" always
-means strictly less than — use \`lt\`, never \`lte\`. Items at exactly X
+means strictly less than -- use \`lt\`, never \`lte\`. Items at exactly X
 are NOT below X.**
 
 - "below X" / "under X" / "fewer than X" → strict \`lt\` (\`<\`)
@@ -432,7 +476,7 @@ are NOT below X.**
 
 ## Count vs list
 - **For "how many" / count / total questions, ALWAYS use
-  aggregate_records with metric COUNT** — never count rows from
+  aggregate_records with metric COUNT** -- never count rows from
   query_records. query_records caps results, so counting returned
   rows gives wrong answers for datasets larger than the cap.
 - Use query_records only when you need to list or inspect specific
@@ -441,8 +485,8 @@ are NOT below X.**
 ## Cross-column comparisons
 Use aggregate_records with \`rawWhere\` when a comparison is between
 two fields on the same row (e.g. "items where quantity below reorder
-point"). rawWhere is a simple two-operand grammar —
-\`field op field-or-number\` — with both sides referenced by their
+point"). rawWhere is a simple two-operand grammar --
+\`field op field-or-number\` -- with both sides referenced by their
 snake_case canonical names and operators from \`< <= > >= = !=\`.
 
 Examples:
@@ -453,7 +497,7 @@ Examples:
 ## Data availability gate
 Before answering, check the dataset counts in the context. If the
 question targets a dataset with 0 records, tell the user the data
-hasn't been imported yet and point them at the Import page — don't
+hasn't been imported yet and point them at the Import page -- don't
 speculate.
 
 ## Custom fields
@@ -525,13 +569,19 @@ ${orgContext}`),
         // Tool call loop
         let continueLoop = true;
         while (continueLoop) {
+          // Sweep the message array one last time before it hits the
+          // API. The live loop already sanitizes each entry point
+          // (tool_result content, assistant text blocks, history
+          // replay), but a final pass guarantees no em-dashed string
+          // reaches Anthropic's ByteString-constrained transport.
+          const safeMessages = sanitizeMessages(anthropicMessages);
           const response = await callWithRetry(
             () =>
               anthropic.messages.create({
                 model: finalModel,
                 max_tokens: MAX_TOKENS,
                 system: safeSystemPrompt,
-                messages: anthropicMessages,
+                messages: safeMessages,
                 tools: toolDefinitions,
                 stream: true,
               }),
@@ -672,12 +722,12 @@ ${orgContext}`),
                 );
 
                 // Truncate large results to stay within TPM budget (row-aware).
-                // Sanitize here — ImportRecord.data routinely carries em
+                // Sanitize here -- ImportRecord.data routinely carries em
                 // dashes and smart quotes in product names / notes /
                 // section labels, and those values land in tool_result
                 // content verbatim. Without the sanitize, the next
                 // Anthropic call throws "Cannot convert argument to a
-                // ByteString" the moment any tool output includes —.
+                // ByteString" the moment any tool output includes --.
                 const truncatedResult = sanitizeForApi(
                   truncateToolResult(result, TOOL_RESULT_CHAR_LIMIT),
                 );
@@ -718,7 +768,7 @@ ${orgContext}`),
             // Continue loop for another API call
             continueLoop = true;
           } else {
-            // No more tool calls — we're done
+            // No more tool calls -- we're done
             continueLoop = false;
           }
         }
@@ -906,7 +956,7 @@ function buildAnthropicMessages(
         // Hold tool results to merge with the next user message
         pendingToolResults = toolResults;
       } else {
-        // Plain text assistant message — sanitize historical prose
+        // Plain text assistant message -- sanitize historical prose
         // the same way the live-loop contentBlocks path does.
         messages.push({ role: "assistant", content: sanitizeForApi(msg.content) });
       }

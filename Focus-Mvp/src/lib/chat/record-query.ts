@@ -3,7 +3,7 @@
  *
  * Every query is scoped by (organizationId, datasetName) so cross-tenant
  * leakage is impossible. Field names are validated against the dataset's
- * declared vocabulary before they're allowed into SQL — an LLM-supplied
+ * declared vocabulary before they're allowed into SQL -- an LLM-supplied
  * column reference can't smuggle arbitrary identifiers. User-supplied
  * values are bound as parameters via Prisma.sql tagged templates, never
  * interpolated into the query string.
@@ -232,7 +232,7 @@ function parseRawWhere(dataset: DatasetName, rawWhere: string): Prisma.Sql {
   const match = rawWhere.match(RAW_WHERE_COMPARE);
   if (!match) {
     throw new Error(
-      `rawWhere must be a simple comparison like "field < field" or "field > 10" — got: ${rawWhere}`,
+      `rawWhere must be a simple comparison like "field < field" or "field > 10" -- got: ${rawWhere}`,
     );
   }
   const [, left, op, right] = match;
@@ -253,7 +253,7 @@ function parseRawWhere(dataset: DatasetName, rawWhere: string): Prisma.Sql {
     return Prisma.sql`${leftSql} ${opSql} ${Number(right)}`;
   }
 
-  // Field reference on the right — validate against the dataset.
+  // Field reference on the right -- validate against the dataset.
   assertField(dataset, right);
   const rightSql = colExpr(dataset, right, true);
   return Prisma.sql`${leftSql} ${opSql} ${rightSql}`;

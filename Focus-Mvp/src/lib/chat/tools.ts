@@ -1,5 +1,5 @@
 /**
- * Chat tools — backed by the new JSONB import store.
+ * Chat tools -- backed by the new JSONB import store.
  *
  * Every request flows through `queryRecords` / `aggregateRecords` in
  * record-query.ts, which scopes to (organizationId, datasetName) and
@@ -19,7 +19,7 @@ import { aggregateRecords, queryRecords } from "./record-query";
 
 // ─── Entity / dataset aliasing ─────────────────────────────────────────────
 //
-// The old tools accepted "product", "po_line", "bom_line" etc. — route
+// The old tools accepted "product", "po_line", "bom_line" etc. -- route
 // these to the new canonical dataset names so existing chat histories
 // keep working.
 const ENTITY_TO_DATASET: Record<string, DatasetName> = {
@@ -44,7 +44,7 @@ const ENTITY_TO_DATASET: Record<string, DatasetName> = {
   so_line: "sales_orders",
   bom_header: "bom",
   bom_line: "bom",
-  // Legacy camelCase aliases — the AI may still emit these from chat
+  // Legacy camelCase aliases -- the AI may still emit these from chat
   // histories that predate the snake_case migration. Map them all so
   // the tool call resolves without a re-prompt round.
   inventoryItem: "inventory",
@@ -115,7 +115,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
     name: "query_records",
     description:
       `Query records from a canonical dataset. Returns matching rows as JSON along with totalCount (exact count matching filters) and returnedCount. ` +
-      `Use this to list specific records or search by filters. Use aggregate_records for counts or totals — query_records is capped at 500 rows.\n\n` +
+      `Use this to list specific records or search by filters. Use aggregate_records for counts or totals -- query_records is capped at 500 rows.\n\n` +
       FIELD_REFERENCE,
     input_schema: {
       type: "object" as const,
@@ -128,7 +128,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
         filters: {
           type: "object",
           description:
-            "Field filters using snake_case field names from the dataset. Example: { quantity: { lt: 100 } } or { status: 'Open' }. Use exact status values from the build context. Operators: eq / ne / gt / gte / lt / lte / contains / in / not. Cross-column comparisons are NOT supported here — use rawWhere in aggregate_records.",
+            "Field filters using snake_case field names from the dataset. Example: { quantity: { lt: 100 } } or { status: 'Open' }. Use exact status values from the build context. Operators: eq / ne / gt / gte / lt / lte / contains / in / not. Cross-column comparisons are NOT supported here -- use rawWhere in aggregate_records.",
           additionalProperties: true,
         },
         search: {
@@ -158,7 +158,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: "aggregate_records",
     description:
-      `Aggregate records from a dataset — COUNT, SUM, or AVG, optionally grouped by a field. Returns an exact answer for the whole dataset (no row limit).\n\n` +
+      `Aggregate records from a dataset -- COUNT, SUM, or AVG, optionally grouped by a field. Returns an exact answer for the whole dataset (no row limit).\n\n` +
       FIELD_REFERENCE,
     input_schema: {
       type: "object" as const,
@@ -257,7 +257,7 @@ export async function executeTool(
     case "aggregate_records":
       return executeAggregateRecords(input, orgId);
     case "get_record_by_id":
-    // Legacy alias — earlier releases shipped the tool as get_entity_by_id.
+    // Legacy alias -- earlier releases shipped the tool as get_entity_by_id.
     case "get_entity_by_id":
       return executeGetRecordById(input, orgId);
     case "query_custom_field":
@@ -265,7 +265,7 @@ export async function executeTool(
     case "get_traceability":
       return {
         error:
-          "get_traceability is not available on the JSONB store — trace queries need relational lot / serial data.",
+          "get_traceability is not available on the JSONB store -- trace queries need relational lot / serial data.",
       };
     default:
       throw new Error(`Unknown tool: ${toolName}`);
@@ -399,13 +399,13 @@ async function executeQueryCustomField(
     );
 
     if (!FIELD_KEY_REGEX.test(fieldKey)) {
-      return { error: `Invalid fieldKey "${fieldKey}" — must be snake_case.` };
+      return { error: `Invalid fieldKey "${fieldKey}" -- must be snake_case.` };
     }
 
     // Translate to the generic queryRecords filter shape. Numeric ops
     // coerce to numbers so comparisons cast correctly inside the query
     // engine. 'exists' maps to a NOT-NULL check via `not: null`
-    // semantics — we fall back to a raw NOT-NULL search.
+    // semantics -- we fall back to a raw NOT-NULL search.
     let filters: Record<string, unknown> = {};
     let rawExists = false;
 

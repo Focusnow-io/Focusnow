@@ -1,5 +1,5 @@
 /**
- * Org context builder — reads the new ImportDataset / ImportRecord store.
+ * Org context builder -- reads the new ImportDataset / ImportRecord store.
  *
  * The AI sees one section per dataset this org has imported, with the
  * record count, how long ago it landed, the canonical field list, and
@@ -51,7 +51,7 @@ export async function buildOrgContext(orgId: string): Promise<string> {
   const context = await buildContextInternal(orgId);
   const tokenEstimate = Math.ceil(context.length / 4);
   console.log(
-    `[CHAT] context cache MISS for org=${orgId} — built ${tokenEstimate} est. tokens (${context.length} chars)`,
+    `[CHAT] context cache MISS for org=${orgId} -- built ${tokenEstimate} est. tokens (${context.length} chars)`,
   );
 
   contextCache.set(orgId, { context, builtAt: Date.now(), tokenEstimate });
@@ -139,7 +139,7 @@ async function buildContextInternal(orgId: string): Promise<string> {
     const fieldKeys = schema ? Object.keys(schema.fields) : [];
 
     // Pull one real sample so the AI knows what values look like for
-    // this specific org — useful for understanding status vocabularies,
+    // this specific org -- useful for understanding status vocabularies,
     // date formats, etc., without blowing the context up.
     const [sample] = await prisma.importRecord.findMany({
       where: { organizationId: orgId, datasetName },
@@ -152,7 +152,7 @@ async function buildContextInternal(orgId: string): Promise<string> {
       (k) => !fieldKeys.includes(k),
     );
 
-    sections.push(`## ${dataset.label} — dataset: \`${datasetName}\``);
+    sections.push(`## ${dataset.label} -- dataset: \`${datasetName}\``);
     sections.push(`- Records: ${count.toLocaleString()}`);
     sections.push(`- Last imported: ${relativeDays(dataset.importedAt)}`);
     if (fieldKeys.length > 0) {
@@ -162,7 +162,7 @@ async function buildContextInternal(orgId: string): Promise<string> {
       sections.push(`- Custom fields in this org's data: ${extraFields.join(", ")}`);
     }
 
-    // Status-value sampling — surface the exact literals that live in
+    // Status-value sampling -- surface the exact literals that live in
     // this org's data so the AI never invents legacy enums when
     // filtering. Scoped to datasets where a status field actually
     // exists per STATUS_FIELDS.
@@ -188,16 +188,16 @@ async function buildContextInternal(orgId: string): Promise<string> {
             .join(", ");
           sections.push(`- Exact status values: ${statusList}`);
           sections.push(
-            `- Use ONLY these literals when filtering by status — no legacy enums.`,
+            `- Use ONLY these literals when filtering by status -- no legacy enums.`,
           );
         }
       } catch (err) {
-        // Non-fatal — missing status column just means no list appears.
+        // Non-fatal -- missing status column just means no list appears.
         console.warn(`[build-context] status sampling failed for ${datasetName}:`, err);
       }
     }
 
-    // Sample record — first 8 fields only, so the AI sees the shape
+    // Sample record -- first 8 fields only, so the AI sees the shape
     // and value formats without the context ballooning. Sanitize the
     // whole preview because CSV-sourced values frequently carry em
     // dashes, smart quotes, and non-breaking spaces that blow up
@@ -214,7 +214,7 @@ async function buildContextInternal(orgId: string): Promise<string> {
     sections.push("");
   }
 
-  // Belt-and-suspenders sanitize at the source — every caller of
+  // Belt-and-suspenders sanitize at the source -- every caller of
   // buildOrgContext now gets a byte-string-safe payload regardless
   // of what slipped through the per-field wrapping above.
   return sanitizeForApi(sections.join("\n"));
