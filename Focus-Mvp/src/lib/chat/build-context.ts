@@ -12,6 +12,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { DATASETS, type DatasetName } from "@/lib/ingestion/datasets";
+import { sanitizeForApi } from "@/lib/utils/sanitize";
 
 // Datasets that carry a status field worth surfacing to the AI. The
 // value is the JSONB key to aggregate on. When a dataset isn't here,
@@ -197,12 +198,17 @@ async function buildContextInternal(orgId: string): Promise<string> {
     }
 
     // Sample record — first 8 fields only, so the AI sees the shape
-    // and value formats without the context ballooning.
+    // and value formats without the context ballooning. Sanitize the
+    // whole preview because CSV-sourced values frequently carry em
+    // dashes, smart quotes, and non-breaking spaces that blow up
+    // downstream ByteString conversions.
     if (Object.keys(sampleData).length > 0) {
-      const preview = Object.entries(sampleData)
-        .slice(0, 8)
-        .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
-        .join(", ");
+      const preview = sanitizeForApi(
+        Object.entries(sampleData)
+          .slice(0, 8)
+          .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+          .join(", "),
+      );
       sections.push(`- Sample record: { ${preview} }`);
     }
     sections.push("");

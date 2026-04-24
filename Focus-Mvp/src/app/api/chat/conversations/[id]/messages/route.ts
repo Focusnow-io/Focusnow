@@ -8,6 +8,7 @@ import { buildOrgContext, getContextTokenEstimate } from "@/lib/chat/build-conte
 import { toolDefinitions, executeTool } from "@/lib/chat/tools";
 import { checkAndIncrementUsage } from "@/lib/chat/rate-limiter";
 import { recordTokenUsage } from "@/lib/usage/token-tracker";
+import { sanitizeForApi } from "@/lib/utils/sanitize";
 
 const SONNET_MODEL = "claude-sonnet-4-20250514";
 const HAIKU_MODEL = "claude-haiku-4-5-20251001";
@@ -310,8 +311,11 @@ export async function POST(
     );
   }
 
-  // Build context
-  const orgContext = await buildOrgContext(ctx.org.id);
+  // Build context. Sanitize the whole thing once here — the context
+  // may contain smart-quoted / em-dashed values pulled from user CSVs,
+  // and some fetch polyfills reject those when downstream layers
+  // assemble byte strings (headers / proxy paths / trace metadata).
+  const orgContext = sanitizeForApi(await buildOrgContext(ctx.org.id));
   const contextTokens = getContextTokenEstimate(ctx.org.id);
 
   // Model selection: Haiku for first turn + small context
@@ -323,7 +327,11 @@ export async function POST(
   const systemPrompt: Anthropic.MessageCreateParams["system"] = [
     {
       type: "text",
-      text: `You are Focus, a world-class supply chain and operations expert serving ${ctx.org.name}. You bring the depth of a seasoned VP of Supply Chain with 20+ years across procurement, inventory management, demand planning, manufacturing operations, and supplier relationship management. You are fluent in best practices (lean, JIT, S&OP, ABC/XYZ analysis, safety stock optimization, EOQ, MRP/MRP II) and apply them naturally when advising. You have access to their complete operational dataset as of ${new Date().toISOString()}.
+      // sanitizeForApi strips any em-dash / smart-quote / ellipsis /
+      // non-breaking-space that slipped in from the prose or the
+      // interpolated orgContext. Keeps the prompt byte-string-safe
+      // for downstream header / proxy paths.
+      text: sanitizeForApi(`You are Focus, a world-class supply chain and operations expert serving ${ctx.org.name}. You bring the depth of a seasoned VP of Supply Chain with 20+ years across procurement, inventory management, demand planning, manufacturing operations, and supplier relationship management. You are fluent in best practices (lean, JIT, S&OP, ABC/XYZ analysis, safety stock optimization, EOQ, MRP/MRP II) and apply them naturally when advising. You have access to their complete operational dataset as of ${new Date().toISOString()}.
 
 ## Data Layer
 All data is stored in ImportRecord with JSONB field names in snake_case.
@@ -458,7 +466,7 @@ and displayLabel so the user knows which field you mean.
 
 ## Current Dataset
 
-${orgContext}`,
+${orgContext}`),
       cache_control: { type: "ephemeral" },
     },
   ];
@@ -799,18 +807,23 @@ function buildAnthropicMessages(
 
   for (const msg of dbMessages) {
     if (msg.role === "USER") {
+      // User-typed content may contain em-dashes / smart quotes from
+      // native macOS / Windows autocorrect. Sanitize every user
+      // message text the same way we sanitize the system prompt so
+      // downstream ByteString conversions don't throw.
+      const userText = sanitizeForApi(msg.content);
       if (pendingToolResults) {
         // Merge tool_result blocks + user text into one user message
         messages.push({
           role: "user",
           content: [
             ...pendingToolResults,
-            { type: "text" as const, text: msg.content },
+            { type: "text" as const, text: userText },
           ],
         });
         pendingToolResults = null;
       } else {
-        messages.push({ role: "user", content: msg.content });
+        messages.push({ role: "user", content: userText });
       }
     } else if (msg.role === "ASSISTANT") {
       // Flush any pending tool results as a standalone user message
