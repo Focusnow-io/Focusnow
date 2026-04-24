@@ -100,14 +100,19 @@ interface UploadResult {
   detectedDescription?: string;
 }
 
+/** Response shape from /process-v2. Every field is optional because
+ *  the error-path response (try/catch in the route) collapses to just
+ *  `{ error }` with HTTP 500 — the UI must tolerate missing counts
+ *  without throwing when it reads `.length` / `.slice()`. */
 interface ImportResult {
-  imported: number;
-  created: number;
-  updated: number;
-  skipped: number;
-  errors: Array<{ row: number; message: string }>;
-  dataset: DatasetName;
-  datasetId: string;
+  imported?: number;
+  created?: number;
+  updated?: number;
+  skipped?: number;
+  errors?: Array<{ row: number; message: string }>;
+  dataset?: DatasetName;
+  datasetId?: string;
+  error?: string;
 }
 
 interface CoverageEntry {
@@ -760,43 +765,47 @@ function ImportPageInner() {
         <Card>
           <CardContent className="p-6 space-y-5">
             <div className="text-center space-y-2 pb-2">
-              {importResult.imported > 0 ? (
+              {(importResult.imported ?? 0) > 0 ? (
                 <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto" />
               ) : (
                 <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto" />
               )}
 
               <p className="text-lg font-semibold text-gray-900">
-                {importResult.imported > 0
+                {(importResult.imported ?? 0) > 0
                   ? "Import complete"
-                  : "Import failed — no records were saved."}
+                  : importResult.error
+                    ? `Import failed — ${importResult.error}`
+                    : "Import failed — no records were saved."}
               </p>
 
-              {importResult.imported > 0 && (
+              {(importResult.imported ?? 0) > 0 && importResult.dataset && (
                 <div className="space-y-1 text-sm text-gray-700">
-                  {importResult.created > 0 && (
+                  {(importResult.created ?? 0) > 0 && (
                     <p>
-                      {plural(importResult.created, `new ${getDatasetUnit(importResult.dataset).replace(/s$/, "")}`)} added
+                      {plural(importResult.created ?? 0, `new ${getDatasetUnit(importResult.dataset).replace(/s$/, "")}`)} added
                     </p>
                   )}
-                  {importResult.updated > 0 && (
+                  {(importResult.updated ?? 0) > 0 && (
                     <p>
-                      {plural(importResult.updated, getDatasetUnit(importResult.dataset).replace(/s$/, ""))} updated
+                      {plural(importResult.updated ?? 0, getDatasetUnit(importResult.dataset).replace(/s$/, ""))} updated
                     </p>
                   )}
-                  {importResult.skipped > 0 && (
+                  {(importResult.skipped ?? 0) > 0 && (
                     <p className="text-amber-600">
-                      {plural(importResult.skipped, "row")} skipped
+                      {plural(importResult.skipped ?? 0, "row")} skipped
                     </p>
                   )}
                 </div>
               )}
             </div>
 
-            {importResult.errors.length > 0 && (
+            {(importResult.errors?.length ?? 0) > 0 && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 space-y-1">
-                <p className="font-semibold">Skipped rows ({importResult.errors.length})</p>
-                {importResult.errors.slice(0, 5).map((e, i) => (
+                <p className="font-semibold">
+                  Skipped rows ({importResult.errors?.length ?? 0})
+                </p>
+                {(importResult.errors?.slice(0, 5) ?? []).map((e, i) => (
                   <p key={i} className="text-amber-700">
                     Row {e.row}: {e.message}
                   </p>
