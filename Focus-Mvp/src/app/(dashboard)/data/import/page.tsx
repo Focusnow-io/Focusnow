@@ -249,7 +249,11 @@ function ImportPageInner() {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("dataset", dataset);
-    fd.append("importMode", importMode);
+    // Replace mode is only meaningful when the dataset already has
+    // records — silently coerce to merge when the target is empty so
+    // we never hit /process-v2's delete-then-insert path for no reason.
+    const hasExistingData = (coverageMap[dataset]?.importedRows ?? 0) > 0;
+    fd.append("importMode", hasExistingData ? importMode : "merge");
 
     try {
       const res = await fetch("/api/data/import-v2", { method: "POST", body: fd });
@@ -549,6 +553,10 @@ function ImportPageInner() {
         const fields = DATASETS[ds]?.fields ?? {};
         const mappedFields = Object.entries(uploadResult.suggestedMapping ?? {})
           .filter(([, src]) => Boolean(src));
+        // Only show the Update/Replace selector when the target dataset
+        // already has records — importing into an empty dataset has no
+        // "existing data" to replace, so the choice is a no-op.
+        const hasExistingData = (coverageMap[ds]?.importedRows ?? 0) > 0;
         return (
           <Card>
             <CardContent className="p-6 space-y-5">
@@ -591,65 +599,67 @@ function ImportPageInner() {
                 </div>
               </div>
 
-              <div>
-                <p className="text-[11px] font-semibold text-gray-500 uppercase mb-1.5">Import mode</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setImportMode("merge")}
-                    disabled={processing}
-                    aria-pressed={importMode === "merge"}
-                    className={cn(
-                      "text-left rounded-xl border-2 px-4 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
-                      importMode === "merge"
-                        ? "border-slate-900 bg-slate-50"
-                        : "border-gray-200 hover:border-slate-400",
-                    )}
-                  >
-                    <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                      <span
-                        className={cn(
-                          "inline-block w-3.5 h-3.5 rounded-full border-2",
-                          importMode === "merge"
-                            ? "border-slate-900 bg-slate-900 ring-2 ring-white ring-inset"
-                            : "border-gray-300",
-                        )}
-                      />
-                      Update existing
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1 ml-5">
-                      Add new records and update existing ones
-                    </p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setImportMode("replace")}
-                    disabled={processing}
-                    aria-pressed={importMode === "replace"}
-                    className={cn(
-                      "text-left rounded-xl border-2 px-4 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
-                      importMode === "replace"
-                        ? "border-amber-500 bg-amber-50/60"
-                        : "border-gray-200 hover:border-amber-400",
-                    )}
-                  >
-                    <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                      <span
-                        className={cn(
-                          "inline-block w-3.5 h-3.5 rounded-full border-2",
-                          importMode === "replace"
-                            ? "border-amber-600 bg-amber-600 ring-2 ring-white ring-inset"
-                            : "border-gray-300",
-                        )}
-                      />
-                      Replace all
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1 ml-5">
-                      Clear existing data and import fresh
-                    </p>
-                  </button>
+              {hasExistingData && (
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-500 uppercase mb-1.5">Import mode</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setImportMode("merge")}
+                      disabled={processing}
+                      aria-pressed={importMode === "merge"}
+                      className={cn(
+                        "text-left rounded-xl border-2 px-4 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                        importMode === "merge"
+                          ? "border-slate-900 bg-slate-50"
+                          : "border-gray-200 hover:border-slate-400",
+                      )}
+                    >
+                      <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "inline-block w-3.5 h-3.5 rounded-full border-2",
+                            importMode === "merge"
+                              ? "border-slate-900 bg-slate-900 ring-2 ring-white ring-inset"
+                              : "border-gray-300",
+                          )}
+                        />
+                        Update existing
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1 ml-5">
+                        Add new records and update existing ones
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImportMode("replace")}
+                      disabled={processing}
+                      aria-pressed={importMode === "replace"}
+                      className={cn(
+                        "text-left rounded-xl border-2 px-4 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                        importMode === "replace"
+                          ? "border-amber-500 bg-amber-50/60"
+                          : "border-gray-200 hover:border-amber-400",
+                      )}
+                    >
+                      <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "inline-block w-3.5 h-3.5 rounded-full border-2",
+                            importMode === "replace"
+                              ? "border-amber-600 bg-amber-600 ring-2 ring-white ring-inset"
+                              : "border-gray-300",
+                          )}
+                        />
+                        Replace all
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1 ml-5">
+                        Clear existing data and import fresh
+                      </p>
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {processing && (
                 <div className="space-y-1.5">
