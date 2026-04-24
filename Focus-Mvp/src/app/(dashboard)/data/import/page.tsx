@@ -98,6 +98,9 @@ interface UploadResult {
     alternatives: Array<{ dataset: DatasetName; score: number; identityFieldsMatched: number }>;
   };
   detectedDescription?: string;
+  /** Set by /import-v2 when Claude Haiku re-classified one or more
+   *  ambiguous columns. Drives the "✦ AI assisted" notice on Confirm. */
+  aiEnhanced?: boolean;
 }
 
 /** Response shape from /process-v2. Every field is optional because
@@ -597,6 +600,11 @@ function ImportPageInner() {
                     );
                   })}
                 </div>
+                {uploadResult.aiEnhanced && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    ✦ AI assisted with column mapping
+                  </p>
+                )}
               </div>
 
               {hasExistingData && (
