@@ -13,9 +13,16 @@
 import { DATASETS, DATASET_FIELD_ALIASES, type DatasetName } from "./datasets";
 
 /** Normalise a header or alias so comparisons are tolerant of case,
- *  punctuation, extra spacing, and underscore/hyphen differences. */
+ *  punctuation, extra spacing, and underscore/hyphen differences.
+ *
+ *  Parenthetical explanations (e.g. " (Approved / Preferred / Blocked)"
+ *  or " (Days)") are stripped first so "Status (Approved / Preferred /
+ *  Blocked)" compares as "status" rather than the much-longer
+ *  "status_approved_preferred_blocked", which would score only 0.18
+ *  against the "status" alias and fall below the 0.6 threshold. */
 function normalise(s: string): string {
   return s
+    .replace(/\s*\([^)]*\)/g, "")   // strip parenthetical text before other transforms
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "_")
     .replace(/_+/g, "_")
