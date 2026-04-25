@@ -1,656 +1,464 @@
-import { prisma } from "@/lib/prisma";
-import type { DataQuery, DataFilter } from "@/components/apps/widgets/types";
+/**
+ * Widget data engine — reads from ImportRecord.
+ *
+ * Dashboard widgets (StatCard / Chart / Table / AlertList / Insight /
+ * Simulator / Form) all call runQuery() or fetchRawRows() to pull
+ * typed data. This implementation routes every call through the same
+ * JSONB query engine the chat tools use, so widgets and the AI see
+ * the same numbers.
+ *
+ * Public API preserved from the pre-migration version so callers
+ * (widget-data route, widget-insight route, any widget that imported
+ * a helper) compile unchanged:
+ *   - runQuery(orgId, query, filters)
+ *   - fetchRawRows(orgId, query, filters)
+ *   - toWhereClause(filters)         — identity passthrough now
+ *   - filterCompatibleFilters(…)     — identity passthrough now
+ *   - buildOrgWhere(entity, orgId)   — returns {} now (orgId scope
+ *                                      handled inside queryRecords)
+ */
 
-type Op = DataFilter["op"];
+import { queryRecords, aggregateRecords } from "@/lib/chat/record-query";
+import type { DatasetName } from "@/lib/ingestion/datasets";
+import type { DataFilter, DataQuery } from "@/components/apps/widgets/types";
 
-// ---------------------------------------------------------------------------
-// Filter helpers
-// ---------------------------------------------------------------------------
+// ─── Field name normalisation ──────────────────────────────────────────────
+//
+// Apps generated before the system-prompt fix used camelCase field names
+// (e.g. totalAmount, createdAt, poNumber). `assertField` in record-query.ts
+// rejects these, causing silent 0/empty results. We normalise every field
+// reference to snake_case before it reaches the query engine so old configs
+// continue to work without migration.
 
-export function toWhereClause(filters: DataFilter[] | undefined): Record<string, unknown> {
-  if (!filters?.length) return {};
-  const where: Record<string, unknown> = {};
-
-  for (const f of filters) {
-    const parts = f.field.split(".");
-    const condition = toCondition(f.op, f.value);
-
-    if (parts.length === 1) {
-      where[f.field] = condition;
-    } else {
-      let cursor = where;
-      for (let i = 0; i < parts.length - 1; i++) {
-        if (!cursor[parts[i]]) cursor[parts[i]] = {};
-        cursor = cursor[parts[i]] as Record<string, unknown>;
-      }
-      cursor[parts[parts.length - 1]] = condition;
-    }
-  }
-  return where;
+function camelToSnake(s: string): string {
+  return s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 }
 
-function toCondition(op: Op, value: unknown): unknown {
-  switch (op) {
-    case "eq": return value;
-    case "ne": return { not: value };
-    case "lt": return { lt: value };
-    case "lte": return { lte: value };
-    case "gt": return { gt: value };
-    case "gte": return { gte: value };
-    case "contains": return { contains: value, mode: "insensitive" };
-    default: return value;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Filter compatibility — strip relation filters not valid for a given entity
-// ---------------------------------------------------------------------------
-
-/** Maps each entity to the set of valid relation prefixes for dot-notation filters */
-const ENTITY_RELATIONS: Record<string, Set<string>> = {
-  products: new Set(),
-  inventory: new Set(["product", "location"]),
-  orders: new Set(["supplier"]),
-  suppliers: new Set(),
-  purchase_orders: new Set(["supplier"]),
-  sales_orders: new Set(["customer"]),
-  work_orders: new Set(["product"]),
-  lots: new Set(["product"]),
-  customers: new Set(),
-  locations: new Set(),
-  bom: new Set(["product"]),
-  forecasts: new Set(["product"]),
+/** Explicit aliases for renames that aren't pure casing changes. */
+const FIELD_ALIASES: Record<string, string> = {
+  // old AI name → canonical
+  total_amount:   "line_value",
+  amount:         "line_value",
+  total_value:    "line_value",   // inventory has its own total_value, keep as-is below
+  // prisma/camel aliases → canonical date fields
+  created_at:     "order_date",
+  updated_at:     "order_date",
+  // product field renamed in system prompt
+  category:       "type",
+  // supplier aliases
+  on_time:        "on_time_pct",
+  on_time_delivery: "on_time_pct",
 };
 
-/**
- * Returns only the filters whose fields are compatible with the given entity.
- * Dot-notation filters like "product.sku" are only kept if the entity has
- * that relation. Non-dot fields (e.g. "status") always pass through.
- */
-export function filterCompatibleFilters(entity: string, filters: DataFilter[] | undefined): DataFilter[] {
-  if (!filters?.length) return [];
-  const validRelations = ENTITY_RELATIONS[entity];
-  if (!validRelations) return filters; // unknown entity → pass all through
+// Fields that exist verbatim in a dataset should NOT be re-aliased above.
+// total_value IS a real inventory field, so we keep it only for datasets
+// that don't have it. The query engine's assertField will accept it for
+// inventory and reject it elsewhere — that's the desired behavior.
+delete FIELD_ALIASES["total_value"];
 
-  return filters.filter((f) => {
-    const dotIdx = f.field.indexOf(".");
-    if (dotIdx === -1) return true; // scalar field, always ok
-    const relation = f.field.slice(0, dotIdx);
-    return validRelations.has(relation);
-  });
+function normalizeField(field: string): string {
+  if (!field) return field;
+  // Skip dot-notation relation references (e.g. "supplier.name") —
+  // buildFilterMap already strips these, and we don't want to mangle them.
+  if (field.includes(".")) return field;
+  const snake = camelToSnake(field);
+  return FIELD_ALIASES[snake] ?? snake;
 }
 
-// Entities that use orgId instead of organizationId
-const ORG_ID_ENTITIES = new Set([
-  "purchase_orders", "sales_orders", "lots", "customers", "bom", "forecasts",
-]);
+// ─── Widget entity → dataset mapping ───────────────────────────────────────
 
-export function buildOrgWhere(entity: string, orgId: string): Record<string, unknown> {
-  return ORG_ID_ENTITIES.has(entity) ? { orgId } : { organizationId: orgId };
+const ENTITY_TO_DATASET: Record<string, DatasetName | null> = {
+  // Direct matches — widget EntityType uses snake_case that already
+  // lines up with DatasetName for the 6 overlapping concepts.
+  products: "products",
+  inventory: "inventory",
+  suppliers: "suppliers",
+  customers: "customers",
+  purchase_orders: "purchase_orders",
+  sales_orders: "sales_orders",
+  bom: "bom",
+  locations: "locations",
+
+  // Singular forms — old AI-generated apps may use singular entity names.
+  product: "products",
+  supplier: "suppliers",
+  customer: "customers",
+  location: "locations",
+  purchase_order: "purchase_orders",
+  sales_order: "sales_orders",
+
+  // Abbreviations / common aliases from old prompts.
+  orders: "purchase_orders",   // legacy
+  po: "purchase_orders",
+  pos: "purchase_orders",
+  so: "sales_orders",
+  sos: "sales_orders",
+  inv: "inventory",
+  stock: "inventory",
+  items: "inventory",
+  item: "inventory",
+  skus: "inventory",
+  parts: "products",
+  catalog: "products",
+  vendors: "suppliers",
+  vendor: "suppliers",
+  clients: "customers",
+  client: "customers",
+  warehouses: "locations",
+  warehouse: "locations",
+
+  // Not yet in the JSONB store — widgets get an empty result until
+  // these land. Returning null (vs. a random dataset) means
+  // aggregations return 0 and list queries return [] cleanly.
+  work_orders: null,
+  work_order: null,
+  lots: null,
+  lot: null,
+  forecasts: null,
+  forecast: null,
+  shipments: null,
+  shipment: null,
+};
+
+// ─── Backward-compat passthroughs (no-ops in the new world) ────────────────
+//
+// Every caller still imports these names; we keep the exports but they
+// no longer translate to Prisma-where shape. Filter composition now
+// happens inside runQuery() via the record-query engine.
+
+export function toWhereClause(filters: DataFilter[] | undefined): DataFilter[] {
+  return filters ?? [];
 }
 
-// ---------------------------------------------------------------------------
-// Time bucketing helpers
-// ---------------------------------------------------------------------------
+export function filterCompatibleFilters(
+  _entity: string,
+  filters: DataFilter[] | undefined,
+): DataFilter[] {
+  // The JSONB query engine validates every field name against the
+  // DATASETS vocabulary, so incompatible filters throw there rather
+  // than needing to be stripped upfront. Kept as an identity pass
+  // so callers don't need updates.
+  return filters ?? [];
+}
 
-function bucketDate(d: Date, bucket: "day" | "week" | "month" | "quarter"): string {
-  const y = d.getFullYear();
-  const m = d.getMonth();
-  switch (bucket) {
-    case "day":
-      return d.toISOString().slice(0, 10);
-    case "week": {
-      const day = new Date(d);
-      const dayOfWeek = day.getDay() || 7;
-      day.setDate(day.getDate() - dayOfWeek + 1);
-      return day.toISOString().slice(0, 10);
-    }
-    case "month":
-      return `${y}-${String(m + 1).padStart(2, "0")}`;
-    case "quarter":
-      return `${y}-Q${Math.floor(m / 3) + 1}`;
+export function buildOrgWhere(_entity: string, _orgId: string): Record<string, unknown> {
+  // Org scoping is applied inside queryRecords / aggregateRecords by
+  // passing orgId to the query engine — no Prisma where clause needed.
+  return {};
+}
+
+// ─── Time bucketing ────────────────────────────────────────────────────────
+
+function bucketDate(
+  d: Date,
+  bucket: "day" | "week" | "month" | "quarter",
+): string {
+  const year = d.getUTCFullYear();
+  const month = d.getUTCMonth();
+  const date = d.getUTCDate();
+  if (bucket === "day") {
+    return `${year}-${String(month + 1).padStart(2, "0")}-${String(date).padStart(2, "0")}`;
   }
+  if (bucket === "week") {
+    const jan4 = new Date(Date.UTC(year, 0, 4));
+    const weekNum =
+      1 +
+      Math.round(
+        ((d.getTime() - jan4.getTime()) / 86_400_000 -
+          3 +
+          ((jan4.getUTCDay() + 6) % 7)) /
+          7,
+      );
+    return `${year}-W${String(weekNum).padStart(2, "0")}`;
+  }
+  if (bucket === "month") {
+    return `${year}-${String(month + 1).padStart(2, "0")}`;
+  }
+  return `${year}-Q${Math.floor(month / 3) + 1}`;
 }
 
 function applyTimeBucket<T extends Record<string, unknown>>(
   rows: T[],
-  dateField: string,
+  groupBy: string,
   bucket: "day" | "week" | "month" | "quarter",
-  aggregation: string,
-  valueField?: string
-): { label: string; value: number }[] {
-  const map: Record<string, number[]> = {};
-
+  aggregation: "count" | "sum" | "avg" | "min" | "max",
+  field: string | undefined,
+): Array<{ label: string; value: number }> {
+  const groups = new Map<string, number[]>();
   for (const row of rows) {
-    const raw = row[dateField];
+    const raw = row[groupBy];
     if (!raw) continue;
-    const d = raw instanceof Date ? raw : new Date(String(raw));
-    if (isNaN(d.getTime())) continue;
-    const key = bucketDate(d, bucket);
-    if (!map[key]) map[key] = [];
-
-    if (valueField && row[valueField] !== undefined) {
-      map[key].push(Number(row[valueField] ?? 0));
-    } else {
-      map[key].push(1);
-    }
+    const date = raw instanceof Date ? raw : new Date(String(raw));
+    if (isNaN(date.getTime())) continue;
+    const label = bucketDate(date, bucket);
+    const valueRaw = field ? row[field] : 1;
+    const value = typeof valueRaw === "number" ? valueRaw : Number(valueRaw);
+    if (!isFinite(value)) continue;
+    const cur = groups.get(label) ?? [];
+    cur.push(value);
+    groups.set(label, cur);
   }
-
-  return Object.entries(map)
-    .map(([label, nums]) => ({
-      label,
-      value: aggregation === "sum" || aggregation === "count"
-        ? nums.reduce((a, b) => a + b, 0)
-        : aggregation === "avg"
-        ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length)
-        : nums.reduce((a, b) => a + b, 0),
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+  const result: Array<{ label: string; value: number }> = [];
+  for (const [label, nums] of groups) {
+    let value = 0;
+    if (aggregation === "count") value = nums.length;
+    else if (aggregation === "sum") value = nums.reduce((a, b) => a + b, 0);
+    else if (aggregation === "avg")
+      value = nums.length > 0 ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+    else if (aggregation === "min") value = Math.min(...nums);
+    else if (aggregation === "max") value = Math.max(...nums);
+    result.push({ label, value });
+  }
+  return result.sort((a, b) => (a.label < b.label ? -1 : 1));
 }
 
-// ---------------------------------------------------------------------------
-// Computed field helpers
-// ---------------------------------------------------------------------------
+// ─── Computed fields ───────────────────────────────────────────────────────
 
 function computeFieldValue(
-  rows: Record<string, unknown>[],
+  rows: Array<Record<string, unknown>>,
   operation: "ratio" | "percentage" | "delta",
   numerator: string,
-  denominator: string
+  denominator: string,
 ): { value: number } {
-  const numSum = rows.reduce((s, r) => s + Number(r[numerator] ?? 0), 0);
-  const denSum = rows.reduce((s, r) => s + Number(r[denominator] ?? 0), 0);
-
-  switch (operation) {
-    case "ratio":
-      return { value: denSum === 0 ? 0 : Math.round((numSum / denSum) * 100) / 100 };
-    case "percentage":
-      return { value: denSum === 0 ? 0 : Math.round((numSum / denSum) * 1000) / 10 };
-    case "delta":
-      return { value: numSum - denSum };
+  let numSum = 0;
+  let denomSum = 0;
+  for (const row of rows) {
+    const n = Number(row[numerator]);
+    const d = Number(row[denominator]);
+    if (isFinite(n)) numSum += n;
+    if (isFinite(d)) denomSum += d;
   }
+  if (operation === "ratio") {
+    return { value: denomSum === 0 ? 0 : numSum / denomSum };
+  }
+  if (operation === "percentage") {
+    return { value: denomSum === 0 ? 0 : (numSum / denomSum) * 100 };
+  }
+  return { value: numSum - denomSum };
 }
 
-// ---------------------------------------------------------------------------
-// Main query runner
-// ---------------------------------------------------------------------------
+// ─── Filter adapter: DataFilter[] → record-query filter map ────────────────
 
-export async function runQuery(orgId: string, query: DataQuery, where: Record<string, unknown>): Promise<unknown> {
-  const { entity, aggregation, field, groupBy, sort, limit, timeBucket, computedField } = query;
-  const take = limit ?? 100;
+function buildFilterMap(filters: DataFilter[] | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const f of filters ?? []) {
+    if (f.field.includes(".")) continue;
 
-  // ── COMPUTED FIELDS ──────────────────────────────────────────────────────
-  if (computedField) {
-    const rows = await fetchRawRows(entity, where, sort, 10000);
-    return computeFieldValue(
-      rows,
-      computedField.operation,
-      computedField.numerator,
-      computedField.denominator
-    );
-  }
+    const key = normalizeField(f.field);
 
-  // ── TIME BUCKETING ───────────────────────────────────────────────────────
-  if (timeBucket && groupBy) {
-    const rows = await fetchRawRows(entity, where, sort, 10000);
-    return applyTimeBucket(rows, groupBy, timeBucket, aggregation ?? "count", field);
-  }
-
-  // ── AGGREGATION (no groupBy) ─────────────────────────────────────────────
-  if (aggregation && !groupBy) {
-    return runAggregation(orgId, entity, aggregation, field, where);
-  }
-
-  // ── GROUP BY ─────────────────────────────────────────────────────────────
-  if (groupBy) {
-    return runGroupBy(orgId, query, where);
-  }
-
-  // ── LIST ─────────────────────────────────────────────────────────────────
-  const orderBy = buildOrderBy(sort, { createdAt: "desc" });
-
-  if (entity === "products") {
-    type ProductRow = { id: string; sku: string; name: string; category: string | null; unitCost: unknown; unit: string | null; leadTimeDays: number | null; reorderPoint: unknown; safetyStock: unknown; type: string | null };
-    const rows = (await prisma.product.findMany({ where: where as never, orderBy, take, select: { id: true, sku: true, name: true, category: true, unitCost: true, unit: true, leadTimeDays: true, reorderPoint: true, safetyStock: true, type: true } })) as unknown as ProductRow[];
-    return rows.map((r) => ({ ...r, unitCost: r.unitCost ? Number(r.unitCost) : null, reorderPoint: r.reorderPoint ? Number(r.reorderPoint) : null, safetyStock: r.safetyStock ? Number(r.safetyStock) : null }));
-  }
-
-  if (entity === "inventory") {
-    const INV_UNSORTABLE = new Set(["unitValue", "totalValue", "createdAt"]);
-    const invSort = sort && !INV_UNSORTABLE.has(sort.field) ? buildOrderBy(sort, { updatedAt: "desc" }) : { updatedAt: "desc" };
-    type InvRow = { id: string; quantity: unknown; reservedQty: unknown; reorderPoint: unknown; reorderQty: unknown; daysOfSupply: unknown; unitCost: unknown; attributes: unknown; product: { sku: string; name: string; category: string | null; unitCost: unknown }; location: { name: string; code: string } | null };
-    const rows = (await prisma.inventoryItem.findMany({ where: where as never, orderBy: invSort, take, include: { product: { select: { sku: true, name: true, category: true, unitCost: true } }, location: { select: { code: true, name: true } } } })) as unknown as InvRow[];
-    const mapped = rows.map((r) => {
-      // Prefer item-level unitCost (from inventory import), fall back to product-level
-      const unitCost = Number(r.unitCost ?? r.product.unitCost ?? 0);
-      const computedValue = Math.round(Number(r.quantity) * unitCost);
-      // Fall back to attributes.locationCode when no Location record is linked
-      const attrs = r.attributes as Record<string, unknown> | null;
-      const locationName = r.location?.name ?? attrs?.locationCode as string ?? null;
-      const locationCode = r.location?.code ?? attrs?.locationCode as string ?? null;
-      return { id: r.id, quantity: Number(r.quantity), reservedQty: Number(r.reservedQty ?? 0), reorderPoint: r.reorderPoint ? Number(r.reorderPoint) : null, reorderQty: r.reorderQty ? Number(r.reorderQty) : null, daysOfSupply: r.daysOfSupply ? Number(r.daysOfSupply) : null, unitValue: computedValue, totalValue: computedValue, "product.sku": r.product.sku, "product.name": r.product.name, "product.category": r.product.category, "location.name": locationName, "location.code": locationCode, needsReorder: r.reorderPoint != null && Number(r.quantity) <= Number(r.reorderPoint) };
-    });
-    if (sort && INV_UNSORTABLE.has(sort.field)) {
-      mapped.sort((a, b) => sort.dir === "asc" ? a.unitValue - b.unitValue : b.unitValue - a.unitValue);
+    if (f.value === "TODAY") {
+      out[key] = { lt: new Date().toISOString().split("T")[0] };
+      continue;
     }
-    return mapped;
+
+    switch (f.op) {
+      case "eq":
+        out[key] = f.value;
+        break;
+      case "ne":
+        out[key] = { not: f.value };
+        break;
+      case "lt":
+        out[key] = { lt: f.value };
+        break;
+      case "lte":
+        out[key] = { lte: f.value };
+        break;
+      case "gt":
+        out[key] = { gt: f.value };
+        break;
+      case "gte":
+        out[key] = { gte: f.value };
+        break;
+      case "contains":
+        out[key] = { contains: f.value };
+        break;
+    }
+  }
+  return out;
+}
+
+// ─── runQuery ──────────────────────────────────────────────────────────────
+
+export async function runQuery(
+  orgId: string,
+  query: DataQuery,
+  filters?: DataFilter[],
+): Promise<unknown> {
+  const {
+    entity,
+    aggregation,
+    sort,
+    limit,
+    timeBucket,
+    computedField,
+  } = query;
+
+  // Normalise field references: camelCase → snake_case + explicit aliases.
+  // This makes apps generated before the system-prompt fix work without
+  // needing to migrate their stored configs.
+  const field   = query.field   ? normalizeField(query.field)   : query.field;
+  const groupBy = query.groupBy ? normalizeField(query.groupBy) : query.groupBy;
+
+  const datasetName = ENTITY_TO_DATASET[entity];
+  if (!datasetName) {
+    return aggregation ? { value: 0 } : [];
   }
 
-  if (entity === "orders") {
-    type OrdRow = { id: string; orderNumber: string; type: string; status: string; totalAmount: unknown; orderDate: Date | null; expectedDate: Date | null; supplier: { name: string } | null };
-    const rows = (await prisma.order.findMany({ where: where as never, orderBy, take, include: { supplier: { select: { code: true, name: true } } } })) as unknown as OrdRow[];
-    return rows.map((r) => ({ id: r.id, orderNumber: r.orderNumber, type: r.type, status: r.status, totalAmount: r.totalAmount ? Number(r.totalAmount) : null, orderDate: r.orderDate?.toISOString() ?? null, expectedDate: r.expectedDate?.toISOString() ?? null, "supplier.name": r.supplier?.name ?? null }));
-  }
+  const sourceFilters = filters ?? query.filters;
+  const recordFilters = buildFilterMap(sourceFilters);
 
-  if (entity === "suppliers") {
-    return prisma.supplier.findMany({
-      where: where as never, orderBy, take,
-      select: { id: true, code: true, name: true, country: true, email: true, leadTimeDays: true, paymentTerms: true },
+  try {
+    if (computedField) {
+      const { rows } = await queryRecords({
+        dataset: datasetName,
+        orgId,
+        filters: recordFilters,
+        limit: 10_000,
+      });
+      return computeFieldValue(
+        rows,
+        computedField.operation,
+        computedField.numerator,
+        computedField.denominator,
+      );
+    }
+
+    if (timeBucket && groupBy) {
+      const { rows } = await queryRecords({
+        dataset: datasetName,
+        orgId,
+        filters: recordFilters,
+        limit: 10_000,
+      });
+      return applyTimeBucket(
+        rows,
+        groupBy,
+        timeBucket,
+        aggregation ?? "count",
+        field,
+      );
+    }
+
+    if (groupBy && aggregation) {
+      // All groupBy aggregations run client-side over raw rows for reliability.
+      // The SQL GROUP BY path (aggregateRecords with groupByField) can silently
+      // fail with composite Prisma.Sql fragments, causing the catch to return
+      // { value: 0 } instead of [], which makes ChartWidget show "No data available"
+      // even when the dataset has records. Client-side grouping is always correct.
+      const { rows } = await queryRecords({
+        dataset: datasetName,
+        orgId,
+        filters: recordFilters,
+        limit: 10_000,
+      });
+
+      const agg = aggregation.toLowerCase();
+      const groups = new Map<string, number[]>();
+      for (const row of rows) {
+        const rawLabel = row[groupBy];
+        const labelStr = rawLabel !== null && rawLabel !== undefined ? String(rawLabel).trim() : "";
+        const label = labelStr !== "" ? labelStr : "(None)";
+        const valRaw = field ? row[field] : 1;
+        const v = agg === "count" ? 1 : (typeof valRaw === "number" ? valRaw : Number(valRaw));
+        if (agg !== "count" && !isFinite(v)) continue;
+        const arr = groups.get(label) ?? [];
+        arr.push(v);
+        groups.set(label, arr);
+      }
+
+      return Array.from(groups.entries())
+        .map(([label, nums]) => {
+          let value = 0;
+          if (agg === "count")  value = nums.length;
+          else if (agg === "sum")  value = nums.reduce((a, b) => a + b, 0);
+          else if (agg === "avg")  value = nums.length > 0 ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+          else if (agg === "min")  value = Math.min(...nums);
+          else if (agg === "max")  value = Math.max(...nums);
+          return { label, value };
+        })
+        .sort((a, b) => b.value - a.value)
+        .slice(0, limit ?? 50);
+    }
+
+    if (aggregation && !groupBy) {
+      if (aggregation === "min" || aggregation === "max") {
+        const { rows } = await queryRecords({
+          dataset: datasetName,
+          orgId,
+          filters: recordFilters,
+          limit: 10_000,
+        });
+        const nums = rows
+          .map((r) => {
+            const v = field ? r[field] : 1;
+            return typeof v === "number" ? v : Number(v);
+          })
+          .filter((n) => isFinite(n));
+        if (nums.length === 0) return { value: 0 };
+        return {
+          value: aggregation === "min" ? Math.min(...nums) : Math.max(...nums),
+        };
+      }
+
+      const result = await aggregateRecords({
+        dataset: datasetName,
+        orgId,
+        metric: aggregation.toUpperCase() as "COUNT" | "SUM" | "AVG",
+        valueField: field,
+        filters: recordFilters,
+      });
+      return { value: typeof result.result === "number" ? result.result : 0 };
+    }
+
+    const { rows } = await queryRecords({
+      dataset: datasetName,
+      orgId,
+      filters: recordFilters,
+      orderBy: sort ? { field: normalizeField(sort.field), direction: sort.dir } : undefined,
+      limit: limit ?? 100,
     });
+    return rows;
+  } catch (err) {
+    console.error(
+      `[widget-query] ${datasetName} failed:`,
+      err instanceof Error ? err.message : err,
+    );
+    // groupBy queries must return [] so ChartWidget's Array.isArray check passes.
+    // Returning { value: 0 } would make every chart show "No data available".
+    return groupBy ? [] : aggregation ? { value: 0 } : [];
   }
-
-  if (entity === "purchase_orders") {
-    type PORow = { id: string; poNumber: string; status: string; totalAmount: unknown; expectedDate: Date | null; receivedDate: Date | null; confirmedETA: Date | null; createdAt: Date; supplier: { code: string; name: string } };
-    const rows = (await prisma.purchaseOrder.findMany({ where: where as never, orderBy, take, include: { supplier: { select: { code: true, name: true } } } })) as unknown as PORow[];
-    return rows.map((r) => ({ id: r.id, poNumber: r.poNumber, status: r.status, totalAmount: r.totalAmount ? Number(r.totalAmount) : null, expectedDate: r.expectedDate?.toISOString() ?? null, receivedDate: r.receivedDate?.toISOString() ?? null, confirmedETA: r.confirmedETA?.toISOString() ?? null, createdAt: r.createdAt.toISOString(), "supplier.name": r.supplier.name, "supplier.code": r.supplier.code }));
-  }
-
-  if (entity === "sales_orders") {
-    type SORow = { id: string; soNumber: string; status: string; totalAmount: unknown; requestedDate: Date | null; confirmedDate: Date | null; createdAt: Date; customer: { code: string; name: string } };
-    const rows = (await prisma.salesOrder.findMany({ where: where as never, orderBy, take, include: { customer: { select: { code: true, name: true } } } })) as unknown as SORow[];
-    return rows.map((r) => ({ id: r.id, soNumber: r.soNumber, status: r.status, totalAmount: r.totalAmount ? Number(r.totalAmount) : null, requestedDate: r.requestedDate?.toISOString() ?? null, confirmedDate: r.confirmedDate?.toISOString() ?? null, createdAt: r.createdAt.toISOString(), "customer.name": r.customer.name, "customer.code": r.customer.code }));
-  }
-
-  if (entity === "work_orders") {
-    type WORow = { id: string; woNumber: string | null; orderNumber: string; sku: string; status: string; plannedQty: unknown; actualQty: unknown; scheduledDate: Date | null; dueDate: Date | null; priority: number | null; product: { sku: string; name: string } | null };
-    const rows = (await prisma.workOrder.findMany({ where: where as never, orderBy, take, include: { product: { select: { sku: true, name: true } } } })) as unknown as WORow[];
-    return rows.map((r) => ({ id: r.id, woNumber: r.woNumber ?? r.orderNumber, status: r.status, plannedQty: Number(r.plannedQty), actualQty: Number(r.actualQty ?? 0), scheduledDate: r.scheduledDate?.toISOString() ?? null, dueDate: r.dueDate?.toISOString() ?? null, priority: r.priority, "product.sku": r.product?.sku ?? r.sku, "product.name": r.product?.name ?? null }));
-  }
-
-  if (entity === "lots") {
-    type LotRow = { id: string; lotNumber: string; expiryDate: Date | null; manufacturedDate: Date | null; createdAt: Date; product: { sku: string; name: string; category: string | null } };
-    const rows = (await prisma.lot.findMany({ where: where as never, orderBy, take, include: { product: { select: { sku: true, name: true, category: true } } } })) as unknown as LotRow[];
-    return rows.map((r) => ({ id: r.id, lotNumber: r.lotNumber, expiryDate: r.expiryDate?.toISOString() ?? null, manufacturedDate: r.manufacturedDate?.toISOString() ?? null, createdAt: r.createdAt.toISOString(), "product.sku": r.product.sku, "product.name": r.product.name, "product.category": r.product.category }));
-  }
-
-  if (entity === "customers") {
-    type CustRow = { id: string; code: string; name: string; contactName: string | null; email: string | null; country: string | null; paymentTerms: string | null; creditLimit: unknown; isActive: boolean; createdAt: Date };
-    const rows = (await prisma.customer.findMany({ where: where as never, orderBy, take, select: { id: true, code: true, name: true, contactName: true, email: true, country: true, paymentTerms: true, creditLimit: true, isActive: true, createdAt: true } })) as unknown as CustRow[];
-    return rows.map((r) => ({ ...r, creditLimit: r.creditLimit ? Number(r.creditLimit) : null, createdAt: r.createdAt.toISOString() }));
-  }
-
-  if (entity === "locations") {
-    type LocRow = { id: string; code: string; name: string; type: string | null; active: boolean; createdAt: Date; _count: { inventory: number } };
-    const rows = (await prisma.location.findMany({ where: where as never, orderBy, take, select: { id: true, code: true, name: true, type: true, active: true, createdAt: true, _count: { select: { inventory: true } } } })) as unknown as LocRow[];
-    return rows.map((r) => ({ id: r.id, code: r.code, name: r.name, type: r.type, active: r.active, createdAt: r.createdAt.toISOString(), inventoryItems: r._count.inventory }));
-  }
-
-  if (entity === "bom") {
-    type BomRow = { id: string; version: string; isActive: boolean; yieldPct: unknown; product: { sku: string; name: string }; _count: { lines: number }; createdAt: Date };
-    const rows = (await prisma.bOMHeader.findMany({ where: where as never, orderBy, take, select: { id: true, version: true, isActive: true, yieldPct: true, createdAt: true, product: { select: { sku: true, name: true } }, _count: { select: { lines: true } } } })) as unknown as BomRow[];
-    return rows.map((r) => ({ id: r.id, version: r.version, isActive: r.isActive, yieldPct: r.yieldPct ? Number(r.yieldPct) : null, componentCount: r._count.lines, "product.sku": r.product.sku, "product.name": r.product.name, createdAt: r.createdAt.toISOString() }));
-  }
-
-  if (entity === "forecasts") {
-    type FcRow = { id: string; periodYear: number; periodMonth: number; type: string; qty: unknown; product: { sku: string; name: string } };
-    const rows = (await prisma.demandForecast.findMany({ where: where as never, orderBy: sort ? { [sort.field]: sort.dir } : { periodYear: "desc" }, take, include: { product: { select: { sku: true, name: true } } } })) as unknown as FcRow[];
-    return rows.map((r) => ({ id: r.id, period: `${r.periodYear}-${String(r.periodMonth).padStart(2, "0")}`, type: r.type, qty: Number(r.qty), "product.sku": r.product.sku, "product.name": r.product.name }));
-  }
-
-  return [];
 }
 
-// ---------------------------------------------------------------------------
-// Sort helper — converts dot-notation "product.category" → { product: { category: "asc" } }
-// ---------------------------------------------------------------------------
-
-function buildOrderBy(sort: DataQuery["sort"], fallback: Record<string, unknown>): Record<string, unknown> {
-  if (!sort) return fallback;
-  const parts = sort.field.split(".");
-  if (parts.length === 1) return { [sort.field]: sort.dir };
-  // Build nested: ["product","category"] → { product: { category: dir } }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let nested: any = sort.dir;
-  for (let i = parts.length - 1; i >= 0; i--) {
-    nested = { [parts[i]]: nested };
-  }
-  return nested;
-}
-
-// ---------------------------------------------------------------------------
-// Raw row fetcher (for time bucketing + computed fields)
-// ---------------------------------------------------------------------------
+// ─── fetchRawRows ──────────────────────────────────────────────────────────
 
 export async function fetchRawRows(
-  entity: string,
-  where: Record<string, unknown>,
-  sort: DataQuery["sort"],
-  take: number
-): Promise<Record<string, unknown>[]> {
-  const orderBy = buildOrderBy(sort, { createdAt: "desc" });
+  orgId: string,
+  query: DataQuery,
+  filters?: DataFilter[],
+): Promise<Array<Record<string, unknown>>> {
+  const datasetName = ENTITY_TO_DATASET[query.entity];
+  if (!datasetName) return [];
 
-  const entityMap: Record<string, () => Promise<Record<string, unknown>[]>> = {
-    purchase_orders: async () => {
-      const rows = await prisma.purchaseOrder.findMany({ where: where as never, orderBy, take });
-      return rows.map((r) => ({ ...r, totalAmount: Number(r.totalAmount ?? 0) })) as unknown as Record<string, unknown>[];
-    },
-    sales_orders: async () => {
-      const rows = await prisma.salesOrder.findMany({ where: where as never, orderBy, take });
-      return rows.map((r) => ({ ...r, totalAmount: Number(r.totalAmount ?? 0) })) as unknown as Record<string, unknown>[];
-    },
-    work_orders: async () => {
-      const rows = await prisma.workOrder.findMany({ where: where as never, orderBy, take });
-      return rows.map((r) => ({ ...r, plannedQty: Number(r.plannedQty), actualQty: Number(r.actualQty ?? 0) })) as unknown as Record<string, unknown>[];
-    },
-    orders: async () => {
-      const rows = await prisma.order.findMany({ where: where as never, orderBy, take });
-      return rows.map((r) => ({ ...r, totalAmount: Number(r.totalAmount ?? 0) })) as unknown as Record<string, unknown>[];
-    },
-    products: async () => {
-      const rows = await prisma.product.findMany({ where: where as never, orderBy, take });
-      return rows.map((r) => ({ ...r, unitCost: Number(r.unitCost ?? 0) })) as unknown as Record<string, unknown>[];
-    },
-    inventory: async () => {
-      // InventoryItem has no createdAt — map it to updatedAt; also skip computed fields
-      const INV_UNSORTABLE = new Set(["unitValue", "totalValue", "createdAt"]);
-      const invSort = sort && INV_UNSORTABLE.has(sort.field) ? undefined : sort;
-      const invOrderBy = invSort ? buildOrderBy(invSort, { updatedAt: "desc" }) : { updatedAt: "desc" };
-      const rows = await prisma.inventoryItem.findMany({ where: where as never, orderBy: invOrderBy, take, include: { product: { select: { sku: true, name: true, category: true, unitCost: true } }, location: { select: { name: true, code: true } } } });
-      const mapped = rows.map((r) => {
-        const uc = Number(r.unitCost ?? r.product.unitCost ?? 0);
-        const attrs = r.attributes as Record<string, unknown> | null;
-        const locationName = r.location?.name ?? attrs?.locationCode as string ?? null;
-        const locationCode = r.location?.code ?? attrs?.locationCode as string ?? null;
-        return { ...r, quantity: Number(r.quantity), unitCost: uc, unitValue: Math.round(Number(r.quantity) * uc), "product.sku": r.product.sku, "product.name": r.product.name, "product.category": r.product.category, "location.name": locationName, "location.code": locationCode };
-      }) as unknown as Record<string, unknown>[];
-      if (sort && INV_UNSORTABLE.has(sort.field)) {
-        (mapped as { unitValue: number }[]).sort((a, b) => sort.dir === "asc" ? a.unitValue - b.unitValue : b.unitValue - a.unitValue);
-      }
-      return mapped;
-    },
-    lots: async () => {
-      const rows = await prisma.lot.findMany({ where: where as never, orderBy, take });
-      return rows as unknown as Record<string, unknown>[];
-    },
-    forecasts: async () => {
-      const rows = await prisma.demandForecast.findMany({ where: where as never, orderBy: sort ? orderBy : { periodYear: "desc" }, take });
-      return rows.map((r) => ({ ...r, qty: Number(r.qty), period: `${r.periodYear}-${String(r.periodMonth).padStart(2, "0")}` })) as unknown as Record<string, unknown>[];
-    },
-    customers: async () => {
-      const rows = await prisma.customer.findMany({ where: where as never, orderBy, take });
-      return rows.map((r) => ({ ...r, creditLimit: Number(r.creditLimit ?? 0) })) as unknown as Record<string, unknown>[];
-    },
-    locations: async () => {
-      const rows = await prisma.location.findMany({ where: where as never, orderBy, take });
-      return rows as unknown as Record<string, unknown>[];
-    },
-    bom: async () => {
-      const rows = await prisma.bOMHeader.findMany({ where: where as never, orderBy, take, include: { lines: true } });
-      return rows.map((r) => ({ ...r, yieldPct: Number(r.yieldPct ?? 0), lineCount: r.lines.length })) as unknown as Record<string, unknown>[];
-    },
-    suppliers: async () => {
-      const rows = await prisma.supplier.findMany({ where: where as never, orderBy, take });
-      return rows as unknown as Record<string, unknown>[];
-    },
-  };
+  const sourceFilters = filters ?? query.filters;
+  const recordFilters = buildFilterMap(sourceFilters);
 
-  const fetcher = entityMap[entity];
-  if (!fetcher) return [];
-  return fetcher();
-}
-
-// ---------------------------------------------------------------------------
-// Aggregation
-// ---------------------------------------------------------------------------
-
-async function runAggregation(
-  _orgId: string,
-  entity: DataQuery["entity"],
-  aggregation: string,
-  field: string | undefined,
-  where: Record<string, unknown>
-) {
-  if (aggregation === "count") {
-    const countMap: Record<string, () => Promise<number>> = {
-      products: () => prisma.product.count({ where: where as never }),
-      inventory: () => prisma.inventoryItem.count({ where: where as never }),
-      orders: () => prisma.order.count({ where: where as never }),
-      suppliers: () => prisma.supplier.count({ where: where as never }),
-      purchase_orders: () => prisma.purchaseOrder.count({ where: where as never }),
-      sales_orders: () => prisma.salesOrder.count({ where: where as never }),
-      work_orders: () => prisma.workOrder.count({ where: where as never }),
-      lots: () => prisma.lot.count({ where: where as never }),
-      customers: () => prisma.customer.count({ where: where as never }),
-      locations: () => prisma.location.count({ where: where as never }),
-      bom: () => prisma.bOMHeader.count({ where: where as never }),
-      forecasts: () => prisma.demandForecast.count({ where: where as never }),
-    };
-    const countFn = countMap[entity];
-    if (!countFn) return { value: 0 };
-    const count = await countFn();
-    return { value: count };
+  try {
+    const { rows } = await queryRecords({
+      dataset: datasetName,
+      orgId,
+      filters: recordFilters,
+      orderBy: query.sort
+        ? { field: normalizeField(query.sort.field), direction: query.sort.dir }
+        : undefined,
+      limit: query.limit ?? 500,
+    });
+    return rows;
+  } catch (err) {
+    console.error(
+      `[widget-query] fetchRawRows ${datasetName} failed:`,
+      err instanceof Error ? err.message : err,
+    );
+    return [];
   }
-
-  if (entity === "products" && field === "unitCost") {
-    const rows = (await prisma.product.findMany({ where: where as never, select: { unitCost: true } })) as unknown as { unitCost: unknown }[];
-    return { value: agg(aggregation, rows.map((r) => Number(r.unitCost ?? 0))) };
-  }
-  if (entity === "inventory" && field === "quantity") {
-    const rows = (await prisma.inventoryItem.findMany({ where: where as never, select: { quantity: true } })) as unknown as { quantity: unknown }[];
-    return { value: agg(aggregation, rows.map((r) => Number(r.quantity ?? 0))) };
-  }
-  if (entity === "inventory" && (field === "unitValue" || field === "totalValue")) {
-    const rows = await prisma.inventoryItem.findMany({ where: where as never, include: { product: { select: { unitCost: true } } } });
-    const values = rows.map((r) => Number(r.quantity) * Number(r.unitCost ?? r.product.unitCost ?? 0));
-    return { value: Math.round(agg(aggregation, values)) };
-  }
-  if (entity === "orders" && field === "totalAmount") {
-    const rows = (await prisma.order.findMany({ where: where as never, select: { totalAmount: true } })) as unknown as { totalAmount: unknown }[];
-    return { value: agg(aggregation, rows.map((r) => Number(r.totalAmount ?? 0))) };
-  }
-  if (entity === "suppliers" && field === "leadTimeDays") {
-    const rows = (await prisma.supplier.findMany({ where: where as never, select: { leadTimeDays: true } })) as unknown as { leadTimeDays: number | null }[];
-    return { value: agg(aggregation, rows.filter((r) => r.leadTimeDays != null).map((r) => r.leadTimeDays as number)) };
-  }
-  if (entity === "purchase_orders" && field === "totalAmount") {
-    const rows = (await prisma.purchaseOrder.findMany({ where: where as never, select: { totalAmount: true } })) as unknown as { totalAmount: unknown }[];
-    return { value: agg(aggregation, rows.map((r) => Number(r.totalAmount ?? 0))) };
-  }
-  if (entity === "sales_orders" && field === "totalAmount") {
-    const rows = (await prisma.salesOrder.findMany({ where: where as never, select: { totalAmount: true } })) as unknown as { totalAmount: unknown }[];
-    return { value: agg(aggregation, rows.map((r) => Number(r.totalAmount ?? 0))) };
-  }
-  if (entity === "work_orders" && (field === "plannedQty" || field === "actualQty")) {
-    const rows = (await prisma.workOrder.findMany({ where: where as never, select: { plannedQty: true, actualQty: true } })) as unknown as { plannedQty: unknown; actualQty: unknown }[];
-    return { value: agg(aggregation, rows.map((r) => Number((r as Record<string, unknown>)[field] ?? 0))) };
-  }
-  if (entity === "customers" && field === "creditLimit") {
-    const rows = (await prisma.customer.findMany({ where: where as never, select: { creditLimit: true } })) as unknown as { creditLimit: unknown }[];
-    return { value: agg(aggregation, rows.map((r) => Number(r.creditLimit ?? 0))) };
-  }
-  if (entity === "forecasts" && field === "qty") {
-    const rows = (await prisma.demandForecast.findMany({ where: where as never, select: { qty: true } })) as unknown as { qty: unknown }[];
-    return { value: agg(aggregation, rows.map((r) => Number(r.qty ?? 0))) };
-  }
-  return { value: 0 };
-}
-
-function agg(type: string, nums: number[]): number {
-  if (!nums.length) return 0;
-  if (type === "sum") return nums.reduce((a, b) => a + b, 0);
-  if (type === "avg") return Math.round(nums.reduce((a, b) => a + b, 0) / nums.length);
-  if (type === "min") return Math.min(...nums);
-  if (type === "max") return Math.max(...nums);
-  return nums.length;
-}
-
-// ---------------------------------------------------------------------------
-// Group By
-// ---------------------------------------------------------------------------
-
-async function runGroupBy(_orgId: string, query: DataQuery, where: Record<string, unknown>) {
-  const { entity, groupBy, aggregation = "count", field, limit } = query;
-  const take = limit ?? 20;
-
-  if (entity === "products" && groupBy === "category") {
-    type ProdGB = { category: string | null; _count: { id: number }; _sum: { unitCost: unknown } | null };
-    const rows = (await prisma.product.groupBy({ by: ["category"], where: where as never, _count: { id: true }, _sum: { unitCost: true } })) as unknown as ProdGB[];
-    return rows.map((r) => ({ label: r.category ?? "Uncategorized", value: aggregation === "sum" && field === "unitCost" ? Number(r._sum?.unitCost ?? 0) : r._count.id })).sort((a, b) => b.value - a.value).slice(0, take);
-  }
-
-  if (entity === "products" && groupBy === "type") {
-    type ProdGB = { type: string | null; _count: { id: number } };
-    const rows = (await prisma.product.groupBy({ by: ["type"], where: where as never, _count: { id: true } })) as unknown as ProdGB[];
-    return rows.map((r) => ({ label: r.type ?? "Untyped", value: r._count.id })).sort((a, b) => b.value - a.value).slice(0, take);
-  }
-
-  if (entity === "inventory" && groupBy === "product.category") {
-    const rows = await prisma.inventoryItem.findMany({ where: where as never, include: { product: { select: { category: true, unitCost: true } } } });
-    const useValue = field === "unitValue" || field === "totalValue";
-    return toGrouped(
-      rows,
-      (r: (typeof rows)[0]) => r.product.category ?? "Uncategorized",
-      (r: (typeof rows)[0]) => useValue ? Number(r.quantity) * Number(r.unitCost ?? r.product.unitCost ?? 0) : Number(r.quantity)
-    ).slice(0, take);
-  }
-
-  if (entity === "inventory" && groupBy === "location.name") {
-    const rows = await prisma.inventoryItem.findMany({ where: where as never, include: { location: { select: { name: true } }, product: { select: { unitCost: true } } } });
-    const useValue = field === "unitValue" || field === "totalValue";
-    return toGrouped(
-      rows,
-      (r: (typeof rows)[0]) => {
-        if (r.location?.name) return r.location.name;
-        const lc = (r.attributes as Record<string, unknown> | null)?.locationCode;
-        return lc ? String(lc) : "No Location";
-      },
-      (r: (typeof rows)[0]) => useValue ? Number(r.quantity) * Number(r.unitCost ?? r.product.unitCost ?? 0) : Number(r.quantity)
-    ).slice(0, take);
-  }
-
-  if (entity === "orders" && groupBy === "status") {
-    type GBRow = { status: string; _count: { id: number }; _sum: { totalAmount: unknown } | null };
-    const rows = (await prisma.order.groupBy({ by: ["status"], where: where as never, _count: { id: true }, _sum: { totalAmount: true } })) as unknown as GBRow[];
-    return rows.map((r) => ({ label: r.status, value: aggregation === "sum" ? Number(r._sum?.totalAmount ?? 0) : r._count.id })).sort((a, b) => b.value - a.value);
-  }
-
-  if (entity === "orders" && groupBy === "type") {
-    type GBRow = { type: string; _count: { id: number }; _sum: { totalAmount: unknown } | null };
-    const rows = (await prisma.order.groupBy({ by: ["type"], where: where as never, _count: { id: true }, _sum: { totalAmount: true } })) as unknown as GBRow[];
-    return rows.map((r) => ({ label: r.type, value: aggregation === "sum" ? Number(r._sum?.totalAmount ?? 0) : r._count.id })).sort((a, b) => b.value - a.value);
-  }
-
-  if (entity === "orders" && groupBy === "supplier.name") {
-    type OrdSup = { totalAmount: unknown; supplier: { name: string } | null };
-    const rows = (await prisma.order.findMany({ where: where as never, include: { supplier: { select: { name: true } } } })) as unknown as OrdSup[];
-    return toGrouped(rows, (r) => r.supplier?.name ?? "Unknown", (r) => aggregation === "sum" ? Number(r.totalAmount ?? 0) : 1).slice(0, take);
-  }
-
-  if (entity === "purchase_orders" && groupBy === "status") {
-    type GBRow = { status: string; _count: { id: number }; _sum: { totalAmount: unknown } | null };
-    const rows = (await prisma.purchaseOrder.groupBy({ by: ["status"], where: where as never, _count: { id: true }, _sum: { totalAmount: true } })) as unknown as GBRow[];
-    return rows.map((r) => ({ label: r.status, value: aggregation === "sum" ? Number(r._sum?.totalAmount ?? 0) : r._count.id })).sort((a, b) => b.value - a.value);
-  }
-
-  if (entity === "purchase_orders" && groupBy === "supplier.name") {
-    type POSup = { totalAmount: unknown; supplier: { name: string } };
-    const rows = (await prisma.purchaseOrder.findMany({ where: where as never, include: { supplier: { select: { name: true } } } })) as unknown as POSup[];
-    return toGrouped(rows, (r) => r.supplier.name, (r) => aggregation === "sum" ? Number(r.totalAmount ?? 0) : 1).slice(0, take);
-  }
-
-  if (entity === "sales_orders" && groupBy === "status") {
-    type GBRow = { status: string; _count: { id: number }; _sum: { totalAmount: unknown } | null };
-    const rows = (await prisma.salesOrder.groupBy({ by: ["status"], where: where as never, _count: { id: true }, _sum: { totalAmount: true } })) as unknown as GBRow[];
-    return rows.map((r) => ({ label: r.status, value: aggregation === "sum" ? Number(r._sum?.totalAmount ?? 0) : r._count.id })).sort((a, b) => b.value - a.value);
-  }
-
-  if (entity === "sales_orders" && groupBy === "customer.name") {
-    type SOCust = { totalAmount: unknown; customer: { name: string } };
-    const rows = (await prisma.salesOrder.findMany({ where: where as never, include: { customer: { select: { name: true } } } })) as unknown as SOCust[];
-    return toGrouped(rows, (r) => r.customer.name, (r) => aggregation === "sum" ? Number(r.totalAmount ?? 0) : 1).slice(0, take);
-  }
-
-  if (entity === "work_orders" && groupBy === "status") {
-    type GBRow = { status: string; _count: { id: number }; _sum: { plannedQty: unknown; actualQty: unknown } | null };
-    const rows = (await prisma.workOrder.groupBy({ by: ["status"], where: where as never, _count: { id: true }, _sum: { plannedQty: true, actualQty: true } })) as unknown as GBRow[];
-    return rows.map((r) => ({
-      label: r.status,
-      value: aggregation === "sum" && field === "plannedQty" ? Number(r._sum?.plannedQty ?? 0) : aggregation === "sum" && field === "actualQty" ? Number(r._sum?.actualQty ?? 0) : r._count.id,
-    })).sort((a, b) => b.value - a.value);
-  }
-
-  if (entity === "lots" && groupBy === "product.category") {
-    const rows = await prisma.lot.findMany({ where: where as never, include: { product: { select: { category: true } } } });
-    return toGrouped(rows, (r: (typeof rows)[0]) => r.product.category ?? "Uncategorized", () => 1).slice(0, take);
-  }
-
-  if (entity === "customers" && groupBy === "country") {
-    const rows = await prisma.customer.findMany({ where: where as never, select: { country: true, creditLimit: true } });
-    return toGrouped(rows, (r: (typeof rows)[0]) => r.country ?? "Unknown", (r: (typeof rows)[0]) => aggregation === "sum" && field === "creditLimit" ? Number(r.creditLimit ?? 0) : 1).slice(0, take);
-  }
-
-  if (entity === "customers" && groupBy === "paymentTerms") {
-    const rows = await prisma.customer.findMany({ where: where as never, select: { paymentTerms: true } });
-    return toGrouped(rows, (r: (typeof rows)[0]) => r.paymentTerms ?? "Not Set", () => 1).slice(0, take);
-  }
-
-  if (entity === "locations" && groupBy === "type") {
-    const rows = await prisma.location.findMany({ where: where as never, select: { type: true } });
-    return toGrouped(rows, (r: (typeof rows)[0]) => r.type ?? "Unknown", () => 1).slice(0, take);
-  }
-
-  if (entity === "forecasts" && groupBy === "period") {
-    const rows = await prisma.demandForecast.findMany({ where: where as never, select: { periodYear: true, periodMonth: true, qty: true } });
-    return toGrouped(rows, (r: (typeof rows)[0]) => `${r.periodYear}-${String(r.periodMonth).padStart(2, "0")}`, (r: (typeof rows)[0]) => Number(r.qty)).sort((a, b) => a.label.localeCompare(b.label)).slice(0, take);
-  }
-
-  if (entity === "forecasts" && groupBy === "type") {
-    const rows = await prisma.demandForecast.findMany({ where: where as never, select: { type: true, qty: true } });
-    return toGrouped(rows, (r: (typeof rows)[0]) => r.type, (r: (typeof rows)[0]) => aggregation === "sum" ? Number(r.qty) : 1).slice(0, take);
-  }
-
-  if (entity === "suppliers" && groupBy === "country") {
-    const rows = await prisma.supplier.findMany({ where: where as never, select: { country: true } });
-    return toGrouped(rows, (r: (typeof rows)[0]) => r.country ?? "Unknown", () => 1).slice(0, take);
-  }
-
-  // ── Generic fallback — works for any entity + any top-level field ────────
-  const rawRows = await fetchRawRows(entity, where, query.sort, 10000);
-  if (rawRows.length > 0) {
-    return toGrouped(
-      rawRows,
-      (r) => {
-        const parts = groupBy!.split(".");
-        let val: unknown = r;
-        for (const p of parts) {
-          if (val && typeof val === "object") val = (val as Record<string, unknown>)[p];
-          else { val = undefined; break; }
-        }
-        return val != null ? String(val) : "Unknown";
-      },
-      (r) => {
-        if (aggregation === "count") return 1;
-        if (field) {
-          const v = Number(r[field] ?? 0);
-          return isNaN(v) ? 0 : v;
-        }
-        return 1;
-      },
-    ).slice(0, take);
-  }
-
-  return [];
-}
-
-function toGrouped<T>(
-  rows: T[],
-  keyFn: (r: T) => string,
-  valFn: (r: T) => number
-): { label: string; value: number }[] {
-  const map: Record<string, number> = {};
-  for (const r of rows) {
-    const k = keyFn(r);
-    map[k] = (map[k] ?? 0) + valFn(r);
-  }
-  return Object.entries(map).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
 }

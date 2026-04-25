@@ -6,7 +6,9 @@ export type Feature =
   | "widget-insight"
   | "apps-chat"
   | "brain-parse"
-  | "generate";
+  | "generate"
+  | "vibe"
+  | "ai-map";
 
 export interface TokenBudgetResult {
   allowed: boolean;

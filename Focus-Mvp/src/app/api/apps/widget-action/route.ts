@@ -1,9 +1,13 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { getSessionOrg, unauthorized, badRequest } from "@/lib/api-helpers";
 import { prisma } from "@/lib/prisma";
+import { DATASETS, buildExternalId, type DatasetName } from "@/lib/ingestion/datasets";
 
 // ---------------------------------------------------------------------------
 // Widget Action API — handles create, update, updateStatus, delete
+// All operations go through ImportRecord (the JSONB data store).
 // ---------------------------------------------------------------------------
 
 interface ActionPayload {
@@ -17,20 +21,68 @@ interface ActionPayload {
   status?: string;
 }
 
-// Entities using orgId vs organizationId
-const ORG_ID_ENTITIES = new Set([
-  "purchase_orders", "sales_orders", "lots", "customers", "bom", "forecasts",
-]);
+// Map widget entity names → canonical DatasetName
+const ENTITY_TO_DATASET: Record<string, DatasetName> = {
+  products: "products",
+  product: "products",
+  inventory: "inventory",
+  suppliers: "suppliers",
+  supplier: "suppliers",
+  customers: "customers",
+  customer: "customers",
+  purchase_orders: "purchase_orders",
+  purchase_order: "purchase_orders",
+  sales_orders: "sales_orders",
+  sales_order: "sales_orders",
+  bom: "bom",
+  locations: "locations",
+  location: "locations",
+};
 
-function orgField(entity: string): string {
-  return ORG_ID_ENTITIES.has(entity) ? "orgId" : "organizationId";
+// Name of the synthetic ImportDataset used for manually entered records
+const MANUAL_SOURCE_LABEL = "Manual Entries";
+
+/**
+ * Get or create the "Manual Entries" ImportDataset for this org + dataset.
+ * Manual records are kept separate from file imports so they survive deletes
+ * of the original upload.
+ */
+async function getOrCreateManualDataset(
+  orgId: string,
+  datasetName: DatasetName,
+): Promise<string> {
+  const datasetDef = DATASETS[datasetName];
+  const sourceFile = `manual:${datasetName}`;
+
+  const existing = await prisma.importDataset.findFirst({
+    where: { organizationId: orgId, name: datasetName, sourceFile },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+
+  const created = await prisma.importDataset.create({
+    data: {
+      organizationId: orgId,
+      name: datasetName,
+      label: `${datasetDef.label} (${MANUAL_SOURCE_LABEL})`,
+      sourceFile,
+      columnMap: {},
+      rawHeaders: [],
+      importMode: "merge",
+      rowCount: 0,
+      importedRows: 0,
+      skippedRows: 0,
+    },
+    select: { id: true },
+  });
+  return created.id;
 }
 
 export async function POST(req: Request) {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
 
-  const body = await req.json().catch(() => null) as ActionPayload | null;
+  const body = (await req.json().catch(() => null)) as ActionPayload | null;
   if (!body?.action || !body?.entity) return badRequest("action and entity required");
 
   const orgId = ctx.org.id;
@@ -45,7 +97,7 @@ export async function POST(req: Request) {
         return handleUpdate(entity, orgId, id, data ?? {});
       case "updateStatus":
         if (!id || !status) return badRequest("id and status required for updateStatus");
-        return handleUpdateStatus(entity, orgId, id, status);
+        return handleUpdate(entity, orgId, id, { status });
       case "delete":
         if (!id) return badRequest("id required for delete");
         return handleDelete(entity, orgId, id);
@@ -56,190 +108,176 @@ export async function POST(req: Request) {
     console.error("[widget-action]", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Action failed" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// Create
+// Create — writes a new ImportRecord under the manual-entries dataset
 // ---------------------------------------------------------------------------
 
-async function handleCreate(entity: string, orgId: string, data: Record<string, unknown>) {
-  const orgData = { [orgField(entity)]: orgId };
-
-  // Clean and validate data — strip any id/org fields the user might send
-  const cleanData = { ...data };
-  delete cleanData.id;
-  delete cleanData.organizationId;
-  delete cleanData.orgId;
-
-  // Convert numeric strings to numbers for Decimal fields
-  for (const [key, val] of Object.entries(cleanData)) {
-    if (typeof val === "string" && !isNaN(Number(val)) && val.trim() !== "") {
-      const numFields = [
-        "unitCost", "unitPrice", "quantity", "totalAmount", "creditLimit",
-        "reorderPoint", "safetyStock", "reorderQty", "qtyOrdered", "qtyReceived",
-        "plannedQty", "actualQty", "qty", "leadTimeDays",
-      ];
-      if (numFields.includes(key)) {
-        cleanData[key] = Number(val);
-      }
-    }
+async function handleCreate(
+  entity: string,
+  orgId: string,
+  data: Record<string, unknown>,
+) {
+  const datasetName = ENTITY_TO_DATASET[entity];
+  if (!datasetName) {
+    return NextResponse.json(
+      { error: `Create not supported for entity: ${entity}` },
+      { status: 400 },
+    );
   }
 
-  const createMap: Record<string, () => Promise<unknown>> = {
-    products: () => prisma.product.create({
-      data: { ...orgData, sku: String(cleanData.sku ?? ""), name: String(cleanData.name ?? ""), ...cleanData } as never,
-    }),
-    suppliers: () => prisma.supplier.create({
-      data: { ...orgData, code: String(cleanData.code ?? ""), name: String(cleanData.name ?? ""), ...cleanData } as never,
-    }),
-    customers: () => prisma.customer.create({
-      data: { ...orgData, code: String(cleanData.code ?? ""), name: String(cleanData.name ?? ""), ...cleanData } as never,
-    }),
-    purchase_orders: () => prisma.purchaseOrder.create({
-      data: { ...orgData, poNumber: String(cleanData.poNumber ?? ""), currency: String(cleanData.currency ?? "USD"), ...cleanData } as never,
-    }),
-    sales_orders: () => prisma.salesOrder.create({
-      data: { ...orgData, soNumber: String(cleanData.soNumber ?? ""), currency: String(cleanData.currency ?? "USD"), ...cleanData } as never,
-    }),
-    work_orders: () => prisma.workOrder.create({
-      data: { ...orgData, orderNumber: String(cleanData.orderNumber ?? ""), sku: String(cleanData.sku ?? ""), ...cleanData } as never,
-    }),
-    locations: () => prisma.location.create({
-      data: { ...orgData, code: String(cleanData.code ?? ""), name: String(cleanData.name ?? ""), ...cleanData } as never,
-    }),
-  };
+  // Strip fields that should not be persisted
+  const cleanData = sanitizeData(data);
 
-  const handler = createMap[entity];
-  if (!handler) {
-    return NextResponse.json({ error: `Create not supported for entity: ${entity}` }, { status: 400 });
+  const datasetId = await getOrCreateManualDataset(orgId, datasetName);
+  const externalId = buildExternalId(datasetName, cleanData);
+
+  // Upsert: if a record with the same externalId already exists (e.g. same
+  // SKU entered twice), merge the new values into it rather than duplicating.
+  let record;
+  if (externalId) {
+    record = await prisma.importRecord.upsert({
+      where: {
+        organizationId_datasetName_externalId: {
+          organizationId: orgId,
+          datasetName,
+          externalId,
+        },
+      },
+      create: {
+        organizationId: orgId,
+        datasetId,
+        datasetName,
+        externalId,
+        data: cleanData as never,
+      },
+      update: {
+        data: cleanData as never,
+      },
+    });
+  } else {
+    // No identity fields → always insert (no dedup possible)
+    record = await prisma.importRecord.create({
+      data: {
+        organizationId: orgId,
+        datasetId,
+        datasetName,
+        externalId: null,
+        data: cleanData as never,
+      },
+    });
   }
 
-  const result = await handler();
-  return NextResponse.json({ success: true, data: result });
+  // Bump the manual dataset's row count
+  await prisma.importDataset.update({
+    where: { id: datasetId },
+    data: { importedRows: { increment: 1 }, rowCount: { increment: 1 } },
+  });
+
+  return NextResponse.json({ success: true, data: { id: record.id, ...cleanData } });
 }
 
 // ---------------------------------------------------------------------------
-// Update
+// Update — merges new fields into an existing ImportRecord's data JSONB
 // ---------------------------------------------------------------------------
 
-async function handleUpdate(entity: string, orgId: string, id: string, data: Record<string, unknown>) {
-  // Verify ownership
-  await verifyOwnership(entity, orgId, id);
-
-  const cleanData = { ...data };
-  delete cleanData.id;
-  delete cleanData.organizationId;
-  delete cleanData.orgId;
-
-  // Strip nested/dotted field keys (e.g. "product.sku", "location.name") — not valid for Prisma update
-  for (const key of Object.keys(cleanData)) {
-    if (key.includes(".")) delete cleanData[key];
+async function handleUpdate(
+  entity: string,
+  orgId: string,
+  id: string,
+  data: Record<string, unknown>,
+) {
+  const datasetName = ENTITY_TO_DATASET[entity];
+  if (!datasetName) {
+    return NextResponse.json(
+      { error: `Update not supported for entity: ${entity}` },
+      { status: 400 },
+    );
   }
 
-  // Strip computed/read-only fields
-  const readOnlyFields = ["createdAt", "updatedAt", "unitValue", "needsReorder"];
-  for (const key of readOnlyFields) delete cleanData[key];
-
-  // Convert numeric strings to numbers for Decimal fields
-  const numFields = [
-    "unitCost", "unitPrice", "quantity", "totalAmount", "creditLimit",
-    "reorderPoint", "safetyStock", "reorderQty", "qtyOrdered", "qtyReceived",
-    "plannedQty", "actualQty", "qty", "leadTimeDays", "reservedQty",
-    "daysOfSupply",
-  ];
-  for (const [key, val] of Object.entries(cleanData)) {
-    if (typeof val === "string" && numFields.includes(key)) {
-      const num = Number(val);
-      if (!isNaN(num)) cleanData[key] = num;
-    }
+  // Verify org ownership
+  const existing = await prisma.importRecord.findFirst({
+    where: { id, organizationId: orgId },
+    select: { id: true, data: true },
+  });
+  if (!existing) {
+    return NextResponse.json({ error: "Record not found or access denied" }, { status: 404 });
   }
 
+  const cleanData = sanitizeData(data);
   if (Object.keys(cleanData).length === 0) {
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
   }
 
-  const updateMap: Record<string, () => Promise<unknown>> = {
-    products: () => prisma.product.update({ where: { id }, data: cleanData as never }),
-    suppliers: () => prisma.supplier.update({ where: { id }, data: cleanData as never }),
-    customers: () => prisma.customer.update({ where: { id }, data: cleanData as never }),
-    purchase_orders: () => prisma.purchaseOrder.update({ where: { id }, data: cleanData as never }),
-    sales_orders: () => prisma.salesOrder.update({ where: { id }, data: cleanData as never }),
-    work_orders: () => prisma.workOrder.update({ where: { id }, data: cleanData as never }),
-    locations: () => prisma.location.update({ where: { id }, data: cleanData as never }),
-    orders: () => prisma.order.update({ where: { id }, data: cleanData as never }),
-    inventory: () => prisma.inventoryItem.update({ where: { id }, data: cleanData as never }),
+  const mergedData = {
+    ...((existing.data as Record<string, unknown>) ?? {}),
+    ...cleanData,
   };
 
-  const handler = updateMap[entity];
-  if (!handler) {
-    return NextResponse.json({ error: `Update not supported for entity: ${entity}` }, { status: 400 });
-  }
+  // Recompute externalId from the merged result so it stays in sync
+  const newExternalId = buildExternalId(datasetName, mergedData);
 
-  const result = await handler();
-  return NextResponse.json({ success: true, data: result });
+  const updated = await prisma.importRecord.update({
+    where: { id },
+    data: {
+      data: mergedData as never,
+      ...(newExternalId !== null ? { externalId: newExternalId } : {}),
+    },
+  });
+
+  return NextResponse.json({ success: true, data: { id: updated.id, ...mergedData } });
 }
 
 // ---------------------------------------------------------------------------
-// Update Status (convenience shorthand)
-// ---------------------------------------------------------------------------
-
-async function handleUpdateStatus(entity: string, orgId: string, id: string, status: string) {
-  return handleUpdate(entity, orgId, id, { status });
-}
-
-// ---------------------------------------------------------------------------
-// Delete
+// Delete — removes the ImportRecord (org-scoped)
 // ---------------------------------------------------------------------------
 
 async function handleDelete(entity: string, orgId: string, id: string) {
-  await verifyOwnership(entity, orgId, id);
-
-  const deleteMap: Record<string, () => Promise<unknown>> = {
-    products: () => prisma.product.delete({ where: { id } }),
-    suppliers: () => prisma.supplier.delete({ where: { id } }),
-    customers: () => prisma.customer.delete({ where: { id } }),
-    purchase_orders: () => prisma.purchaseOrder.delete({ where: { id } }),
-    sales_orders: () => prisma.salesOrder.delete({ where: { id } }),
-    work_orders: () => prisma.workOrder.delete({ where: { id } }),
-    locations: () => prisma.location.delete({ where: { id } }),
-    orders: () => prisma.order.delete({ where: { id } }),
-  };
-
-  const handler = deleteMap[entity];
-  if (!handler) {
-    return NextResponse.json({ error: `Delete not supported for entity: ${entity}` }, { status: 400 });
+  const datasetName = ENTITY_TO_DATASET[entity];
+  if (!datasetName) {
+    return NextResponse.json(
+      { error: `Delete not supported for entity: ${entity}` },
+      { status: 400 },
+    );
   }
 
-  await handler();
+  const existing = await prisma.importRecord.findFirst({
+    where: { id, organizationId: orgId },
+    select: { id: true, datasetId: true },
+  });
+  if (!existing) {
+    return NextResponse.json({ error: "Record not found or access denied" }, { status: 404 });
+  }
+
+  await prisma.importRecord.delete({ where: { id } });
+
+  // Decrement the dataset row count (floor at 0)
+  await prisma.importDataset.updateMany({
+    where: { id: existing.datasetId, rowCount: { gt: 0 } },
+    data: { rowCount: { decrement: 1 }, importedRows: { decrement: 1 } },
+  });
+
   return NextResponse.json({ success: true });
 }
 
 // ---------------------------------------------------------------------------
-// Verify the record belongs to this org (authorization check)
+// Helpers
 // ---------------------------------------------------------------------------
 
-async function verifyOwnership(entity: string, orgId: string, id: string) {
-  const field = orgField(entity);
-
-  // Map entity to prisma model for findFirst
-  const verifyMap: Record<string, () => Promise<unknown>> = {
-    products: () => prisma.product.findFirst({ where: { id, organizationId: orgId }, select: { id: true } }),
-    suppliers: () => prisma.supplier.findFirst({ where: { id, organizationId: orgId }, select: { id: true } }),
-    customers: () => prisma.customer.findFirst({ where: { id, orgId }, select: { id: true } }),
-    purchase_orders: () => prisma.purchaseOrder.findFirst({ where: { id, orgId }, select: { id: true } }),
-    sales_orders: () => prisma.salesOrder.findFirst({ where: { id, orgId }, select: { id: true } }),
-    work_orders: () => prisma.workOrder.findFirst({ where: { id, organizationId: orgId }, select: { id: true } }),
-    locations: () => prisma.location.findFirst({ where: { id, organizationId: orgId }, select: { id: true } }),
-    orders: () => prisma.order.findFirst({ where: { id, organizationId: orgId }, select: { id: true } }),
-    inventory: () => prisma.inventoryItem.findFirst({ where: { id, organizationId: orgId }, select: { id: true } }),
-  };
-
-  const handler = verifyMap[entity];
-  if (!handler) throw new Error(`Cannot verify ownership for entity: ${entity}`);
-
-  const record = await handler();
-  if (!record) throw new Error(`Record not found or access denied (entity=${entity}, id=${id}, org=${field})`);
+/** Strip system fields and normalize the incoming data object. */
+function sanitizeData(data: Record<string, unknown>): Record<string, unknown> {
+  const clean = { ...data };
+  // Remove fields that belong to the ImportRecord envelope, not the payload
+  for (const f of ["id", "organizationId", "orgId", "datasetId", "datasetName", "importedAt", "createdAt", "updatedAt"]) {
+    delete clean[f];
+  }
+  // Remove nested/dotted field keys — not valid for flat JSONB
+  for (const key of Object.keys(clean)) {
+    if (key.includes(".")) delete clean[key];
+  }
+  return clean;
 }

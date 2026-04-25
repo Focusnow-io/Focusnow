@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionOrg, unauthorized, badRequest } from "@/lib/api-helpers";
-import { runQuery, buildOrgWhere, toWhereClause, filterCompatibleFilters } from "@/lib/widget-query";
+import { runQuery, filterCompatibleFilters } from "@/lib/widget-query";
 import type { DataQuery } from "@/components/apps/widgets/types";
 
 export async function POST(req: Request) {
@@ -11,14 +11,13 @@ export async function POST(req: Request) {
   if (!body?.query) return badRequest("query required");
 
   const query = body.query as DataQuery;
-  const orgWhere = buildOrgWhere(query.entity, ctx.org.id);
-  // Strip relation-based filters not valid for this entity
+  // Org scoping is handled inside runQuery against ImportRecord;
+  // we just pre-filter the DataFilter[] for any relation-based
+  // conditions that aren't representable against the JSONB store.
   const compatibleFilters = filterCompatibleFilters(query.entity, query.filters);
-  const filterWhere = toWhereClause(compatibleFilters);
-  const where = { ...orgWhere, ...filterWhere };
 
   try {
-    const data = await runQuery(ctx.org.id, query, where);
+    const data = await runQuery(ctx.org.id, query, compatibleFilters);
     return NextResponse.json({ data });
   } catch (err) {
     console.error("[widget-data]", err);

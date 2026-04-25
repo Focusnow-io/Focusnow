@@ -239,4 +239,22 @@ Patterns and rules to prevent repeated mistakes. Review at session start.
 
 ---
 
-*Last updated: 2026-03-20*
+## 19. Data Layer Architecture — ImportRecord Pattern
+
+**Pattern:** The platform uses ImportRecord + ImportDataset as the primary data storage layer, not the relational entity tables.
+
+**Rules:**
+- All new imports write ONLY to ImportRecord and ImportDataset.
+- Never write to Product, Supplier, InventoryItem, PurchaseOrder, etc. from the import pipeline. Those models are kept as archive tables for historical data.
+- Chat tools query ImportRecord via `src/lib/chat/record-query.ts`.
+- Explorer queries ImportRecord via `src/app/api/data/explore/route.ts`.
+- The canonical field vocabulary lives in `src/lib/ingestion/datasets.ts` — one declaration per dataset with typed fields and identity fields for dedupe.
+- Column mapping uses `src/lib/ingestion/dataset-mapper.ts`, not `field-mapper.ts`.
+- The 8 canonical datasets are: `products`, `suppliers`, `customers`, `locations`, `inventory`, `purchase_orders`, `sales_orders`, `bom`.
+- Dedupe key is an `externalId` built from the identity fields joined with `:` (see `buildExternalId`). A re-import upserts by `(organizationId, datasetName, externalId)`.
+
+**Why:** The relational schema caused FK constraint failures, stub record proliferation, and silent data loss when users uploaded files in the "wrong" order. The ImportRecord pattern accepts any file in any order without data loss, and the JSONB `data` column adapts to new fields without schema migrations.
+
+---
+
+*Last updated: 2026-04-23*

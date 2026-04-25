@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useSearchParams, usePathname } from "next/navigation";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -10,89 +10,45 @@ import { Search, Upload, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Entity catalogue ───────────────────────────────────────────────────────────
+//
+// The 8 canonical concepts from the import hub, grouped for the Explorer
+// sidebar. Keys line up with DATASETS names in src/lib/ingestion/datasets.ts
+// and map to ImportRecord.datasetName rows. Legacy relational entity
+// names (POLine, BOMHeader, Shipment, …) are no longer surfaced here;
+// their rows live under the parent concept (purchase_orders, bom, etc.).
 
 const ENTITY_GROUPS = [
   {
     label: "Master Data",
     entities: [
-      { key: "Product", label: "Products" },
-      { key: "Supplier", label: "Suppliers" },
-      { key: "Customer", label: "Customers" },
-      { key: "Location", label: "Locations" },
-    ],
-  },
-  {
-    label: "Finance",
-    entities: [
-      { key: "ExchangeRate", label: "Exchange Rates" },
-      { key: "PriceList", label: "Price Lists" },
-      { key: "PriceListLine", label: "Price List Lines" },
-      { key: "CustomerPriceList", label: "Customer Price Lists" },
-    ],
-  },
-  {
-    label: "Engineering",
-    entities: [
-      { key: "BOMHeader", label: "BOM Headers" },
-      { key: "BOM", label: "Bill of Materials" },
-      { key: "BOMLine", label: "BOM Lines" },
-      { key: "Routing", label: "Routings" },
-      { key: "RoutingOperation", label: "Routing Ops" },
-      { key: "WorkCenter", label: "Work Centers" },
-      { key: "ShiftCalendar", label: "Shift Calendar" },
-      { key: "Equipment", label: "Equipment" },
-      { key: "MaintenanceLog", label: "Maintenance Logs" },
+      { key: "products", label: "Products" },
+      { key: "suppliers", label: "Suppliers" },
+      { key: "customers", label: "Customers" },
+      { key: "locations", label: "Locations" },
     ],
   },
   {
     label: "Inventory",
     entities: [
-      { key: "InventoryItem", label: "Inventory" },
-      { key: "Lot", label: "Lots" },
-      { key: "SerialNumber", label: "Serial Numbers" },
-      { key: "StockMovement", label: "Stock Movements" },
+      { key: "inventory", label: "Inventory" },
     ],
   },
   {
     label: "Procurement",
     entities: [
-      { key: "SupplierItem", label: "Supplier Items" },
-      { key: "PurchaseOrder", label: "Purchase Orders" },
-      { key: "POLine", label: "PO Lines" },
+      { key: "purchase_orders", label: "Purchase Orders" },
     ],
   },
   {
-    label: "Planning",
+    label: "Sales",
     entities: [
-      { key: "ForecastEntry", label: "Forecast" },
-      { key: "MpsEntry", label: "MPS" },
+      { key: "sales_orders", label: "Sales Orders" },
     ],
   },
   {
-    label: "Production",
+    label: "Engineering",
     entities: [
-      { key: "WorkOrder", label: "Work Orders" },
-      { key: "WorkOrderOperation", label: "WO Operations" },
-    ],
-  },
-  {
-    label: "Sales & Fulfilment",
-    entities: [
-      { key: "SalesOrder", label: "Sales Orders" },
-      { key: "SalesOrderLine", label: "SO Lines" },
-      { key: "Shipment", label: "Shipments" },
-      { key: "ShipmentLine", label: "Shipment Lines" },
-      { key: "Invoice", label: "Invoices" },
-      { key: "ReturnRma", label: "Returns / RMAs" },
-      { key: "Order", label: "Orders (Legacy)" },
-    ],
-  },
-  {
-    label: "Quality",
-    entities: [
-      { key: "QcInspection", label: "QC Inspections" },
-      { key: "Ncr", label: "NCRs" },
-      { key: "Capa", label: "CAPAs" },
+      { key: "bom", label: "Bill of Materials" },
     ],
   },
 ];
@@ -124,14 +80,14 @@ function useDebounce<T>(value: T, delay: number): T {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function ExplorePage() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const pathname = usePathname();
 
-  const entityParam = searchParams.get("entity") ?? "BOM";
-  const pageParam = parseInt(searchParams.get("page") ?? "1", 10);
-
-  const [search, setSearch] = useState(searchParams.get("q") ?? "");
+  // Read initial values from URL once — all subsequent state lives in React,
+  // and URL is synced via window.history.replaceState (no RSC server roundtrip).
+  const [entity, setEntity] = useState(() => searchParams.get("entity") ?? "products");
+  const [page, setPage] = useState(() => parseInt(searchParams.get("page") ?? "1", 10));
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const debouncedSearch = useDebounce(search, 300);
 
   const [data, setData] = useState<TableData | null>(null);
@@ -139,13 +95,18 @@ export default function ExplorePage() {
   const [refreshing, setRefreshing] = useState(false);
   const [counts, setCounts] = useState<Record<string, number>>({});
 
+  // Sync URL without triggering RSC server requests.
+  const syncUrl = useCallback((e: string, p: number, q: string) => {
+    const params = new URLSearchParams({ entity: e, page: String(p) });
+    if (q) params.set("q", q);
+    window.history.replaceState(null, "", `/data/explore?${params}`);
+  }, []);
+
   // Keep latest fetch params in a ref so the visibilitychange handler is never stale.
-  // The handler is set up once per pathname change but entity/page/search can change
-  // via URL query params without the pathname changing — this ref bridges that gap.
-  const latestParamsRef = useRef({ entity: entityParam, page: pageParam, q: debouncedSearch });
+  const latestParamsRef = useRef({ entity, page, q: debouncedSearch });
   useEffect(() => {
-    latestParamsRef.current = { entity: entityParam, page: pageParam, q: debouncedSearch };
-  }, [entityParam, pageParam, debouncedSearch]);
+    latestParamsRef.current = { entity, page, q: debouncedSearch };
+  }, [entity, page, debouncedSearch]);
 
   const fetchCounts = useCallback(() => {
     fetch("/api/data/explore?counts=1", { cache: "no-store" })
@@ -154,23 +115,15 @@ export default function ExplorePage() {
       .catch(() => {});
   }, []);
 
-  const fetchData = useCallback((entity: string, page: number, q: string, background = false) => {
-    // Background refetches (visibility/navigation triggers) keep old data visible.
-    // Only show the full loading spinner on an empty initial load or entity switch.
+  const fetchData = useCallback((e: string, p: number, q: string, background = false) => {
     if (background) {
       setRefreshing(true);
     } else {
       setLoading(true);
     }
-    const params = new URLSearchParams({
-      entity,
-      page: String(page),
-      ...(q && { q }),
-    });
+    const params = new URLSearchParams({ entity: e, page: String(p), ...(q && { q }) });
     fetch(`/api/data/explore?${params}`, { cache: "no-store" })
       .then(r => {
-        // Do NOT overwrite good data with an error body — if the API errors
-        // (session expired, DB hiccup, etc.) keep whatever is already displayed.
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
@@ -179,18 +132,13 @@ export default function ExplorePage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Refetch both counts and table data whenever the tab regains visibility
-  // OR when navigating back to this page within the SPA (pathname change).
-  // This ensures data is fresh after a delete/import on another page.
-  // On mount / SPA navigation back to this page: silently refresh in background
-  // so existing data stays visible and doesn't flash empty.
+  // Refresh counts + re-register visibilitychange listener when pathname changes.
   useEffect(() => {
     fetchCounts();
-    fetchData(latestParamsRef.current.entity, latestParamsRef.current.page, latestParamsRef.current.q, /* background */ true);
     const handleVisible = () => {
       if (document.visibilityState === "visible") {
         fetchCounts();
-        fetchData(latestParamsRef.current.entity, latestParamsRef.current.page, latestParamsRef.current.q, /* background */ true);
+        fetchData(latestParamsRef.current.entity, latestParamsRef.current.page, latestParamsRef.current.q, true);
       }
     };
     document.addEventListener("visibilitychange", handleVisible);
@@ -198,39 +146,29 @@ export default function ExplorePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  // When entity / page / search changes, refresh data. Always background so existing
-  // data stays visible during the fetch — avoids blank flashes from React Strict Mode
-  // double-mounting in development, and keeps the table stable during pagination/search.
+  // Fetch whenever entity/page/debouncedSearch changes.
   useEffect(() => {
-    fetchData(entityParam, pageParam, debouncedSearch, /* background */ true);
-  }, [entityParam, pageParam, debouncedSearch, fetchData]);
+    fetchData(entity, page, debouncedSearch, true);
+    syncUrl(entity, page, debouncedSearch);
+  }, [entity, page, debouncedSearch, fetchData, syncUrl]);
 
-  // Reset to page 1 when search changes
+  // Reset to page 1 when search changes.
   const prevSearch = useRef(debouncedSearch);
   useEffect(() => {
     if (prevSearch.current !== debouncedSearch) {
       prevSearch.current = debouncedSearch;
-      navigate(entityParam, 1, debouncedSearch);
+      setPage(1);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
-
-  const navigate = useCallback(
-    (entity: string, page: number, q: string) => {
-      const p = new URLSearchParams({ entity, page: String(page) });
-      if (q) p.set("q", q);
-      router.push(`/data/explore?${p}`);
-    },
-    [router]
-  );
 
   const selectEntity = (key: string) => {
     setSearch("");
-    navigate(key, 1, "");
+    setEntity(key);
+    setPage(1);
   };
 
   const currentLabel =
-    ENTITY_GROUPS.flatMap(g => g.entities).find(e => e.key === entityParam)?.label ?? entityParam;
+    ENTITY_GROUPS.flatMap(g => g.entities).find(e => e.key === entity)?.label ?? entity;
 
   return (
     <div className="flex gap-0 h-full min-h-0">
@@ -248,7 +186,7 @@ export default function ExplorePage() {
               <ul className="space-y-0.5">
                 {group.entities.map(e => {
                   const count = counts[e.key];
-                  const active = e.key === entityParam;
+                  const active = e.key === entity;
                   return (
                     <li key={e.key}>
                       <button
@@ -360,7 +298,7 @@ export default function ExplorePage() {
                           <td
                             key={col.key}
                             className={cn(
-                              "px-3 py-2 whitespace-nowrap max-w-[280px] truncate",
+                              "px-3 py-2 whitespace-nowrap max-w-70 truncate",
                               isFirst
                                 ? "font-mono text-xs font-medium text-foreground"
                                 : "text-muted-foreground"
@@ -397,7 +335,7 @@ export default function ExplorePage() {
                     variant="outline"
                     size="sm"
                     disabled={data.page <= 1}
-                    onClick={() => navigate(entityParam, data.page - 1, debouncedSearch)}
+                    onClick={() => setPage(p => p - 1)}
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </Button>
@@ -405,7 +343,7 @@ export default function ExplorePage() {
                     variant="outline"
                     size="sm"
                     disabled={data.page >= data.pages}
-                    onClick={() => navigate(entityParam, data.page + 1, debouncedSearch)}
+                    onClick={() => setPage(p => p + 1)}
                   >
                     <ChevronRight className="w-4 h-4" />
                   </Button>

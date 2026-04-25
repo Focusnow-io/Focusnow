@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { getSessionOrg, unauthorized } from "@/lib/api-helpers";
 import { prisma } from "@/lib/prisma";
@@ -5,34 +7,42 @@ import { prisma } from "@/lib/prisma";
 /**
  * GET /api/data/import/coverage
  *
- * Returns the total imported rows per EntityType, derived from completed
- * DataSource records. Covers all 16 entity types (unlike the normalization
- * freshness endpoint which only tracks first-class Prisma models).
+ * Returns per-dataset coverage for the hub cards, keyed by the canonical
+ * dataset name (products, suppliers, inventory, …). The latest
+ * ImportDataset row per dataset name wins — a re-import updates the
+ * card rather than appending a second entry.
  */
 export async function GET() {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
 
-  const sources = await prisma.dataSource.findMany({
-    where: { organizationId: ctx.org.id, status: "COMPLETED" },
-    select: { mappingConfig: true, importedRows: true, updatedAt: true },
-    orderBy: { updatedAt: "desc" },
+  const datasets = await prisma.importDataset.findMany({
+    where: { organizationId: ctx.org.id },
+    orderBy: { importedAt: "desc" },
+    select: {
+      name: true,
+      label: true,
+      importedRows: true,
+      rowCount: true,
+      importedAt: true,
+    },
   });
 
-  // Aggregate by entity type extracted from the mappingConfig JSON field.
-  // updatedAt is desc-sorted so the first occurrence per entity is the most recent.
-  const coverage: Record<string, { importedRows: number; lastImported: string }> = {};
-  for (const s of sources) {
-    const cfg = s.mappingConfig as { entity?: string } | null;
-    const entity = cfg?.entity;
-    if (!entity) continue;
-    if (!coverage[entity]) {
-      coverage[entity] = {
-        importedRows: 0,
-        lastImported: s.updatedAt.toISOString(),
+  const coverage: Record<
+    string,
+    { importedRows: number; rowCount: number; lastImported: string; label?: string }
+  > = {};
+
+  for (const d of datasets) {
+    // desc-ordered → first occurrence per name is the most recent import.
+    if (!coverage[d.name]) {
+      coverage[d.name] = {
+        importedRows: d.importedRows,
+        rowCount: d.rowCount,
+        lastImported: d.importedAt.toISOString(),
+        label: d.label,
       };
     }
-    coverage[entity].importedRows += s.importedRows ?? 0;
   }
 
   return NextResponse.json({ coverage });

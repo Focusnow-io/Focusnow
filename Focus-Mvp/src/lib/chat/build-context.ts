@@ -1,8 +1,30 @@
-import { prisma } from "@/lib/prisma";
+/**
+ * Org context builder -- reads the new ImportDataset / ImportRecord store.
+ *
+ * The AI sees one section per dataset this org has imported, with the
+ * record count, how long ago it landed, the canonical field list, and
+ * a sample row so it knows what to reach for. No hardcoded vocabulary:
+ * if the org has no PO data yet, no PO section appears. The dataset
+ * vocabulary for the AI's tool calls is supplied separately through
+ * the tool descriptions in tools.ts.
+ */
 
-// ---------------------------------------------------------------------------
-// In-memory context cache — 5-minute TTL, keyed by orgId
-// ---------------------------------------------------------------------------
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { DATASETS, type DatasetName } from "@/lib/ingestion/datasets";
+import { sanitizeForApi } from "@/lib/utils/sanitize";
+
+// Datasets that carry a status field worth surfacing to the AI. The
+// value is the JSONB key to aggregate on. When a dataset isn't here,
+// we skip the status-value lookup entirely to keep context small.
+const STATUS_FIELDS: Partial<Record<string, string>> = {
+  purchase_orders: "status",
+  sales_orders: "status",
+  suppliers: "status",
+  inventory: "status",
+};
+
+// ─── Cache ─────────────────────────────────────────────────────────────────
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -15,15 +37,13 @@ export function invalidateOrgContextCache(orgId: string) {
   contextCache.delete(orgId);
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
+// ─── Public API ────────────────────────────────────────────────────────────
 
 export async function buildOrgContext(orgId: string): Promise<string> {
   const cached = contextCache.get(orgId);
   if (cached && Date.now() - cached.builtAt < CACHE_TTL_MS) {
     console.log(
-      `[CHAT] context cache HIT for org=${orgId} (${cached.tokenEstimate} est. tokens)`
+      `[CHAT] context cache HIT for org=${orgId} (${cached.tokenEstimate} est. tokens)`,
     );
     return cached.context;
   }
@@ -31,7 +51,7 @@ export async function buildOrgContext(orgId: string): Promise<string> {
   const context = await buildContextInternal(orgId);
   const tokenEstimate = Math.ceil(context.length / 4);
   console.log(
-    `[CHAT] context cache MISS for org=${orgId} — built ${tokenEstimate} est. tokens (${context.length} chars)`
+    `[CHAT] context cache MISS for org=${orgId} -- built ${tokenEstimate} est. tokens (${context.length} chars)`,
   );
 
   contextCache.set(orgId, { context, builtAt: Date.now(), tokenEstimate });
@@ -43,218 +63,166 @@ export function getContextTokenEstimate(orgId: string): number {
   return cached ? cached.tokenEstimate : 0;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// ─── Internal ──────────────────────────────────────────────────────────────
 
-const dec = (v: unknown): number => {
-  if (v == null) return 0;
-  const n = Number(v);
-  return isNaN(n) ? 0 : n;
-};
-
-// ---------------------------------------------------------------------------
-// Lightweight context builder — counts + KPIs + schema only
-// Uses ~2-3K tokens instead of ~60K. Detailed data is fetched via tools.
-// ---------------------------------------------------------------------------
+function relativeDays(imported: Date): string {
+  const diffDays = Math.floor(
+    (Date.now() - imported.getTime()) / (1000 * 60 * 60 * 24),
+  );
+  if (diffDays <= 0) return "today";
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 30) return `${diffDays} days ago`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
+  return `${Math.floor(diffDays / 365)} years ago`;
+}
 
 async function buildContextInternal(orgId: string): Promise<string> {
-  const sections: string[] = [];
+  // Latest ImportDataset per dataset name, grouped by label for display.
+  // A dataset can be re-imported multiple times (one row per upload);
+  // the freshest row tells the AI how recent the data is.
+  const datasets = await prisma.importDataset.findMany({
+    where: { organizationId: orgId },
+    orderBy: { importedAt: "desc" },
+    select: {
+      name: true,
+      label: true,
+      importedAt: true,
+      rowCount: true,
+      importedRows: true,
+    },
+  });
 
-  // ── Entity counts ────────────────────────────────────────────────────────
-
-  let productCount = 0, inventoryCount = 0, supplierCount = 0, customerCount = 0;
-  let poCount = 0, soCount = 0, woCount = 0, locationCount = 0;
-  let ncrCount = 0, capaCount = 0;
-  let skuList: string[] = [];
-
-  try {
-    [
-      productCount,
-      inventoryCount,
-      supplierCount,
-      customerCount,
-      poCount,
-      soCount,
-      woCount,
-      locationCount,
-    ] = await Promise.all([
-      prisma.product.count({ where: { organizationId: orgId } }),
-      prisma.inventoryItem.count({ where: { organizationId: orgId } }),
-      prisma.supplier.count({ where: { organizationId: orgId } }),
-      prisma.customer.count({ where: { orgId } }),
-      prisma.purchaseOrder.count({ where: { orgId } }),
-      prisma.salesOrder.count({ where: { orgId } }),
-      prisma.workOrder.count({ where: { organizationId: orgId } }),
-      prisma.location.count({ where: { organizationId: orgId } }),
-    ]);
-
-    const orgSkus = await prisma.product.findMany({
-      where: { organizationId: orgId },
-      select: { sku: true },
-    });
-    skuList = orgSkus.map((p) => p.sku);
-
-    [ncrCount, capaCount] = await Promise.all([
-      skuList.length > 0
-        ? prisma.ncr.count({ where: { sku: { in: skuList } } })
-        : Promise.resolve(0),
-      prisma.capa.count(),
-    ]);
-  } catch (err) {
-    console.error("[CHAT] context builder: entity counts failed:", err);
+  if (datasets.length === 0) {
+    return [
+      "# Data context",
+      "",
+      "No data has been imported yet. The user needs to upload a CSV or",
+      "Excel file from the Import page before you can answer data questions.",
+    ].join("\n");
   }
 
-  sections.push(`## Data Summary
-- Products: ${productCount}
-- Inventory items: ${inventoryCount}
-- Suppliers: ${supplierCount}
-- Customers: ${customerCount}
-- Purchase orders: ${poCount}
-- Sales orders: ${soCount}
-- Work orders: ${woCount}
-- Locations: ${locationCount}
-- NCRs: ${ncrCount}
-- CAPAs: ${capaCount}
-`);
+  const latestByDataset = new Map<string, (typeof datasets)[number]>();
+  for (const ds of datasets) {
+    if (!latestByDataset.has(ds.name)) latestByDataset.set(ds.name, ds);
+  }
 
-  // ── KPIs ──────────────────────────────────────────────────────────────────
+  const counts = await prisma.importRecord.groupBy({
+    by: ["datasetName"],
+    where: { organizationId: orgId },
+    _count: { id: true },
+  });
+  const countMap: Record<string, number> = {};
+  for (const c of counts) countMap[c.datasetName] = c._count.id;
 
-  try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+  const sections: string[] = [
+    "# Data context",
+    "",
+    "The following datasets have been imported for this organisation.",
+    "Use the `query_records` and `aggregate_records` tools with the",
+    "dataset name shown after each heading. Field names are snake_case",
+    "and listed under each dataset.",
+    "",
+  ];
 
-    const inventoryWithCost = await prisma.inventoryItem.findMany({
-      where: { organizationId: orgId },
-      select: { quantity: true, unitCost: true, product: { select: { unitCost: true } } },
+  const orderedNames = Array.from(latestByDataset.keys()).sort((a, b) => {
+    const ia = Object.keys(DATASETS).indexOf(a);
+    const ib = Object.keys(DATASETS).indexOf(b);
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+  });
+
+  for (const datasetName of orderedNames) {
+    const dataset = latestByDataset.get(datasetName)!;
+    const count = countMap[datasetName] ?? 0;
+    if (count === 0) continue;
+
+    const schema = DATASETS[datasetName as DatasetName];
+    const fieldKeys = schema ? Object.keys(schema.fields) : [];
+
+    // Pull one real sample so the AI knows what values look like for
+    // this specific org -- useful for understanding status vocabularies,
+    // date formats, etc., without blowing the context up.
+    const [sample] = await prisma.importRecord.findMany({
+      where: { organizationId: orgId, datasetName },
+      select: { data: true },
+      orderBy: { importedAt: "desc" },
+      take: 1,
     });
-    const totalInventoryValue = inventoryWithCost.reduce(
-      // Prefer item-level unitCost (set during inventory import); fall back to product-level
-      (sum, i) => sum + dec(i.quantity) * dec(i.unitCost ?? i.product.unitCost),
-      0
+    const sampleData = (sample?.data as Record<string, unknown> | undefined) ?? {};
+    const extraFields = Object.keys(sampleData).filter(
+      (k) => !fieldKeys.includes(k),
     );
 
-    const openPOs = await prisma.purchaseOrder.findMany({
-      where: { orgId, status: { in: ["DRAFT", "SENT", "CONFIRMED", "PARTIAL"] } },
-      select: { poNumber: true, totalAmount: true, confirmedETA: true },
-    });
-    const openPOValue = openPOs.reduce((sum, po) => sum + dec(po.totalAmount), 0);
-    const overduePOs = openPOs.filter(
-      (po) => po.confirmedETA && po.confirmedETA < today
-    );
+    sections.push(`## ${dataset.label} -- dataset: \`${datasetName}\``);
+    sections.push(`- Records: ${count.toLocaleString()}`);
+    sections.push(`- Last imported: ${relativeDays(dataset.importedAt)}`);
+    if (fieldKeys.length > 0) {
+      sections.push(`- Canonical fields: ${fieldKeys.join(", ")}`);
+    }
+    if (extraFields.length > 0) {
+      sections.push(`- Custom fields in this org's data: ${extraFields.join(", ")}`);
+    }
 
-    const openSOs = await prisma.salesOrder.findMany({
-      where: { orgId, status: { in: ["DRAFT", "CONFIRMED", "IN_PRODUCTION"] } },
-      select: { totalAmount: true },
-    });
-    const openSOValue = openSOs.reduce((sum, so) => sum + dec(so.totalAmount), 0);
-
-    const stockOuts = await prisma.inventoryItem.count({
-      where: {
-        organizationId: orgId,
-        quantity: 0,
-        product: { makeBuy: "BUY" },
-      },
-    });
-
-    let ncrBySeverity = "";
-    if (skuList.length > 0) {
-      const openNcrAll = await prisma.ncr.findMany({
-        where: { sku: { in: skuList }, status: { in: ["OPEN", "IN_PROGRESS"] } },
-        select: { severity: true },
-      });
-      const severityCounts: Record<string, number> = {};
-      for (const n of openNcrAll) {
-        const sev = n.severity ?? "UNSPECIFIED";
-        severityCounts[sev] = (severityCounts[sev] ?? 0) + 1;
+    // Status-value sampling -- surface the exact literals that live in
+    // this org's data so the AI never invents legacy enums when
+    // filtering. Scoped to datasets where a status field actually
+    // exists per STATUS_FIELDS.
+    const statusField = STATUS_FIELDS[datasetName];
+    if (statusField) {
+      try {
+        // Use Prisma.raw for the field name so all three occurrences
+        // (SELECT, WHERE, GROUP BY) compile to the same SQL literal
+        // rather than separate bind parameters ($1, $2, $3).
+        // PostgreSQL requires GROUP BY to reference the identical
+        // expression used in SELECT — different parameter slots fail
+        // with error 42803 even when they hold the same value.
+        const fieldLiteral = Prisma.raw(`'${statusField}'`);
+        const statusRows = await prisma.$queryRaw<
+          Array<{ val: string | null; cnt: bigint }>
+        >(Prisma.sql`
+          SELECT "data"->>${fieldLiteral} AS val, COUNT(*)::bigint AS cnt
+          FROM "ImportRecord"
+          WHERE "organizationId" = ${orgId}
+            AND "datasetName" = ${datasetName}
+            AND "data"->>${fieldLiteral} IS NOT NULL
+          GROUP BY "data"->>${fieldLiteral}
+          ORDER BY COUNT(*) DESC
+          LIMIT 10
+        `);
+        if (statusRows.length > 0) {
+          const statusList = statusRows
+            .filter((r) => r.val)
+            .map((r) => `"${r.val}" (${Number(r.cnt)} records)`)
+            .join(", ");
+          sections.push(`- Exact status values: ${statusList}`);
+          sections.push(
+            `- Use ONLY these literals when filtering by status -- no legacy enums.`,
+          );
+        }
+      } catch (err) {
+        // Non-fatal -- missing status column just means no list appears.
+        console.warn(`[build-context] status sampling failed for ${datasetName}:`, err);
       }
-      ncrBySeverity = Object.entries(severityCounts)
-        .map(([sev, count]) => `${sev}: ${count}`)
-        .join(", ");
     }
 
-    sections.push(`## KPIs
-- Total inventory value: $${totalInventoryValue.toLocaleString("en-US", { maximumFractionDigits: 2 })}
-- Open PO value: $${openPOValue.toLocaleString("en-US", { maximumFractionDigits: 2 })}
-- Open SO value: $${openSOValue.toLocaleString("en-US", { maximumFractionDigits: 2 })}
-- Overdue POs: ${overduePOs.length}${overduePOs.length > 0 ? ` — ${overduePOs.map((p) => p.poNumber).join(", ")}` : ""}
-- Stock-outs: ${stockOuts}
-- Open NCRs by severity: ${ncrBySeverity || "none"}
-`);
-  } catch (err) {
-    console.error("[CHAT] context builder: KPIs failed:", err);
-    sections.push("## KPIs\n(unavailable)\n");
-  }
-
-  // ── Schema reference ──────────────────────────────────────────────────────
-  // Tell Claude what fields exist so it can form correct tool queries.
-
-  sections.push(`## Available Tables & Key Fields (use tools to query)
-
-IMPORTANT: For inventory stock levels, ALWAYS use the "quantity" field (current stock). Do NOT use qtyOnHand/qtyAllocated/qtyAvailable — those fields are empty. For work orders, use "plannedQty" and "actualQty" — NOT qtyPlanned/qtyProduced. For inventory VALUE calculations, use inventory.unitCost (set during import) multiplied by quantity — do NOT use product.unitCost which may be empty for auto-created product stubs.
-
-- **product**: sku, name, type, category, unitCost, makeBuy, active, unit, productFamily, abcClass, productLine, shelfLifeDays, listPrice
-- **inventory** (model: inventoryItem): productId, locationId, quantity (current stock — USE THIS), reservedQty, reorderPoint, reorderQty, uom, unitCost, daysOfSupply, demandPerDay, demandCurrentMonth, demandNextMonth, demandMonth3, qtyOnHold, totalValue, moq, orderMultiple, leadTimeDays
-- **supplier**: code, name, country, city, leadTimeDays, active, status, qualityRating, onTimePct, certifications, paymentTerms, currency
-- **customer**: code, name, country, currency, isActive, type, city, vatNumber
-- **purchase_order**: poNumber, supplierId, status (DRAFT/SENT/CONFIRMED/PARTIAL/RECEIVED/CLOSED/CANCELLED), totalAmount, currency, expectedDate, confirmedETA, orderDate, poType
-- **po_line**: purchaseOrderId, productId, qtyOrdered, qtyReceived, qtyOpen, unitCost
-- **sales_order**: soNumber, customerId, status (DRAFT/CONFIRMED/IN_PRODUCTION/SHIPPED/DELIVERED/CANCELLED), totalAmount, currency, requestedDate, orderDate, paymentTerms
-- **so_line**: salesOrderId, productId, qtyOrdered, qtyShipped, unitPrice
-- **work_order**: woNumber/orderNumber, sku, productId, status (PLANNED/RELEASED/IN_PROGRESS/COMPLETED/CANCELLED), plannedQty (planned quantity — USE THIS), actualQty (produced quantity — USE THIS), unit, workCenter, productionLine, yieldPct, scheduledDate, dueDate
-- **location**: name, code, type, city, countryCode
-- **bom_header**: productId, version, isActive, totalComponents, totalBomCost, yieldPct
-- **bom_line**: bomHeaderId, componentId, qty, uom, section, extendedCost
-- **lot**: lotNumber, productId, status, lotType, originType, qtyCreated, qtyOnHand, expiryDate, manufacturedDate
-- **ncr**: ncrId, type, sku, severity, status, description, dateRaised
-- **capa**: capaId, type, title, status, priority, source, sourceReference, dateOpened, targetCloseDate
-- **equipment**: code, name, type, status, locationId, installationDate, maintenanceIntervalDays, calibrationDue
-- **serial_number**: serialNumber, sku, lotNumber, status
-- **shipment**: shipmentNumber, type, status, carrier
-
-### Grouping components by finished good (FG)
-To group or roll up components by their parent finished good, join through BOM tables:
-1. Query **bom_line** to find which bomHeaderId each component (componentId) belongs to.
-2. Query **bom_header** to get the parent productId (the finished good) for each bomHeaderId.
-3. Then query **product** for the FG SKU/name.
-Alternatively, the **product.productFamily** field may already contain the FG grouping label.
-
-### Raw SQL column names (for rawWhere in aggregate_records)
-When using rawWhere for cross-column comparisons, column names must be double-quoted camelCase matching Prisma field names exactly:
-- InventoryItem: "quantity", "reorderPoint", "daysOfSupply", "demandPerDay", "qtyOnHold", "reservedQty", "unitCost", "totalValue"
-- Product: "sku", "name", "unitCost"
-- Common patterns: \`"quantity" < "reorderPoint"\` (below ROP), \`"daysOfSupply" <= 10\` (low supply)
-`);
-
-  // ── Brain Rules ──────────────────────────────────────────────────────────
-  // Include active rules so the AI can reference the user's operational logic.
-
-  try {
-    const activeRules = await prisma.brainRule.findMany({
-      where: { organizationId: orgId, status: "ACTIVE" },
-      select: {
-        name: true,
-        category: true,
-        entity: true,
-        description: true,
-        condition: true,
-      },
-      take: 20,
-    });
-
-    if (activeRules.length > 0) {
-      const ruleLines = activeRules.map((r) => {
-        const cond = r.condition as Record<string, unknown>;
-        return `- **${r.name}** (${r.category}, on ${r.entity}): ${r.description ?? ""} — Condition: ${cond.field} ${cond.operator} ${cond.value}`;
-      });
-      sections.push(`## Active Brain Rules
-These are the user's operational rules. Use them to provide grounded, specific answers.
-${ruleLines.join("\n")}
-`);
+    // Sample record -- first 8 fields only, so the AI sees the shape
+    // and value formats without the context ballooning. Sanitize the
+    // whole preview because CSV-sourced values frequently carry em
+    // dashes, smart quotes, and non-breaking spaces that blow up
+    // downstream ByteString conversions.
+    if (Object.keys(sampleData).length > 0) {
+      const preview = sanitizeForApi(
+        Object.entries(sampleData)
+          .slice(0, 8)
+          .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+          .join(", "),
+      );
+      sections.push(`- Sample record: { ${preview} }`);
     }
-  } catch (err) {
-    console.error("[CHAT] context builder: brain rules failed:", err);
+    sections.push("");
   }
 
-  return sections.join("\n");
+  // Belt-and-suspenders sanitize at the source -- every caller of
+  // buildOrgContext now gets a byte-string-safe payload regardless
+  // of what slipped through the per-field wrapping above.
+  return sanitizeForApi(sections.join("\n"));
 }

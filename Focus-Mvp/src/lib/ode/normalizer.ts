@@ -14,15 +14,21 @@ import { applyCanonicalMapping, validateCanonical } from "./canonical-schema";
 // Type coercions
 // ---------------------------------------------------------------------------
 
+const NULL_LIKE_RE = /^(#n\/a|n\/a|na|#na|#null!|null|none|#value!|#ref!|#div\/0!|#name\?|#num!|#error!|-{1,2}|—)$/i;
+
 function toDecimalOrNull(value: unknown): number | null {
   if (value === undefined || value === null || value === "") return null;
-  const n = Number(String(value).replace(/[^0-9.-]/g, ""));
+  const s = String(value).trim();
+  if (NULL_LIKE_RE.test(s)) return null;
+  const n = Number(s.replace(/,/g, ""));
   return isNaN(n) ? null : n;
 }
 
 function toIntOrNull(value: unknown): number | null {
   if (value === undefined || value === null || value === "") return null;
-  const n = parseInt(String(value), 10);
+  const s = String(value).trim();
+  if (NULL_LIKE_RE.test(s)) return null;
+  const n = parseInt(s, 10);
   return isNaN(n) ? null : n;
 }
 

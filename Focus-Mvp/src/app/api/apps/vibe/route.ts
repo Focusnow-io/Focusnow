@@ -1,7 +1,11 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { getSessionOrg, unauthorized, badRequest } from "@/lib/api-helpers";
 import { prisma } from "@/lib/prisma";
 import Anthropic from "@anthropic-ai/sdk";
+import { sanitizeForApi } from "@/lib/utils/sanitize";
+import { checkTokenBudget, recordTokenUsage } from "@/lib/usage/token-tracker";
 
 const TEMPLATE_CONTEXT: Record<string, string> = {
   INVENTORY_COMMAND_CENTER: `This is an Inventory Command Center providing complete visibility into inventory health.
@@ -38,6 +42,11 @@ export async function POST(req: Request) {
   if (!template) return badRequest("template required");
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({ error: "ANTHROPIC_API_KEY not configured" }, { status: 500 });
+  }
+
+  const budget = await checkTokenBudget(ctx.org.id, ctx.session.user!.id!, ctx.org.plan ?? "free");
+  if (!budget.allowed) {
+    return NextResponse.json({ error: budget.message }, { status: 429 });
   }
 
   const templateCtx = TEMPLATE_CONTEXT[template] ?? `This is a ${template} app.`;
@@ -85,8 +94,16 @@ If the request cannot be fulfilled through config at all, still include an empty
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 1024,
-      system: systemPrompt,
-      messages,
+      system: sanitizeForApi(systemPrompt),
+      messages: messages.map((m: { role: "user" | "assistant"; content: string }) => ({
+        ...m,
+        content: sanitizeForApi(m.content),
+      })),
+    });
+
+    await recordTokenUsage(ctx.org.id, ctx.session.user!.id!, "vibe", {
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
     });
 
     const raw = response.content[0].type === "text" ? response.content[0].text : "";

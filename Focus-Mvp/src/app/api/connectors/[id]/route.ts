@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 /**
  * GET    /api/connectors/[id]   — get a single connector
  * PUT    /api/connectors/[id]   — update connector config / name

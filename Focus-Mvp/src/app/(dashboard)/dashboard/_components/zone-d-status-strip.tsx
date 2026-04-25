@@ -13,7 +13,12 @@ export function ZoneDStatusStrip({ data, permissions }: ZoneDStatusStripProps) {
   const isGap = (layer: "data" | "brain" | "apps") => {
     switch (layer) {
       case "data":
-        return data.productCount === 0 && data.supplierCount === 0;
+        return (
+          data.productCount === 0 &&
+          data.supplierCount === 0 &&
+          data.inventoryCount === 0 &&
+          data.orderCount === 0
+        );
       case "brain":
         return data.activeRuleCount === 0 && data.draftRuleCount === 0;
       case "apps":
@@ -41,16 +46,16 @@ export function ZoneDStatusStrip({ data, permissions }: ZoneDStatusStripProps) {
           label="Data"
           href={permissions.sources ? "/data" : null}
           isGap={isGap("data")}
-          stats={
-            data.productCount > 0 || data.supplierCount > 0
-              ? [
-                  { label: "Products", value: data.productCount },
-                  { label: "Suppliers", value: data.supplierCount },
-                  { label: "SKUs", value: data.inventoryCount },
-                  { label: "Orders", value: data.orderCount },
-                ]
-              : []
-          }
+          stats={(() => {
+            const all = [
+              { label: "Products",  value: data.productCount },
+              { label: "Suppliers", value: data.supplierCount },
+              { label: "SKUs",      value: data.inventoryCount },
+              { label: "Orders",    value: data.orderCount },
+            ];
+            const nonZero = all.filter((s) => s.value > 0);
+            return nonZero.length > 0 ? nonZero : [];
+          })()}
           emptyLabel="No data imported yet"
         />
       )}

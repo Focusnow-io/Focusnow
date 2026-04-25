@@ -1,82 +1,156 @@
-import { prisma } from "@/lib/prisma";
+/**
+ * Chat tools -- backed by the new JSONB import store.
+ *
+ * Every request flows through `queryRecords` / `aggregateRecords` in
+ * record-query.ts, which scopes to (organizationId, datasetName) and
+ * validates every field against the DATASETS vocabulary before it
+ * reaches SQL. The legacy ENTITY_MAP → Prisma-model layer is gone.
+ *
+ * Tool names stay the same (query_records, aggregate_records,
+ * get_record_by_id, query_custom_field, get_traceability) so the LLM
+ * doesn't need retraining; `get_entity_by_id` is still accepted as an
+ * alias of `get_record_by_id` for any in-flight conversations.
+ */
+
 import type Anthropic from "@anthropic-ai/sdk";
+import { prisma } from "@/lib/prisma";
+import { DATASETS, type DatasetName } from "@/lib/ingestion/datasets";
+import { aggregateRecords, queryRecords } from "./record-query";
 
-// ---------------------------------------------------------------------------
-// Entity → Prisma model mapping
-// ---------------------------------------------------------------------------
-
-interface EntityConfig {
-  model: string;
-  orgField: "organizationId" | "orgId";
-  /** Fields that are safe to expose (null = all fields). */
-  displayName: string;
-}
-
-const ENTITY_MAP: Record<string, EntityConfig> = {
-  product:         { model: "product",         orgField: "organizationId", displayName: "Product" },
-  inventory:       { model: "inventoryItem",   orgField: "organizationId", displayName: "Inventory" },
-  supplier:        { model: "supplier",        orgField: "organizationId", displayName: "Supplier" },
-  customer:        { model: "customer",        orgField: "orgId",          displayName: "Customer" },
-  purchase_order:  { model: "purchaseOrder",   orgField: "orgId",          displayName: "Purchase Order" },
-  po_line:         { model: "pOLine",          orgField: null as unknown as "orgId", displayName: "PO Line" },
-  sales_order:     { model: "salesOrder",      orgField: "orgId",          displayName: "Sales Order" },
-  so_line:         { model: "sOLine",          orgField: null as unknown as "orgId", displayName: "SO Line" },
-  work_order:      { model: "workOrder",       orgField: "organizationId", displayName: "Work Order" },
-  location:        { model: "location",        orgField: "organizationId", displayName: "Location" },
-  bom_header:      { model: "bOMHeader",       orgField: "orgId",          displayName: "BOM Header" },
-  bom_line:        { model: "bOMLine",         orgField: null as unknown as "orgId", displayName: "BOM Line" },
-  lot:             { model: "lot",             orgField: "orgId",          displayName: "Lot" },
-  equipment:       { model: "equipment",       orgField: "orgId",          displayName: "Equipment" },
-  order:           { model: "order",           orgField: "organizationId", displayName: "Order (legacy)" },
-  work_center:     { model: "workCenter",      orgField: "organizationId", displayName: "Work Center" },
-  ncr:             { model: "ncr",             orgField: null as unknown as "orgId", displayName: "NCR" },
-  capa:            { model: "capa",            orgField: null as unknown as "orgId", displayName: "CAPA" },
-  serial_number:   { model: "serialNumber",    orgField: null as unknown as "orgId", displayName: "Serial Number" },
-  shipment:        { model: "shipment",        orgField: null as unknown as "orgId", displayName: "Shipment" },
+// ─── Entity / dataset aliasing ─────────────────────────────────────────────
+//
+// The old tools accepted "product", "po_line", "bom_line" etc. -- route
+// these to the new canonical dataset names so existing chat histories
+// keep working.
+const ENTITY_TO_DATASET: Record<string, DatasetName> = {
+  // Canonical dataset keys (passthrough)
+  products: "products",
+  suppliers: "suppliers",
+  customers: "customers",
+  locations: "locations",
+  inventory: "inventory",
+  purchase_orders: "purchase_orders",
+  sales_orders: "sales_orders",
+  bom: "bom",
+  // Legacy snake_case tool names
+  product: "products",
+  supplier: "suppliers",
+  customer: "customers",
+  location: "locations",
+  inventory_item: "inventory",
+  purchase_order: "purchase_orders",
+  po_line: "purchase_orders",
+  sales_order: "sales_orders",
+  so_line: "sales_orders",
+  bom_header: "bom",
+  bom_line: "bom",
+  // Legacy camelCase aliases -- the AI may still emit these from chat
+  // histories that predate the snake_case migration. Map them all so
+  // the tool call resolves without a re-prompt round.
+  inventoryItem: "inventory",
+  purchaseOrder: "purchase_orders",
+  poLine: "purchase_orders",
+  salesOrder: "sales_orders",
+  soLine: "sales_orders",
+  bomLine: "bom",
+  // Legacy PascalCase (older still)
+  Product: "products",
+  Supplier: "suppliers",
+  Customer: "customers",
+  Location: "locations",
+  InventoryItem: "inventory",
+  PurchaseOrder: "purchase_orders",
+  POLine: "purchase_orders",
+  SalesOrder: "sales_orders",
+  SOLine: "sales_orders",
+  BOMHeader: "bom",
+  BOMLine: "bom",
+  BOM: "bom",
 };
 
-// ---------------------------------------------------------------------------
-// Tool definitions for the Anthropic API
-// ---------------------------------------------------------------------------
+function resolveDataset(entity: unknown): DatasetName {
+  const raw = String(entity ?? "").trim();
+  const mapped = ENTITY_TO_DATASET[raw];
+  if (!mapped) {
+    throw new Error(
+      `Unknown dataset "${raw}". Use one of: ${Object.keys(DATASETS).join(", ")}`,
+    );
+  }
+  return mapped;
+}
+
+// ─── Tool descriptions ─────────────────────────────────────────────────────
+
+const DATASET_LIST = Object.keys(DATASETS).join(", ");
+
+const FIELD_REFERENCE = `
+Field names use snake_case and match the canonical dataset vocabulary:
+- inventory: sku, location_code, quantity, reorder_point, safety_stock,
+  unit_cost, total_value, uom, lead_time_days, moq, order_multiple,
+  on_hold_qty, reserved_qty, open_po_qty, days_of_supply, demand_per_day,
+  buy_recommendation, recommended_qty, last_receipt_date
+- purchase_orders: po_number, supplier_code, supplier_name, sku, item_name,
+  line_number, qty_ordered, qty_received, qty_open, unit_cost, line_value,
+  currency, status, order_date, expected_date, confirmed_eta, buyer
+- sales_orders: so_number, customer_code, customer_name, sku, item_name,
+  line_number, qty_ordered, qty_shipped, qty_open, unit_price, line_value,
+  currency, status, order_date, requested_date
+- products: sku, name, type, uom, unit_cost, list_price, make_buy,
+  lead_time_days, moq, order_multiple, product_family, abc_class,
+  safety_stock, reorder_point
+- suppliers: supplier_code, name, country, city, email, phone,
+  lead_time_days, payment_terms, currency, quality_rating, on_time_pct,
+  certifications, status, approved_since
+- customers: customer_code, name, country, city, email, currency,
+  payment_terms, credit_limit, type, status
+- locations: location_code, name, type, city, country, parent_code
+- bom: fg_sku, fg_name, component_sku, component_name, qty_per, uom,
+  section, make_buy, is_critical, component_cost, extended_cost, revision
+`.trim();
+
+// ─── Tool definitions ──────────────────────────────────────────────────────
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: "query_records",
     description:
-      "Query records from a canonical data table. Returns matching rows as JSON. Use this to look up specific records, search by filters, or get lists of entities. Supports Prisma-style nested filters and optional relation includes. NOTE: Results are capped at 100 rows. The response includes totalCount (true count matching filters) and returnedCount (rows actually returned). For counting or totaling, use aggregate_records instead — it returns exact counts without row limits.",
+      `Query records from a canonical dataset. Returns matching rows as JSON along with totalCount (exact count matching filters) and returnedCount. ` +
+      `Use this to list specific records or search by filters. Use aggregate_records for counts or totals -- query_records is capped at 500 rows.\n\n` +
+      FIELD_REFERENCE,
     input_schema: {
       type: "object" as const,
       properties: {
         entity: {
           type: "string",
-          description: `Table name: ${Object.keys(ENTITY_MAP).join(", ")}`,
+          description:
+            "Dataset to query. One of: inventory, purchase_orders, products, suppliers, customers, sales_orders, bom, locations. Legacy aliases (product, poLine, PurchaseOrder, BOMLine, …) are also accepted and mapped to the canonical dataset.",
         },
         filters: {
           type: "object",
           description:
-            'Prisma-style where clause. Supports operators: { status: { in: ["OPEN","CLOSED"] } }, { quantity: { gt: 0 } }, { name: { contains: "steel" } }, { createdAt: { gte: "2025-01-01" } }, { daysOfSupply: { lte: 10 } }. Simple equality: { status: "OPEN" }. For inventory use "quantity" (not "qtyOnHand"). For work orders use "plannedQty" and "actualQty" (not "qtyPlanned"/"qtyProduced"). NOTE: Prisma filters can only compare against literal values, not other columns. For cross-column comparisons use rawWhere.',
+            "Field filters using snake_case field names from the dataset. Example: { quantity: { lt: 100 } } or { status: 'Open' }. Use exact status values from the build context. Operators: eq / ne / gt / gte / lt / lte / contains / in / not. Cross-column comparisons are NOT supported here -- use rawWhere in aggregate_records.",
           additionalProperties: true,
         },
-        rawWhere: {
+        search: {
           type: "string",
-          description:
-            'Raw SQL WHERE clause for cross-column comparisons or complex conditions that Prisma filters cannot express. Examples: \'"quantity" < "reorderPoint"\', \'"daysOfSupply" <= 10\'. Column names must be double-quoted camelCase matching the Prisma schema. This is ANDed with org scoping and any Prisma filters.',
+          description: "Case-insensitive ILIKE substring search. Pair with searchFields to pick which columns to search.",
         },
-        include: {
-          type: "object",
-          description:
-            'Relations to include. Examples: { "product": { "select": { "sku": true, "name": true } } }, { "supplier": true }, { "lines": true }, { "customer": true }, { "location": true }. Use select within include to limit fields.',
-          additionalProperties: true,
+        searchFields: {
+          type: "array",
+          items: { type: "string" },
+          description: "Canonical snake_case fields to search in (must be string-typed).",
         },
         orderBy: {
-          type: "string",
+          type: "object",
           description:
-            "Field name to order by. Prefix with - for descending (e.g. '-createdAt').",
+            "Sort order. `field` must be snake_case. Example: { field: 'quantity', direction: 'asc' }. Numeric fields are sorted arithmetically.",
+          additionalProperties: true,
         },
         limit: {
           type: "number",
-          description: "Max rows to return (1–100, default 50). Use smaller limits for broad queries. For counting, use aggregate_records instead.",
+          description: "Max rows to return (1–500, default 100). For counting, use aggregate_records.",
         },
+        offset: { type: "number" },
       },
       required: ["entity"],
     },
@@ -84,17 +158,15 @@ export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: "aggregate_records",
     description:
-      "Aggregate records from a canonical table. Supports COUNT, SUM, and AVG grouped by a field.",
+      `Aggregate records from a dataset -- COUNT, SUM, or AVG, optionally grouped by a field. Returns an exact answer for the whole dataset (no row limit).\n\n` +
+      FIELD_REFERENCE,
     input_schema: {
       type: "object" as const,
       properties: {
         entity: {
           type: "string",
-          description: `Table name: ${Object.keys(ENTITY_MAP).join(", ")}`,
-        },
-        groupByField: {
-          type: "string",
-          description: "Field to group results by.",
+          description:
+            "Dataset to query. One of: inventory, purchase_orders, products, suppliers, customers, sales_orders, bom, locations.",
         },
         metric: {
           type: "string",
@@ -103,481 +175,358 @@ export const toolDefinitions: Anthropic.Tool[] = [
         },
         valueField: {
           type: "string",
-          description: "Field to compute SUM or AVG on (required for SUM/AVG).",
+          description:
+            "The snake_case field name to aggregate. Examples: quantity, line_value, unit_cost, qty_ordered. Required for SUM/AVG.",
+        },
+        groupByField: {
+          type: "string",
+          description:
+            "The snake_case field name to group by. Examples: status, supplier_code, location_code, type. Returns { [groupValue]: aggregateResult }.",
         },
         filters: {
           type: "object",
           description:
-            'Prisma-style where clause for filtering before aggregating. Same syntax as query_records filters. NOTE: Prisma filters can only compare a column against a literal value — not against another column. For cross-column comparisons use rawWhere instead.',
+            "Field filter map using snake_case field names. Same operator shape as query_records. Use exact status values from the build context.",
           additionalProperties: true,
         },
         rawWhere: {
           type: "string",
           description:
-            'Raw SQL WHERE clause for cross-column comparisons that Prisma filters cannot express. Examples: \'"quantity" < "reorderPoint"\', \'"daysOfSupply" <= 10\'. Column names must be double-quoted camelCase matching the Prisma schema. This is ANDed with org scoping. Supports COUNT, SUM, and AVG metrics (no groupBy).',
+            "Simple two-operand comparison across canonical snake_case fields. Example: 'quantity < reorder_point' or 'days_of_supply <= 10'. Operators: <, <=, >, >=, =, !=. Both sides must be snake_case canonical names or numeric literals.",
         },
       },
       required: ["entity", "metric"],
     },
   },
   {
-    name: "get_traceability",
+    name: "get_record_by_id",
     description:
-      "Trace a lot number or serial number through the supply chain. Returns the full chain: lot → work order → BOM → components → PO → supplier, or serial → lot → work order → sales order → customer → shipments.",
+      "Get a single ImportRecord by its id with the full data blob. Use after query_records when you have the record id and need the complete fields.",
     input_schema: {
       type: "object" as const,
       properties: {
-        type: {
-          type: "string",
-          enum: ["LOT", "SERIAL"],
-          description: "Whether to trace a lot number or serial number.",
-        },
-        value: {
-          type: "string",
-          description: "The lot number or serial number to trace.",
-        },
+        id: { type: "string", description: "ImportRecord.id" },
       },
-      required: ["type", "value"],
+      required: ["id"],
     },
   },
   {
-    name: "get_entity_by_id",
+    name: "query_custom_field",
     description:
-      "Get a single record by its ID with all fields. Use this when you have an entity ID and need the full detail.",
+      "Query records by a field stored in the JSONB data that isn't one of the canonical dataset fields. Use this for user-specific columns surfaced in the Custom Fields section of the context.",
     input_schema: {
       type: "object" as const,
       properties: {
         entity: {
           type: "string",
-          description: `Table name: ${Object.keys(ENTITY_MAP).join(", ")}`,
+          description: `Dataset name: ${DATASET_LIST}.`,
         },
-        id: {
+        fieldKey: {
           type: "string",
-          description: "The record ID.",
+          description: "Exact JSONB key as stored in the data blob (snake_case).",
+        },
+        operator: {
+          type: "string",
+          enum: ["eq", "lt", "lte", "gt", "gte", "contains", "exists"],
+          description: "Comparison operator. 'exists' returns every record that has this field set.",
+        },
+        value: {
+          type: "string",
+          description: "Comparison value. Numeric ops cast to numeric automatically.",
+        },
+        limit: {
+          type: "number",
+          description: "Max records to return (default 50, max 500).",
         },
       },
-      required: ["entity", "id"],
+      required: ["entity", "fieldKey", "operator"],
     },
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Tool execution
-// ---------------------------------------------------------------------------
+// ─── Tool execution ────────────────────────────────────────────────────────
 
 export async function executeTool(
   toolName: string,
   input: Record<string, unknown>,
-  orgId: string
+  orgId: string,
 ): Promise<unknown> {
   switch (toolName) {
     case "query_records":
       return executeQueryRecords(input, orgId);
     case "aggregate_records":
       return executeAggregateRecords(input, orgId);
-    case "get_traceability":
-      return executeTraceability(input, orgId);
+    case "get_record_by_id":
+    // Legacy alias -- earlier releases shipped the tool as get_entity_by_id.
     case "get_entity_by_id":
-      return executeGetEntityById(input, orgId);
+      return executeGetRecordById(input, orgId);
+    case "query_custom_field":
+      return executeQueryCustomField(input, orgId);
+    case "get_traceability":
+      return {
+        error:
+          "get_traceability is not available on the JSONB store -- trace queries need relational lot / serial data.",
+      };
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
 }
 
-// ---------------------------------------------------------------------------
-// query_records
-// ---------------------------------------------------------------------------
+// ─── query_records ─────────────────────────────────────────────────────────
 
 async function executeQueryRecords(
   input: Record<string, unknown>,
-  orgId: string
+  orgId: string,
 ): Promise<unknown> {
-  const entityName = String(input.entity ?? "").toLowerCase();
-  const config = ENTITY_MAP[entityName];
-  if (!config) {
-    return { error: `Unknown entity: ${input.entity}. Valid: ${Object.keys(ENTITY_MAP).join(", ")}` };
-  }
-
-  const filters = (input.filters ?? {}) as Record<string, unknown>;
-  const includeParam = input.include as Record<string, unknown> | undefined;
-  const limit = Math.min(Math.max(Number(input.limit) || 50, 1), 100);
-  const orderByField = input.orderBy as string | undefined;
-  const rawWhere = input.rawWhere as string | undefined;
-
-  // Build where clause with org scoping
-  const where: Record<string, unknown> = { ...filters };
-  if (config.orgField) {
-    where[config.orgField] = orgId;
-  }
-
-  // Build orderBy
-  let orderBy: Record<string, string> | undefined;
-  if (orderByField) {
-    const desc = orderByField.startsWith("-");
-    const field = desc ? orderByField.slice(1) : orderByField;
-    orderBy = { [field]: desc ? "desc" : "asc" };
-  }
-
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const model = (prisma as any)[config.model];
-    if (!model) return { error: `Model ${config.model} not found` };
-
-    // ── rawWhere path: fetch IDs via raw SQL, then hydrate with Prisma ──
-    if (rawWhere) {
-      const forbidden = /;|--|\/\*|\b(DROP|DELETE|UPDATE|INSERT|ALTER|CREATE|TRUNCATE|GRANT|REVOKE)\b/i;
-      if (forbidden.test(rawWhere)) {
-        return { error: "rawWhere contains forbidden SQL patterns" };
+    const dataset = resolveDataset(input.entity);
+    const filters = (input.filters ?? {}) as Record<string, unknown>;
+    const search = typeof input.search === "string" ? input.search : undefined;
+    const searchFields = Array.isArray(input.searchFields)
+      ? (input.searchFields as string[])
+      : undefined;
+    const orderByRaw = input.orderBy as
+      | { field?: string; direction?: "asc" | "desc" }
+      | string
+      | undefined;
+    const orderBy = (() => {
+      if (!orderByRaw) return undefined;
+      // Accept the legacy "-createdAt" shorthand as a soft fallback.
+      if (typeof orderByRaw === "string") {
+        const desc = orderByRaw.startsWith("-");
+        return { field: desc ? orderByRaw.slice(1) : orderByRaw, direction: desc ? "desc" : "asc" } as const;
       }
-
-      const tableName = config.model.charAt(0).toUpperCase() + config.model.slice(1);
-      const orgCol = config.orgField ?? "organizationId";
-      const orderClause = orderByField
-        ? `ORDER BY "${orderByField.replace(/^-/, "")}" ${orderByField.startsWith("-") ? "DESC" : "ASC"}`
-        : "";
-
-      // Get total count + limited IDs in parallel
-      const [countResult, idResult] = await Promise.all([
-        prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
-          `SELECT COUNT(*)::bigint as count FROM "${tableName}" WHERE "${orgCol}" = $1 AND (${rawWhere})`,
-          orgId
-        ),
-        prisma.$queryRawUnsafe<Array<{ id: string }>>(
-          `SELECT id FROM "${tableName}" WHERE "${orgCol}" = $1 AND (${rawWhere}) ${orderClause} LIMIT ${limit}`,
-          orgId
-        ),
-      ]);
-
-      const totalCount = Number(countResult[0]?.count ?? 0);
-      const ids = idResult.map((r) => r.id);
-
-      if (ids.length === 0) {
-        return { entity: entityName, totalCount: 0, returnedCount: 0, rows: [] };
+      if (orderByRaw.field) {
+        return {
+          field: orderByRaw.field,
+          direction: orderByRaw.direction === "asc" ? "asc" : "desc",
+        } as const;
       }
+      return undefined;
+    })();
+    const limit = typeof input.limit === "number" ? input.limit : undefined;
+    const offset = typeof input.offset === "number" ? input.offset : undefined;
 
-      // Hydrate via Prisma to get full objects with includes
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const hydrateQuery: any = { where: { id: { in: ids } }, orderBy };
-      if (includeParam && Object.keys(includeParam).length > 0) {
-        hydrateQuery.include = includeParam;
+    const result = await queryRecords({
+      dataset,
+      orgId,
+      filters,
+      search,
+      searchFields,
+      orderBy,
+      limit,
+      offset,
+    });
+
+    // If the query returned nothing AND there are filters/search applied,
+    // check whether the dataset itself has any records. This lets the AI
+    // distinguish "no records match your filter" from "this dataset was
+    // never imported" and give the user an accurate explanation.
+    const hasFilters =
+      Object.keys(filters ?? {}).length > 0 || (search ?? "").length > 0;
+    if (result.total === 0 && hasFilters) {
+      const datasetTotal = await queryRecords({ dataset, orgId, limit: 1 });
+      if (datasetTotal.total === 0) {
+        return {
+          rows: [],
+          totalCount: 0,
+          returnedCount: 0,
+          dataset,
+          datasetNotImported: true,
+          note: `The "${dataset}" dataset has not been imported yet. Please upload a CSV for this data first.`,
+        };
       }
-      const rows = await model.findMany(hydrateQuery);
-      return { entity: entityName, totalCount, returnedCount: rows.length, rows };
     }
 
-    // ── Standard Prisma path ──
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const query: any = { where, orderBy, take: limit };
-    if (includeParam && Object.keys(includeParam).length > 0) {
-      query.include = includeParam;
+    // Even with no filters, a 0 total means no data imported for this dataset.
+    if (result.total === 0) {
+      return {
+        rows: [],
+        totalCount: 0,
+        returnedCount: 0,
+        dataset,
+        datasetNotImported: true,
+        note: `The "${dataset}" dataset has not been imported yet. Please upload a CSV for this data first.`,
+      };
     }
 
-    const [rows, totalCount] = await Promise.all([
-      model.findMany(query),
-      model.count({ where }),
-    ]);
-    return { entity: entityName, totalCount, returnedCount: rows.length, rows };
+    return {
+      rows: result.rows,
+      totalCount: result.total,
+      returnedCount: result.returnedCount,
+      dataset,
+    };
   } catch (err) {
-    return { error: `Query failed: ${err instanceof Error ? err.message : String(err)}` };
+    return { error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-// ---------------------------------------------------------------------------
-// aggregate_records
-// ---------------------------------------------------------------------------
+// ─── aggregate_records ─────────────────────────────────────────────────────
 
 async function executeAggregateRecords(
   input: Record<string, unknown>,
-  orgId: string
+  orgId: string,
 ): Promise<unknown> {
-  const entityName = String(input.entity ?? "").toLowerCase();
-  const config = ENTITY_MAP[entityName];
-  if (!config) {
-    return { error: `Unknown entity: ${input.entity}` };
-  }
-
-  const metric = String(input.metric ?? "COUNT").toUpperCase();
-  const groupByField = input.groupByField as string | undefined;
-  const valueField = input.valueField as string | undefined;
-  const filters = (input.filters ?? {}) as Record<string, unknown>;
-  const rawWhere = input.rawWhere as string | undefined;
-
-  const where: Record<string, unknown> = { ...filters };
-  if (config.orgField) {
-    where[config.orgField] = orgId;
-  }
-
   try {
-    // ── rawWhere path: use raw SQL for cross-column comparisons ──────
-    if (rawWhere) {
-      const forbidden = /;|--|\/\*|\b(DROP|DELETE|UPDATE|INSERT|ALTER|CREATE|TRUNCATE|GRANT|REVOKE)\b/i;
-      if (forbidden.test(rawWhere)) {
-        return { error: "rawWhere contains forbidden SQL patterns" };
+    const dataset = resolveDataset(input.entity);
+    const metric = String(input.metric ?? "").toUpperCase() as "COUNT" | "SUM" | "AVG";
+    if (!["COUNT", "SUM", "AVG"].includes(metric)) {
+      return { error: `Invalid metric "${metric}". Use COUNT, SUM, or AVG.` };
+    }
+    const result = await aggregateRecords({
+      dataset,
+      orgId,
+      metric,
+      valueField: typeof input.valueField === "string" ? input.valueField : undefined,
+      groupByField:
+        typeof input.groupByField === "string" ? input.groupByField : undefined,
+      filters: (input.filters ?? {}) as Record<string, unknown>,
+      rawWhere: typeof input.rawWhere === "string" ? input.rawWhere : undefined,
+    });
+    // If COUNT returned 0, check whether this is "no data imported" vs
+    // "data exists but nothing matches the filter".
+    if (metric === "COUNT" && typeof result.result === "number" && result.result === 0) {
+      const datasetTotal = await aggregateRecords({ dataset, orgId, metric: "COUNT" }).catch(() => ({ result: 0 }));
+      if (Number(datasetTotal.result) === 0) {
+        return {
+          result: 0,
+          dataset,
+          metric,
+          datasetNotImported: true,
+          note: `The "${dataset}" dataset has not been imported yet. Please upload a CSV for this data first.`,
+        };
       }
-
-      // Prisma model name = PG table name (no @@map on core models)
-      const tableName = config.model.charAt(0).toUpperCase() + config.model.slice(1);
-      const orgCol = config.orgField ?? "organizationId";
-
-      // Build SELECT based on metric
-      let selectExpr: string;
-      if (metric === "COUNT") {
-        selectExpr = "COUNT(*)::bigint as value";
-      } else if (metric === "SUM" && valueField) {
-        selectExpr = `COALESCE(SUM("${valueField}"), 0)::double precision as value`;
-      } else if (metric === "AVG" && valueField) {
-        selectExpr = `AVG("${valueField}")::double precision as value`;
-      } else {
-        selectExpr = "COUNT(*)::bigint as value";
-      }
-
-      const result: Array<{ value: bigint | number }> = await prisma.$queryRawUnsafe(
-        `SELECT ${selectExpr} FROM "${tableName}" WHERE "${orgCol}" = $1 AND (${rawWhere})`,
-        orgId
-      );
-
-      const value = Number(result[0]?.value ?? 0);
-      return { entity: entityName, metric, count: metric === "COUNT" ? value : undefined, value };
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const model = (prisma as any)[config.model];
-    if (!model) return { error: `Model ${config.model} not found` };
+    return { ...result, dataset, metric };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
 
-    if (groupByField) {
-      // Use groupBy
-      const aggOp: Record<string, unknown> = {};
-      if (metric === "COUNT") {
-        aggOp._count = { _all: true };
-      } else if (metric === "SUM" && valueField) {
-        aggOp._sum = { [valueField]: true };
-      } else if (metric === "AVG" && valueField) {
-        aggOp._avg = { [valueField]: true };
-      }
+// ─── get_record_by_id ──────────────────────────────────────────────────────
 
-      const result = await model.groupBy({
-        by: [groupByField],
-        where,
-        ...aggOp,
-        orderBy: { [groupByField]: "asc" },
-      });
+async function executeGetRecordById(
+  input: Record<string, unknown>,
+  orgId: string,
+): Promise<unknown> {
+  const id = typeof input.id === "string" ? input.id : "";
+  if (!id) return { error: "id is required" };
 
-      return {
-        entity: entityName,
-        metric,
-        groupByField,
-        results: result.map((r: Record<string, unknown>) => ({
-          group: r[groupByField],
-          value:
-            metric === "COUNT"
-              ? (r._count as Record<string, unknown>)?._all
-              : metric === "SUM" && valueField
-                ? (r._sum as Record<string, unknown>)?.[valueField]
-                : metric === "AVG" && valueField
-                  ? (r._avg as Record<string, unknown>)?.[valueField]
-                  : null,
-        })),
-      };
+  const record = await prisma.importRecord.findFirst({
+    where: { id, organizationId: orgId },
+    select: {
+      id: true,
+      datasetName: true,
+      externalId: true,
+      data: true,
+      importedAt: true,
+    },
+  });
+  if (!record) return { error: "Record not found" };
+  return record;
+}
+
+// ─── query_custom_field ────────────────────────────────────────────────────
+
+const FIELD_KEY_REGEX = /^[a-z0-9_]+$/;
+
+async function executeQueryCustomField(
+  input: Record<string, unknown>,
+  orgId: string,
+): Promise<unknown> {
+  try {
+    const dataset = resolveDataset(input.entity);
+    const fieldKey = String(input.fieldKey ?? "");
+    const operator = String(input.operator ?? "eq").toLowerCase();
+    const value = input.value !== undefined ? String(input.value) : "";
+    const limit = Math.min(
+      typeof input.limit === "number" ? input.limit : 50,
+      500,
+    );
+
+    if (!FIELD_KEY_REGEX.test(fieldKey)) {
+      return { error: `Invalid fieldKey "${fieldKey}" -- must be snake_case.` };
+    }
+
+    // Translate to the generic queryRecords filter shape. Numeric ops
+    // coerce to numbers so comparisons cast correctly inside the query
+    // engine. 'exists' maps to a NOT-NULL check via `not: null`
+    // semantics -- we fall back to a raw NOT-NULL search.
+    let filters: Record<string, unknown> = {};
+    let rawExists = false;
+
+    switch (operator) {
+      case "eq":
+        filters = { [fieldKey]: value };
+        break;
+      case "contains":
+        filters = { [fieldKey]: { contains: value } };
+        break;
+      case "lt":
+        filters = { [fieldKey]: { lt: Number(value) } };
+        break;
+      case "lte":
+        filters = { [fieldKey]: { lte: Number(value) } };
+        break;
+      case "gt":
+        filters = { [fieldKey]: { gt: Number(value) } };
+        break;
+      case "gte":
+        filters = { [fieldKey]: { gte: Number(value) } };
+        break;
+      case "exists":
+        rawExists = true;
+        break;
+      default:
+        return { error: `Unknown operator "${operator}"` };
+    }
+
+    // Custom fields aren't in the DATASETS vocabulary, so bypass the
+    // validated path and use a direct raw query scoped by org+dataset.
+    const { Prisma } = await import("@prisma/client");
+    const orgClause = Prisma.sql`"organizationId" = ${orgId} AND "datasetName" = ${dataset}`;
+
+    let condition: import("@prisma/client").Prisma.Sql;
+    if (rawExists) {
+      condition = Prisma.sql`"data" ? ${fieldKey}`;
+    } else if (operator === "contains") {
+      condition = Prisma.sql`"data"->>${fieldKey} ILIKE ${`%${value}%`}`;
+    } else if (operator === "eq") {
+      condition = Prisma.sql`"data"->>${fieldKey} = ${value}`;
     } else {
-      // Simple aggregate without groupBy
-      const result = await model.aggregate({
-        where,
-        _count: { _all: true },
-        ...(valueField && metric === "SUM" ? { _sum: { [valueField]: true } } : {}),
-        ...(valueField && metric === "AVG" ? { _avg: { [valueField]: true } } : {}),
-      });
-
-      return {
-        entity: entityName,
-        metric,
-        count: result._count._all,
-        value:
-          metric === "SUM" && valueField
-            ? result._sum?.[valueField]
-            : metric === "AVG" && valueField
-              ? result._avg?.[valueField]
-              : result._count._all,
-      };
+      const opSql = ({
+        lt: Prisma.sql`<`,
+        lte: Prisma.sql`<=`,
+        gt: Prisma.sql`>`,
+        gte: Prisma.sql`>=`,
+      } as const)[operator as "lt" | "lte" | "gt" | "gte"];
+      condition = Prisma.sql`("data"->>${fieldKey})::numeric ${opSql} ${Number(value)}`;
     }
-  } catch (err) {
-    return { error: `Aggregation failed: ${err instanceof Error ? err.message : String(err)}` };
-  }
-}
 
-// ---------------------------------------------------------------------------
-// get_traceability
-// ---------------------------------------------------------------------------
+    // Pass filters through even though we've built the condition
+    // directly; filters stays in scope to allow future compound
+    // (custom field + canonical field) support.
+    void filters;
 
-async function executeTraceability(
-  input: Record<string, unknown>,
-  orgId: string
-): Promise<unknown> {
-  const type = String(input.type ?? "").toUpperCase();
-  const value = String(input.value ?? "");
-
-  if (type === "LOT") {
-    // lot → product → work orders → BOM → components → PO lines → supplier
-    const lot = await prisma.lot.findFirst({
-      where: { orgId, lotNumber: value },
-      include: { product: true },
-    });
-    if (!lot) return { error: `Lot ${value} not found for this org` };
-
-    const workOrders = await prisma.workOrder.findMany({
-      where: { organizationId: orgId, sku: lot.product.sku },
-      take: 20,
-    });
-
-    const bomItems = await prisma.bOMItem.findMany({
-      where: { parentId: lot.productId },
-      include: { child: { select: { sku: true, name: true, id: true } } },
-    });
-
-    // Find POs for component products
-    const componentIds = bomItems.map((b) => b.child.id);
-    const poLines = componentIds.length > 0
-      ? await prisma.pOLine.findMany({
-          where: { productId: { in: componentIds } },
-          include: {
-            purchaseOrder: {
-              include: { supplier: { select: { code: true, name: true } } },
-            },
-          },
-          take: 50,
-        })
-      : [];
+    const rows = await prisma.$queryRaw<Array<{ data: import("@prisma/client").Prisma.JsonValue }>>(
+      Prisma.sql`
+        SELECT "data"
+        FROM "ImportRecord"
+        WHERE ${orgClause} AND ${condition}
+        ORDER BY "importedAt" DESC
+        LIMIT ${limit}
+      `,
+    );
 
     return {
-      type: "LOT",
-      lotNumber: value,
-      product: { sku: lot.product.sku, name: lot.product.name },
-      expiryDate: lot.expiryDate,
-      manufacturedDate: lot.manufacturedDate,
-      workOrders: workOrders.map((wo) => ({
-        orderNumber: wo.woNumber ?? wo.orderNumber,
-        status: wo.status,
-        plannedQty: Number(wo.plannedQty),
-        actualQty: Number(wo.actualQty),
-      })),
-      bomComponents: bomItems.map((b) => ({
-        sku: b.child.sku,
-        name: b.child.name,
-        qtyPer: Number(b.quantity),
-      })),
-      purchaseOrders: poLines.map((pl) => ({
-        poNumber: pl.purchaseOrder.poNumber,
-        supplier: pl.purchaseOrder.supplier.name,
-        qtyOrdered: Number(pl.qtyOrdered),
-        qtyReceived: Number(pl.qtyReceived),
-      })),
+      rows: rows.map((r) => r.data),
+      returnedCount: rows.length,
+      dataset,
+      fieldKey,
+      operator,
     };
-  }
-
-  if (type === "SERIAL") {
-    // serial → lot → work order → sales order → customer → shipments
-    const serial = await prisma.serialNumber.findUnique({
-      where: { serialNumber: value },
-    });
-    if (!serial) return { error: `Serial number ${value} not found` };
-
-    // Verify belongs to org via SKU
-    const product = await prisma.product.findFirst({
-      where: { organizationId: orgId, sku: serial.sku },
-    });
-    if (!product) return { error: `Serial ${value} does not belong to this org` };
-
-    let lotInfo = null;
-    if (serial.lotNumber) {
-      const lot = await prisma.lot.findFirst({
-        where: { orgId, lotNumber: serial.lotNumber },
-      });
-      lotInfo = lot
-        ? { lotNumber: lot.lotNumber, expiryDate: lot.expiryDate, manufacturedDate: lot.manufacturedDate }
-        : null;
-    }
-
-    let woInfo = null;
-    if (serial.workOrderId) {
-      const wo = await prisma.workOrder.findFirst({
-        where: { id: serial.workOrderId, organizationId: orgId },
-      });
-      woInfo = wo
-        ? { orderNumber: wo.woNumber ?? wo.orderNumber, status: wo.status }
-        : null;
-    }
-
-    let soInfo = null;
-    let customerInfo = null;
-    if (serial.soId) {
-      const so = await prisma.salesOrder.findFirst({
-        where: { id: serial.soId, orgId },
-        include: { customer: true },
-      });
-      if (so) {
-        soInfo = { soNumber: so.soNumber, status: so.status };
-        customerInfo = { code: so.customer.code, name: so.customer.name };
-      }
-    }
-
-    const shipments = serial.soId
-      ? await prisma.shipment.findMany({ where: { soId: serial.soId }, take: 10 })
-      : [];
-
-    return {
-      type: "SERIAL",
-      serialNumber: value,
-      product: { sku: product.sku, name: product.name },
-      status: serial.status,
-      productionDate: serial.productionDate,
-      lot: lotInfo,
-      workOrder: woInfo,
-      salesOrder: soInfo,
-      customer: customerInfo,
-      shipments: shipments.map((s) => ({
-        shipmentId: s.shipmentId,
-        status: s.status,
-        shipDate: s.shipDate,
-        carrier: s.carrier,
-        trackingNumber: s.trackingNumber,
-      })),
-    };
-  }
-
-  return { error: `Invalid traceability type: ${type}. Use LOT or SERIAL.` };
-}
-
-// ---------------------------------------------------------------------------
-// get_entity_by_id
-// ---------------------------------------------------------------------------
-
-async function executeGetEntityById(
-  input: Record<string, unknown>,
-  orgId: string
-): Promise<unknown> {
-  const entityName = String(input.entity ?? "").toLowerCase();
-  const id = String(input.id ?? "");
-  const config = ENTITY_MAP[entityName];
-  if (!config) {
-    return { error: `Unknown entity: ${input.entity}` };
-  }
-
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const model = (prisma as any)[config.model];
-    if (!model) return { error: `Model ${config.model} not found` };
-
-    // Try to find by primary key
-    const record = await model.findUnique({ where: { id } });
-    if (!record) return { error: `${config.displayName} with id=${id} not found` };
-
-    // Verify org ownership if the model has an org field
-    if (config.orgField && record[config.orgField] !== orgId) {
-      return { error: `${config.displayName} with id=${id} not found` };
-    }
-
-    return record;
   } catch (err) {
-    // Some models use non-standard primary keys (e.g., ncrId, capaId)
-    return { error: `Lookup failed: ${err instanceof Error ? err.message : String(err)}` };
+    return { error: err instanceof Error ? err.message : String(err) };
   }
 }

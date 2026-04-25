@@ -1,219 +1,197 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { getSessionOrg, unauthorized } from "@/lib/api-helpers";
-import { prisma } from "@/lib/prisma";
+import { queryRecords } from "@/lib/chat/record-query";
+
+function n(v: unknown): number { return isFinite(Number(v)) ? Number(v) : 0; }
+function maybeN(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const x = Number(v); return isFinite(x) ? x : null;
+}
+
+/** Map raw CSV SO status values to normalized internal status. */
+function normalizeSOStatus(raw: unknown): string {
+  const s = String(raw ?? "").trim().toLowerCase();
+  if (s === "open" || s === "new" || s === "draft") return "CONFIRMED";
+  if (s === "in_production" || s === "in production" || s === "production") return "IN_PRODUCTION";
+  if (s === "shipped" || s === "dispatched") return "SHIPPED";
+  if (s === "delivered" || s === "complete" || s === "completed" || s === "closed") return "DELIVERED";
+  if (s === "cancelled" || s === "canceled") return "CANCELLED";
+  if (s === "confirmed") return "CONFIRMED";
+  return String(raw ?? "").toUpperCase();
+}
 
 export async function GET(_req: Request) {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
 
-  // Fetch sales orders
-  const salesOrders = await prisma.salesOrder.findMany({
-    where: { orgId: ctx.org.id },
-    include: { customer: true, lines: true },
-    orderBy: { createdAt: "desc" },
-  });
-
-  // Fetch work orders
-  const workOrders = await prisma.workOrder.findMany({
-    where: { organizationId: ctx.org.id },
-    include: { product: true },
-    orderBy: { createdAt: "desc" },
-  });
-
-  // Fetch inventory for at-risk SKUs (include product for safety stock)
-  const inventory = await prisma.inventoryItem.findMany({
-    where: { organizationId: ctx.org.id },
-    include: { product: true },
-  });
-
+  const orgId = ctx.org.id;
   const now = new Date();
-  const openSOStatuses = ["DRAFT", "CONFIRMED", "IN_PRODUCTION", "SHIPPED"];
 
-  // KPIs
-  const openSOs = salesOrders.filter((so) => openSOStatuses.includes(so.status));
-  const openSOValue = openSOs.reduce((sum, so) => sum + Number(so.totalAmount ?? 0), 0);
+  const [{ rows: soRows }, { rows: invRows }] = await Promise.all([
+    queryRecords({ dataset: "sales_orders", orgId, limit: 10000 }),
+    queryRecords({ dataset: "inventory",    orgId, limit: 10000 }),
+  ]);
 
-  const completedWOs = workOrders.filter((wo) => wo.status === "COMPLETED" || wo.status === "CLOSED");
-  const productionRate = workOrders.length > 0
-    ? Math.round((completedWOs.length / workOrders.length) * 100)
-    : null;
-
-  // Fill rate: SO lines fully shipped vs total lines
-  let totalSOLines = 0;
-  let fullyShippedLines = 0;
-  for (const so of salesOrders) {
-    for (const line of so.lines) {
-      totalSOLines++;
-      const ordered = Number(line.qtyOrdered);
-      const shipped = Number(line.qtyShipped);
-      if (ordered > 0 && shipped >= ordered) fullyShippedLines++;
+  // Group SO lines by so_number
+  interface SOGroup {
+    so_number: string;
+    customer_code: string;
+    customer_name: string;
+    status: string;
+    order_date: string | null;
+    requested_date: string | null;
+    totalValue: number;
+    totalOrdered: number;
+    totalShipped: number;
+    lineCount: number;
+  }
+  const soGroups = new Map<string, SOGroup>();
+  for (const row of soRows) {
+    const soNum = String(row.so_number ?? "UNKNOWN");
+    const existing = soGroups.get(soNum);
+    const lineVal = n(row.line_value);
+    const qtyOrdered = n(row.qty_ordered);
+    const qtyShipped = n(row.qty_shipped);
+    if (existing) {
+      existing.totalValue   += lineVal;
+      existing.totalOrdered += qtyOrdered;
+      existing.totalShipped += qtyShipped;
+      existing.lineCount++;
+    } else {
+      soGroups.set(soNum, {
+        so_number:      soNum,
+        customer_code:  String(row.customer_code ?? ""),
+        customer_name:  String(row.customer_name ?? row.customer_code ?? ""),
+        status:         normalizeSOStatus(row.status),
+        order_date:     row.order_date ? String(row.order_date) : null,
+        requested_date: row.requested_date ? String(row.requested_date) : null,
+        totalValue:     lineVal,
+        totalOrdered:   qtyOrdered,
+        totalShipped:   qtyShipped,
+        lineCount:      1,
+      });
     }
   }
-  const fillRate = totalSOLines > 0 ? Math.round((fullyShippedLines / totalSOLines) * 100) : null;
 
-  // On-time delivery for SOs
-  const deliveredSOs = salesOrders.filter((so) => so.status === "DELIVERED");
-  let onTimeSOs = 0;
-  for (const so of deliveredSOs) {
-    const requested = so.requestedDate;
-    const actual = so.actualShipDate ?? so.updatedAt;
-    if (requested && actual && new Date(actual) <= new Date(requested)) {
-      onTimeSOs++;
-    }
-  }
-  const onTimeDeliveryRate = deliveredSOs.length > 0
-    ? Math.round((onTimeSOs / deliveredSOs.length) * 100)
-    : null;
+  const allSOs = [...soGroups.values()];
+  const openSOStatuses = new Set(["DRAFT", "CONFIRMED", "IN_PRODUCTION", "SHIPPED"]);
+  const openSOs = allSOs.filter((so) => openSOStatuses.has(so.status));
+  const openSOValue = openSOs.reduce((s, so) => s + so.totalValue, 0);
 
-  // At-risk SKUs: low days of supply or demand exceeds stock
-  const atRiskSKUs = inventory.filter((item) => {
-    const dos = item.daysOfSupply ? Number(item.daysOfSupply) : null;
-    const qty = Number(item.quantity);
-    const demand = item.demandCurrentMonth ? Number(item.demandCurrentMonth) : 0;
-    return (dos !== null && dos <= 14 && dos >= 0) || (demand > 0 && qty < demand);
-  });
+  // Fill rate (shipped / ordered across all SOs)
+  const totalOrdered = allSOs.reduce((s, so) => s + so.totalOrdered, 0);
+  const totalShipped = allSOs.reduce((s, so) => s + so.totalShipped, 0);
+  const fillRate = totalOrdered > 0 ? Math.round((totalShipped / totalOrdered) * 100) : null;
 
   // SO pipeline counts
   const soPipeline = {
-    DRAFT: salesOrders.filter((so) => so.status === "DRAFT").length,
-    CONFIRMED: salesOrders.filter((so) => so.status === "CONFIRMED").length,
-    IN_PRODUCTION: salesOrders.filter((so) => so.status === "IN_PRODUCTION").length,
-    SHIPPED: salesOrders.filter((so) => so.status === "SHIPPED").length,
-    DELIVERED: salesOrders.filter((so) => so.status === "DELIVERED").length,
-    CANCELLED: salesOrders.filter((so) => so.status === "CANCELLED").length,
+    DRAFT:         allSOs.filter((s) => s.status === "DRAFT").length,
+    CONFIRMED:     allSOs.filter((s) => s.status === "CONFIRMED").length,
+    IN_PRODUCTION: allSOs.filter((s) => s.status === "IN_PRODUCTION").length,
+    SHIPPED:       allSOs.filter((s) => s.status === "SHIPPED").length,
+    DELIVERED:     allSOs.filter((s) => s.status === "DELIVERED").length,
+    CANCELLED:     allSOs.filter((s) => s.status === "CANCELLED").length,
   };
 
   // Open SO table
-  const openOrdersList = openSOs.map((so) => {
-    const totalOrdered = so.lines.reduce((s, l) => s + Number(l.qtyOrdered), 0);
-    const totalShipped = so.lines.reduce((s, l) => s + Number(l.qtyShipped), 0);
-    const fulfillmentPct = totalOrdered > 0 ? Math.round((totalShipped / totalOrdered) * 100) : 0;
-
+  const openOrders = openSOs.map((so, idx) => {
+    const fulfillmentPct = so.totalOrdered > 0
+      ? Math.round((so.totalShipped / so.totalOrdered) * 100)
+      : 0;
     return {
-      id: so.id,
-      soNumber: so.soNumber,
-      customer: so.customer.name,
-      status: so.status,
-      orderDate: so.orderDate ?? so.createdAt,
-      requestedDate: so.requestedDate,
-      totalAmount: Number(so.totalAmount ?? 0),
-      lineCount: so.lines.length,
+      id: String(idx),
+      soNumber:      so.so_number,
+      customer:      so.customer_name,
+      status:        so.status,
+      orderDate:     so.order_date,
+      requestedDate: so.requested_date,
+      totalAmount:   Math.round(so.totalValue * 100) / 100,
+      lineCount:     so.lineCount,
       fulfillmentPct,
     };
   }).sort((a, b) => {
-    if (a.requestedDate && b.requestedDate) return new Date(a.requestedDate).getTime() - new Date(b.requestedDate).getTime();
+    if (a.requestedDate && b.requestedDate) {
+      return new Date(a.requestedDate).getTime() - new Date(b.requestedDate).getTime();
+    }
     return 0;
   });
 
-  // Work orders table
-  const woList = workOrders
-    .filter((wo) => wo.status !== "COMPLETED" && wo.status !== "CLOSED" && wo.status !== "CANCELLED")
-    .map((wo) => {
-      const planned = Number(wo.plannedQty ?? 0);
-      const produced = Number(wo.actualQty ?? 0);
-      const progressPct = planned > 0 ? Math.round((produced / planned) * 100) : 0;
-      const dueDate = wo.dueDate ?? wo.scheduledEnd;
-      const isOverdue = dueDate ? new Date(dueDate) < now : false;
+  // At-risk SKUs from inventory (days_of_supply ≤ 14 or qty = 0)
+  const atRiskInv = invRows.filter((row) => {
+    const dos = maybeN(row.days_of_supply);
+    const qty = n(row.quantity);
+    return (dos !== null && dos <= 14 && dos >= 0) || qty === 0;
+  });
 
-      return {
-        id: wo.id,
-        woNumber: wo.woNumber ?? wo.orderNumber,
-        sku: wo.sku,
-        productName: wo.product?.name ?? wo.sku,
-        status: wo.status,
-        plannedQty: planned,
-        producedQty: produced,
-        progressPct,
-        scheduledDate: wo.scheduledDate,
-        dueDate,
-        isOverdue,
-      };
-    })
-    .sort((a, b) => {
-      if (a.isOverdue && !b.isOverdue) return -1;
-      if (!a.isOverdue && b.isOverdue) return 1;
-      if (a.dueDate && b.dueDate) return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-      return 0;
-    });
+  const atRiskSKUs = atRiskInv.map((row, idx) => {
+    const sku      = String(row.sku ?? "");
+    const qty      = n(row.quantity);
+    const dos      = maybeN(row.days_of_supply);
+    const openPOQty = n(row.open_po_qty);
+    const safety   = maybeN(row.safety_stock);
 
-  // Enhanced at-risk SKU table with safety stock gap and buy signals
-  const atRiskList = atRiskSKUs.map((item) => {
-    const qty = Number(item.quantity);
-    const dos = item.daysOfSupply ? Number(item.daysOfSupply) : null;
-    const demandCurrent = item.demandCurrentMonth ? Number(item.demandCurrentMonth) : null;
-    const demandNext = item.demandNextMonth ? Number(item.demandNextMonth) : null;
-    const demandMonth3 = item.demandMonth3 ? Number(item.demandMonth3) : null;
-    const openPO = Number(item.qtyOpenPO || 0);
-    const totalDemand = (demandCurrent ?? 0) + (demandNext ?? 0);
-    const totalSupply = qty + openPO;
+    // Rough coverage: can current stock + open PO cover next 30 days?
+    // We use demand_per_day * 30 as a proxy for monthly demand
+    const demandPerDay = maybeN(row.demand_per_day);
+    const monthlyDemand = demandPerDay !== null ? demandPerDay * 30 : null;
+    const totalSupply = qty + openPOQty;
     const coverageStatus: "covered" | "partial" | "short" =
-      totalDemand === 0 ? "covered" : totalSupply >= totalDemand ? "covered" : totalSupply >= totalDemand * 0.5 ? "partial" : "short";
-
-    // Safety stock gap
-    const safetyStock = item.product.safetyStock ? Number(item.product.safetyStock) : null;
-    const safetyStockGap = safetyStock !== null ? qty - safetyStock : null;
+      monthlyDemand === null || monthlyDemand === 0
+        ? (qty === 0 ? "short" : "covered")
+        : totalSupply >= monthlyDemand ? "covered"
+        : totalSupply >= monthlyDemand * 0.5 ? "partial"
+        : "short";
 
     return {
-      id: item.id,
-      sku: item.product.sku,
-      productName: item.product.name,
-      qtyOnHand: qty,
-      daysOfSupply: dos,
-      demandCurrentMonth: demandCurrent,
-      demandNextMonth: demandNext,
-      demandMonth3,
-      openPOQty: openPO,
+      id: String(idx),
+      sku,
+      productName:         sku,
+      qtyOnHand:           qty,
+      daysOfSupply:        dos,
+      demandCurrentMonth:  monthlyDemand !== null ? Math.round(monthlyDemand) : null,
+      demandNextMonth:     null as number | null,
+      demandMonth3:        null as number | null,
+      openPOQty,
       coverageStatus,
-      safetyStock,
-      safetyStockGap,
-      buyRecommendation: item.buyRecommendation ?? false,
-      recommendedQty: item.recommendedQty ? Number(item.recommendedQty) : null,
+      safetyStock:         safety,
+      safetyStockGap:      safety !== null ? qty - safety : null,
+      buyRecommendation:   row.buy_recommendation === true || String(row.buy_recommendation).toLowerCase() === "true",
+      recommendedQty:      maybeN(row.recommended_qty),
     };
   }).sort((a, b) => {
     const order = { short: 0, partial: 1, covered: 2 };
     return order[a.coverageStatus] - order[b.coverageStatus];
   });
 
-  // Demand coverage horizon: how many months of demand can current stock cover
-  const coverageHorizon = inventory.map((item) => {
-    const qty = Number(item.quantity) + Number(item.qtyOpenPO || 0);
-    const m1 = item.demandCurrentMonth ? Number(item.demandCurrentMonth) : 0;
-    const m2 = item.demandNextMonth ? Number(item.demandNextMonth) : 0;
-    const m3 = item.demandMonth3 ? Number(item.demandMonth3) : 0;
-
-    let covered = 0;
-    let remaining = qty;
-    if (m1 > 0 && remaining >= m1) { covered++; remaining -= m1; } else if (m1 > 0) { covered += remaining / m1; return { months: Math.round(covered * 10) / 10 }; }
-    if (m2 > 0 && remaining >= m2) { covered++; remaining -= m2; } else if (m2 > 0) { covered += remaining / m2; return { months: Math.round(covered * 10) / 10 }; }
-    if (m3 > 0 && remaining >= m3) { covered++; remaining -= m3; } else if (m3 > 0) { covered += remaining / m3; return { months: Math.round(covered * 10) / 10 }; }
-
-    return { months: covered > 0 ? Math.round(covered * 10) / 10 : null };
-  }).filter((c) => c.months !== null);
-
-  // Distribution of coverage months
+  // Coverage distribution across all inventory
   const coverageDist = { under1: 0, "1to2": 0, "2to3": 0, over3: 0 };
-  for (const c of coverageHorizon) {
-    if (c.months! < 1) coverageDist.under1++;
-    else if (c.months! < 2) coverageDist["1to2"]++;
-    else if (c.months! <= 3) coverageDist["2to3"]++;
+  for (const row of invRows) {
+    const dos = maybeN(row.days_of_supply);
+    if (dos === null) continue;
+    const months = dos / 30;
+    if (months < 1) coverageDist.under1++;
+    else if (months < 2) coverageDist["1to2"]++;
+    else if (months <= 3) coverageDist["2to3"]++;
     else coverageDist.over3++;
   }
 
   return NextResponse.json({
     kpis: {
-      openSOCount: openSOs.length,
-      openSOValue: Math.round(openSOValue),
-      productionRate,
-      projectedStockouts: atRiskSKUs.length,
-      totalSOs: salesOrders.length,
-      totalWOs: workOrders.length,
+      openSOCount:        openSOs.length,
+      openSOValue:        Math.round(openSOValue),
+      productionRate:     null,
+      projectedStockouts: atRiskSKUs.filter((s) => s.coverageStatus === "short").length,
+      totalSOs:           allSOs.length,
+      totalWOs:           0,
       fillRate,
-      onTimeDeliveryRate,
+      onTimeDeliveryRate: null,
     },
     soPipeline,
-    openOrders: openOrdersList,
-    workOrders: woList,
-    atRiskSKUs: atRiskList,
+    openOrders,
+    workOrders: [],
+    atRiskSKUs,
     coverageDistribution: coverageDist,
   });
 }

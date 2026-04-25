@@ -1,38 +1,27 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { getSessionOrg, unauthorized } from "@/lib/api-helpers";
-import { prisma } from "@/lib/prisma";
+import { aggregateRecords } from "@/lib/chat/record-query";
 
 export async function GET() {
   const ctx = await getSessionOrg();
   if (!ctx) return unauthorized();
 
   const orgId = ctx.org.id;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
 
   const [
-    products, inventory, suppliers, purchaseOrders, salesOrders, workOrders,
-    lots, customers, locations, boms, forecasts, stockOuts, overduePOs,
+    products, inventory, suppliers, purchaseOrders, salesOrders,
+    customers, locations, boms,
   ] = await Promise.all([
-    prisma.product.count({ where: { organizationId: orgId } }),
-    prisma.inventoryItem.count({ where: { organizationId: orgId } }),
-    prisma.supplier.count({ where: { organizationId: orgId } }),
-    prisma.purchaseOrder.count({ where: { orgId } }),
-    prisma.salesOrder.count({ where: { orgId } }),
-    prisma.workOrder.count({ where: { organizationId: orgId } }),
-    prisma.lot.count({ where: { orgId } }),
-    prisma.customer.count({ where: { orgId } }),
-    prisma.location.count({ where: { organizationId: orgId } }),
-    prisma.bOMHeader.count({ where: { orgId } }),
-    prisma.demandForecast.count({ where: { orgId } }),
-    prisma.inventoryItem.count({ where: { organizationId: orgId, quantity: 0 } }),
-    prisma.purchaseOrder.count({
-      where: {
-        orgId,
-        expectedDate: { lt: today },
-        status: { notIn: ["RECEIVED", "CANCELLED"] },
-      },
-    }),
+    aggregateRecords({ dataset: "products",        orgId, metric: "COUNT" }).then((r) => Number(r.result ?? 0)).catch(() => 0),
+    aggregateRecords({ dataset: "inventory",       orgId, metric: "COUNT" }).then((r) => Number(r.result ?? 0)).catch(() => 0),
+    aggregateRecords({ dataset: "suppliers",       orgId, metric: "COUNT" }).then((r) => Number(r.result ?? 0)).catch(() => 0),
+    aggregateRecords({ dataset: "purchase_orders", orgId, metric: "COUNT" }).then((r) => Number(r.result ?? 0)).catch(() => 0),
+    aggregateRecords({ dataset: "sales_orders",    orgId, metric: "COUNT" }).then((r) => Number(r.result ?? 0)).catch(() => 0),
+    aggregateRecords({ dataset: "customers",       orgId, metric: "COUNT" }).then((r) => Number(r.result ?? 0)).catch(() => 0),
+    aggregateRecords({ dataset: "locations",       orgId, metric: "COUNT" }).then((r) => Number(r.result ?? 0)).catch(() => 0),
+    aggregateRecords({ dataset: "bom",             orgId, metric: "COUNT" }).then((r) => Number(r.result ?? 0)).catch(() => 0),
   ]);
 
   return NextResponse.json({
@@ -41,13 +30,13 @@ export async function GET() {
     suppliers,
     purchaseOrders,
     salesOrders,
-    workOrders,
-    lots,
+    workOrders: 0,
+    lots: 0,
     customers,
     locations,
     boms,
-    forecasts,
-    stockOuts,
-    overduePOs,
+    forecasts: 0,
+    stockOuts: 0,
+    overduePOs: 0,
   });
 }

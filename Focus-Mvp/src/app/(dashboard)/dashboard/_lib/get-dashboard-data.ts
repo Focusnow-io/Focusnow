@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { aggregateRecords, queryRecords } from "@/lib/chat/record-query";
 import { getOperationalState } from "@/lib/ode/state-manager";
 import type { DashboardData, DashboardJourneyState, OperationalKPIs } from "./types";
 
@@ -29,6 +30,13 @@ function deduplicateDataSources<
   );
 }
 
+/** Read a COUNT from ImportRecord for a given dataset. Returns 0 on error. */
+async function countDataset(dataset: Parameters<typeof aggregateRecords>[0]["dataset"], orgId: string): Promise<number> {
+  return aggregateRecords({ dataset, orgId, metric: "COUNT" })
+    .then((r) => Number(r.result ?? 0))
+    .catch(() => 0);
+}
+
 export async function getDashboardData(
   orgId: string
 ): Promise<DashboardData> {
@@ -36,17 +44,19 @@ export async function getDashboardData(
     productCount,
     supplierCount,
     inventoryCount,
-    orderCount,
+    poCount,
+    soCount,
     activeRules,
     draftRuleCount,
     rawDataSources,
     apps,
     operationalState,
   ] = await Promise.all([
-    prisma.product.count({ where: { organizationId: orgId } }),
-    prisma.supplier.count({ where: { organizationId: orgId } }),
-    prisma.inventoryItem.count({ where: { organizationId: orgId } }),
-    prisma.order.count({ where: { organizationId: orgId } }),
+    countDataset("products",        orgId),
+    countDataset("suppliers",       orgId),
+    countDataset("inventory",       orgId),
+    countDataset("purchase_orders", orgId),
+    countDataset("sales_orders",    orgId),
     prisma.brainRule.findMany({
       where: { organizationId: orgId, status: "ACTIVE" },
       orderBy: { updatedAt: "desc" },
@@ -83,6 +93,7 @@ export async function getDashboardData(
     getOperationalState(orgId),
   ]);
 
+  const orderCount = poCount + soCount;
   const activeRuleCount = activeRules.length;
   const activeAppCount = apps.length;
   const hasData =
@@ -115,65 +126,55 @@ export async function getDashboardData(
     hasApps: operationalAppCount > 0,
   });
 
-  // Compute operational KPIs for ACTIVE users
+  // Compute operational KPIs from ImportRecord inventory rows
   let operationalKPIs: OperationalKPIs | null = null;
   if (journeyState === "ACTIVE" && inventoryCount > 0) {
-    const invItems = await prisma.inventoryItem.findMany({
-      where: { organizationId: orgId },
-      select: {
-        quantity: true,
-        reorderPoint: true,
-        daysOfSupply: true,
-        totalValue: true,
-        buyRecommendation: true,
-      },
-    });
+    const [invResult, poResult] = await Promise.all([
+      queryRecords({ dataset: "inventory", orgId, limit: 500 }),
+      queryRecords({
+        dataset: "purchase_orders",
+        orgId,
+        filters: { status: { in: ["DRAFT", "SENT", "CONFIRMED", "PARTIAL", "Open", "open", "Partial", "partial"] } },
+        limit: 500,
+      }),
+    ]);
 
+    const invRows = invResult.rows;
+    const now = new Date();
     let totalValue = 0;
     let dosSum = 0;
     let dosCount = 0;
     let atRisk = 0;
     let buyRecs = 0;
 
-    for (const item of invItems) {
-      const qty = Number(item.quantity);
-      const reorder = item.reorderPoint ? Number(item.reorderPoint) : null;
-      const dos = item.daysOfSupply ? Number(item.daysOfSupply) : null;
-      const val = item.totalValue ? Number(item.totalValue) : 0;
+    for (const item of invRows) {
+      const qty = Number(item.quantity ?? 0);
+      const reorder = item.reorder_point ? Number(item.reorder_point) : null;
+      const dos = item.days_of_supply ? Number(item.days_of_supply) : null;
+      const val = item.total_value ? Number(item.total_value) : 0;
 
-      totalValue += val;
-      if (dos !== null && dos > 0) { dosSum += dos; dosCount++; }
+      totalValue += isFinite(val) ? val : 0;
+      if (dos !== null && dos > 0 && isFinite(dos)) { dosSum += dos; dosCount++; }
       if ((reorder !== null && qty <= reorder) || qty === 0) atRisk++;
-      if (item.buyRecommendation === true) buyRecs++;
+      if (item.buy_recommendation === true || String(item.buy_recommendation).toLowerCase() === "true") buyRecs++;
     }
 
-    // Count overdue POs
-    const now = new Date();
-    const overduePOs = await prisma.purchaseOrder.count({
-      where: {
-        orgId,
-        status: { in: ["DRAFT", "SENT", "CONFIRMED", "PARTIAL"] },
-        OR: [
-          { expectedDate: { lt: now } },
-          { confirmedETA: { lt: now } },
-        ],
-      },
-    });
+    // Overdue POs: open POs where expected_date is in the past
+    const poRows = poResult.rows;
+    const overduePOs = poRows.filter((po) => {
+      const dateStr = po.expected_date ?? po.confirmed_eta;
+      return dateStr && new Date(String(dateStr)) < now;
+    }).length;
 
-    // Open PO value
-    const openPOs = await prisma.purchaseOrder.findMany({
-      where: {
-        orgId,
-        status: { in: ["DRAFT", "SENT", "CONFIRMED", "PARTIAL"] },
-      },
-      select: { totalAmount: true },
-    });
-    const openPOValue = openPOs.reduce((s: number, po: { totalAmount: unknown }) => s + Number(po.totalAmount ?? 0), 0);
+    const openPOValue = poRows.reduce((s, po) => {
+      const v = Number(po.line_value ?? 0);
+      return s + (isFinite(v) ? v : 0);
+    }, 0);
 
     operationalKPIs = {
-      inventoryHealthPct: invItems.length > 0 ? Math.round(((invItems.length - atRisk) / invItems.length) * 100) : 100,
+      inventoryHealthPct: invRows.length > 0 ? Math.round(((invRows.length - atRisk) / invRows.length) * 100) : 100,
       skusAtRisk: atRisk,
-      totalSKUs: invItems.length,
+      totalSKUs: invRows.length,
       avgDaysOfSupply: dosCount > 0 ? Math.round(dosSum / dosCount) : null,
       totalInventoryValue: Math.round(totalValue),
       buyRecommendations: buyRecs,

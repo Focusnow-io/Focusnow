@@ -1,8 +1,12 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { getSessionOrg, unauthorized, badRequest } from "@/lib/api-helpers";
 import { prisma } from "@/lib/prisma";
 import Anthropic from "@anthropic-ai/sdk";
 import { checkTokenBudget, recordTokenUsage } from "@/lib/usage/token-tracker";
+import { sanitizeForApi } from "@/lib/utils/sanitize";
+import { queryRecords } from "@/lib/chat/record-query";
 
 /**
  * POST /api/brain/rules/parse
@@ -28,117 +32,39 @@ export async function POST(req: Request) {
     );
   }
 
-  // Gather schema context: available entities, fields, and sample values
-  const [inventorySample, productSample, supplierSample, orderSample, existingRules] =
-    await Promise.all([
-      prisma.inventoryItem.findMany({
-        where: { organizationId: ctx.org.id },
-        select: {
-          quantity: true,
-          reorderPoint: true,
-          reorderQty: true,
-          reservedQty: true,
-          daysOfSupply: true,
-          leadTimeDays: true,
-          unitCost: true,
-          totalValue: true,
-          qtyOnHold: true,
-          qtyOnHandTotal: true,
-          qtyOpenPO: true,
-          qtyOnHandPlusPO: true,
-          demandCurrentMonth: true,
-          demandNextMonth: true,
-          demandMonth3: true,
-          demandPerDay: true,
-          outflow7d: true,
-          outflow30d: true,
-          outflow60d: true,
-          outflow92d: true,
-          moq: true,
-          orderMultiple: true,
-          buyRecommendation: true,
-          recommendedQty: true,
-          uom: true,
-          lastReceiptDate: true,
-          product: { select: { sku: true, name: true } },
-        },
-        take: 5,
-      }),
-      prisma.product.findMany({
-        where: { organizationId: ctx.org.id },
-        select: {
-          sku: true,
-          name: true,
-          category: true,
-          unitCost: true,
-          leadTimeDays: true,
-          reorderPoint: true,
-          safetyStock: true,
-          abcClass: true,
-        },
-        take: 5,
-      }),
-      prisma.supplier.findMany({
-        where: { organizationId: ctx.org.id },
-        select: {
-          code: true,
-          name: true,
-          leadTimeDays: true,
-          qualityRating: true,
-          onTimePct: true,
-          status: true,
-          country: true,
-          city: true,
-          paymentTerms: true,
-          certifications: true,
-          active: true,
-        },
-        take: 5,
-      }),
-      prisma.order.findMany({
-        where: { organizationId: ctx.org.id },
-        select: {
-          orderNumber: true,
-          type: true,
-          status: true,
-          totalAmount: true,
-          expectedDate: true,
-        },
-        take: 5,
-      }),
-      prisma.brainRule.findMany({
-        where: { organizationId: ctx.org.id },
-        select: {
-          name: true,
-          description: true,
-          category: true,
-          entity: true,
-          condition: true,
-          status: true,
-        },
-        orderBy: { updatedAt: "desc" },
-        take: 20,
-      }),
-    ]);
+  // Gather schema context: sample rows from ImportRecord + existing rules
+  const orgId = ctx.org.id;
+  const [invResult, prodResult, suppResult, poResult, existingRules] = await Promise.all([
+    queryRecords({ dataset: "inventory",       orgId, limit: 3 }).catch(() => ({ rows: [] })),
+    queryRecords({ dataset: "products",        orgId, limit: 3 }).catch(() => ({ rows: [] })),
+    queryRecords({ dataset: "suppliers",       orgId, limit: 3 }).catch(() => ({ rows: [] })),
+    queryRecords({ dataset: "purchase_orders", orgId, limit: 3 }).catch(() => ({ rows: [] })),
+    prisma.brainRule.findMany({
+      where: { organizationId: orgId },
+      select: { name: true, description: true, category: true, entity: true, condition: true, status: true },
+      orderBy: { updatedAt: "desc" },
+      take: 20,
+    }),
+  ]);
 
   const schemaContext = `
-## Available Entities & Fields
+## Available Entities & Fields (use these exact field names in condition.field)
 
-### InventoryItem
-Fields: quantity (Decimal), reservedQty (Decimal), reorderPoint (Decimal), reorderQty (Decimal), daysOfSupply (Decimal), leadTimeDays (Int), unitCost (Decimal), totalValue (Decimal), qtyOnHold (Decimal), qtyOnHandTotal (Decimal), qtyOpenPO (Decimal), qtyOnHandPlusPO (Decimal), demandCurrentMonth (Decimal), demandNextMonth (Decimal), demandMonth3 (Decimal), demandPerDay (Decimal), outflow7d (Int), outflow30d (Int), outflow60d (Int), outflow92d (Int), moq (Int), orderMultiple (Int), buyRecommendation (Boolean), recommendedQty (Decimal), uom (String), lastReceiptDate (DateTime)
-Sample data: ${JSON.stringify(inventorySample.slice(0, 3))}
+### inventory
+Fields: sku, location_code, quantity, reorder_point, safety_stock, unit_cost, total_value, uom, lead_time_days, moq, order_multiple, on_hold_qty, reserved_qty, open_po_qty, days_of_supply, demand_per_day, buy_recommendation, recommended_qty, last_receipt_date
+Sample data: ${JSON.stringify(invResult.rows.slice(0, 3))}
 
-### Product
-Fields: unitCost (Decimal), leadTimeDays (Int), reorderPoint (Decimal), safetyStock (Decimal), shelfLifeDays (Int), abcClass (String), active (Boolean)
-Sample data: ${JSON.stringify(productSample.slice(0, 3))}
+### products
+Fields: sku, name, type, uom, unit_cost, list_price, make_buy, lead_time_days, moq, order_multiple, product_family, abc_class, safety_stock, reorder_point, status
+Sample data: ${JSON.stringify(prodResult.rows.slice(0, 3))}
 
-### Supplier
-Fields: leadTimeDays (Int), qualityRating (Decimal), onTimePct (Decimal), status (String), active (Boolean), country (String), city (String), paymentTerms (String), certifications (String)
-Sample data: ${JSON.stringify(supplierSample.slice(0, 3))}
+### suppliers
+Fields: supplier_code, name, country, city, email, phone, lead_time_days, payment_terms, currency, quality_rating, on_time_pct, certifications, status, approved_since
+Sample data: ${JSON.stringify(suppResult.rows.slice(0, 3))}
 
-### Order
-Fields: totalAmount (Decimal), status (String: OPEN, CONFIRMED, SHIPPED, DELIVERED, CANCELLED), expectedDate (DateTime), orderDate (DateTime), type (String: PURCHASE, SALES)
-Sample data: ${JSON.stringify(orderSample.slice(0, 3))}
+### purchase_orders
+Fields: po_number, supplier_code, supplier_name, sku, item_name, qty_ordered, qty_received, qty_open, unit_cost, line_value, currency, status, order_date, expected_date, confirmed_eta, uom, buyer
+Sample data: ${JSON.stringify(poResult.rows.slice(0, 3))}
 ${existingRules.length > 0 ? `
 ### Existing Brain Rules
 These rules already exist in this organization. Use them to understand patterns, avoid duplicates, and infer conventions (e.g., country codes, field usage).
@@ -173,13 +99,13 @@ Parse the user's natural language input into a structured operational rule. Retu
   "name": "Short descriptive rule name",
   "description": "What operational logic this rule captures and why it matters",
   "category": "THRESHOLD|POLICY|CONSTRAINT|KPI",
-  "entity": "InventoryItem|Product|Supplier|Order",
+  "entity": "inventory|products|suppliers|purchase_orders|sales_orders",
   "condition": {
-    "field": "field_name from the entity",
+    "field": "snake_case field name from the entity above",
     "operator": "lt|lte|gt|gte|eq|neq",
     "value": <number or string>
   },
-  "summary": "Declarative plain English, e.g. 'InventoryItem quantity should not fall below 50'",
+  "summary": "Declarative plain English, e.g. 'inventory quantity should not fall below 50'",
   "confidence": 0.0-1.0
 }
 
@@ -201,12 +127,12 @@ If the user phrases their input as an action ("alert me when...", "flag any...")
 - "Flag suppliers with lead time over 30 days" → supplier lead time should not exceed 30 days
 
 Map common operational language to the correct entity and field:
-- "stock", "inventory", "SKU", "reorder point" → InventoryItem
-- "supplier", "vendor", "lead time", "country of origin", "country" → Supplier
-- "purchase order", "PO", "order" → Order
-- "product", "item cost" → Product
-- "safety stock", "reorder point" → use the matching field name
-- "Chinese suppliers", "country of origin" → Supplier.country field`;
+- "stock", "inventory", "SKU", "reorder point" → inventory entity, field: quantity or reorder_point
+- "supplier", "vendor", "lead time", "country of origin", "country" → suppliers entity
+- "purchase order", "PO", "order" → purchase_orders entity
+- "product", "item cost" → products entity
+- "safety stock", "reorder point" → use the matching snake_case field name
+- "Chinese suppliers", "country of origin" → suppliers.country field`;
 
   // Token budget pre-flight check
   const budget = await checkTokenBudget(ctx.org.id, ctx.session.user!.id!, ctx.org.plan ?? "free");
@@ -223,9 +149,9 @@ Map common operational language to the correct entity and field:
       system: systemPrompt,
       messages: [{
         role: "user",
-        content: clarification
+        content: sanitizeForApi(clarification
           ? `${prompt.trim()}\n\nUser clarification: ${clarification}`
-          : prompt.trim(),
+          : prompt.trim()),
       }],
     });
 

@@ -33,8 +33,11 @@ model Organization {
 
   members                  OrgMember[]
   dataSources              DataSource[]
+  importDatasets           ImportDataset[]
+  importRecords            ImportRecord[]
   mappingTemplates         MappingTemplate[]
   flaggedColumns           FlaggedColumn[]
+  customFieldSchemas       CustomFieldSchema[]
   products                 Product[]
   suppliers                Supplier[]
   locations                Location[]
@@ -392,6 +395,7 @@ model InventoryItem {
   outflow30d         Int?      // Units consumed/shipped in last 30 days
   outflow60d         Int?      // Units consumed/shipped in last 60 days
   outflow92d         Int?      // Units consumed/shipped in last 92 days
+  expiryDate         DateTime?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   product      Product      @relation(fields: [productId], references: [id])
@@ -1628,6 +1632,28 @@ model FlaggedColumn {
   @@index([entityType, status])
 }
 
+// Per-org registry of user-defined custom fields that live inside the
+// `attributes` JSONB blob on canonical entities. The registry makes those
+// fields queryable and AI-readable by recording key, label, inferred type
+// and a few sample values from the first import that created them.
+model CustomFieldSchema {
+  id             String   @id @default(cuid())
+  organizationId String
+  entityType     String // "InventoryItem" | "Supplier" | "Product" | "PurchaseOrder" | "POLine"
+  fieldKey       String // normalised key stored in the attributes JSONB, e.g. "on_time_delivery_pct"
+  displayLabel   String // human-readable, e.g. "On-Time Delivery %"
+  dataType       String // "number" | "text" | "date" | "boolean"
+  sampleValues   String[] // up to 5 sample values from first import — helps AI understand the field
+  sourceColumn   String? // original CSV column header, e.g. "On-Time Delivery %"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, entityType, fieldKey])
+  @@index([organizationId, entityType])
+}
+
 // ── CANONICAL MODEL ─────────────────────────────────────────────
 
 enum ExchangeRateRateType {
@@ -2043,4 +2069,67 @@ model TokenUsage {
   @@unique([orgId, userId, date, feature])
   @@index([orgId, date])
   @@index([userId, date])
+}
+
+// ============================================================
+// JSONB IMPORT STORE
+// ============================================================
+// Replaces the import-to-relational-tables approach with a flexible
+// JSONB record store. ImportDataset is one logical upload ("inventory",
+// "purchase_orders", "bom"); ImportRecord is one row inside that upload
+// with every canonical field stuffed into `data` as JSONB. GIN indexes
+// on `data` are installed by a companion raw-SQL migration.
+
+model ImportDataset {
+  id             String   @id @default(cuid())
+  organizationId String
+  // Back-link to the DataSource that triggered this upload.
+  dataSourceId   String?
+  // Canonical dataset name: "inventory", "purchase_orders", "bom", etc.
+  name           String
+  // Display label: "Inventory", "Purchase Orders", "Bill of Materials".
+  label          String
+  sourceFile     String?
+  rowCount       Int      @default(0)
+  importedRows   Int      @default(0)
+  skippedRows    Int      @default(0)
+  // User's column label → canonical key, e.g. { "Supplier ID": "supplier_code" }.
+  columnMap      Json
+  // Original CSV headers in order — preserved so we can re-display a faithful
+  // preview after the raw file is discarded.
+  rawHeaders     String[]
+  importMode     String   @default("merge") // "merge" | "replace"
+  importedAt     DateTime @default(now())
+  importedBy     String?
+  status         String   @default("complete") // "complete" | "partial" | "failed"
+  errorSummary   String?
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  records      ImportRecord[]
+
+  @@index([organizationId, name])
+  @@index([organizationId, importedAt])
+  @@index([dataSourceId])
+}
+
+model ImportRecord {
+  id             String   @id @default(cuid())
+  organizationId String
+  datasetId      String
+  // Denormalised dataset name so the common "all inventory for this org"
+  // query hits an index without joining ImportDataset.
+  datasetName    String
+  // Identifier extracted from the source row (SKU, PO number, etc.). Scoped
+  // unique per (org, dataset) so re-imports upsert instead of duplicating.
+  externalId     String?
+  // Every canonical-keyed field from the row.
+  data           Json
+  importedAt     DateTime @default(now())
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  dataset      ImportDataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, datasetName, externalId])
+  @@index([organizationId, datasetName])
+  @@index([datasetId])
 }

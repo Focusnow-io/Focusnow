@@ -42,6 +42,32 @@ const asJson = (v: unknown) => v as any;
 export async function buildOperationalGraph(
   organizationId: string
 ): Promise<OperationalGraph> {
+  // TODO: Rewrite to query ImportRecord in a future sprint. The ODE
+  // graph builder currently reads from the legacy relational tables
+  // which are no longer populated by the import pipeline. Returning
+  // an empty graph keeps every caller (dashboards, alert detectors,
+  // completeness checks) running without throwing against empty
+  // archive tables.
+  return {
+    organizationId,
+    generatedAt: new Date().toISOString(),
+    nodes: [],
+    edges: [],
+    stats: {
+      nodeCount: 0,
+      edgeCount: 0,
+      nodesByType: {},
+      edgesByType: {},
+    },
+  } as OperationalGraph;
+}
+
+/** @deprecated Pre-migration implementation kept for reference; never
+ *  reached because the export above returns early. Will be removed
+ *  when the builder is rewritten against ImportRecord. */
+async function _legacyBuildOperationalGraph(
+  organizationId: string
+): Promise<OperationalGraph> {
   const [products, suppliers, locations, inventory, orders, bomItems] =
     await Promise.all([
       prisma.product.findMany({ where: { organizationId, active: true } }),

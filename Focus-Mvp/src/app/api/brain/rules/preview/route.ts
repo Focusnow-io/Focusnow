@@ -1,44 +1,78 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
 import { getSessionOrg, unauthorized, badRequest } from "@/lib/api-helpers";
-import { prisma } from "@/lib/prisma";
+import { queryRecords, aggregateRecords } from "@/lib/chat/record-query";
+import type { DatasetName } from "@/lib/ingestion/datasets";
 
 /**
  * POST /api/brain/rules/preview
  * Live data preview — shows match count and sample records for a rule condition.
+ * Reads from ImportRecord (the canonical JSONB store) instead of old entity tables.
  */
 
-// Safe field name whitelist per entity — prevents SQL injection on field references
-const FIELD_WHITELIST: Record<string, Set<string>> = {
-  InventoryItem: new Set([
-    "quantity", "reorderPoint", "reorderQty", "reservedQty", "safetyStock",
-    "daysOfSupply", "moq", "orderMultiple", "leadTimeDays", "unitCost", "totalValue",
-    "demandCurrentMonth", "demandNextMonth", "demandPerDay",
-  ]),
-  Product: new Set([
-    "unitCost", "leadTimeDays", "reorderPoint", "safetyStock", "listPrice", "unitPrice", "moq",
-  ]),
-  Supplier: new Set(["leadTimeDays", "qualityRating", "onTimePct"]),
-  Order: new Set(["totalAmount"]),
+// Map old entity names (from stored rules) + new canonical names to dataset keys.
+const ENTITY_TO_DATASET: Record<string, DatasetName> = {
+  // New canonical names
+  inventory:       "inventory",
+  products:        "products",
+  suppliers:       "suppliers",
+  purchase_orders: "purchase_orders",
+  sales_orders:    "sales_orders",
+  // Legacy names from rules created before migration
+  InventoryItem:   "inventory",
+  Product:         "products",
+  Supplier:        "suppliers",
+  Order:           "purchase_orders",
 };
 
-// DB table names (Prisma model → PostgreSQL table name)
-const TABLE_NAME: Record<string, string> = {
-  InventoryItem: "InventoryItem",
-  Product: "Product",
-  Supplier: "Supplier",
-  Order: "Order",
-};
-
-// Prisma operator map
-const PRISMA_OP: Record<string, string> = {
-  lt: "lt", lte: "lte", gt: "gt", gte: "gte", eq: "equals", neq: "not",
-};
-
-// SQL operator map (for cross-column comparisons via $queryRaw)
-const SQL_OP: Record<string, string> = {
-  lt: "<", lte: "<=", gt: ">", gte: ">=", eq: "=", neq: "!=",
-};
+// Normalise camelCase field names from old rules to snake_case canonical names.
+function normaliseField(field: string): string {
+  const ALIASES: Record<string, string> = {
+    reorderPoint:         "reorder_point",
+    reorderQty:           "recommended_qty",
+    reservedQty:          "reserved_qty",
+    safetyStock:          "safety_stock",
+    daysOfSupply:         "days_of_supply",
+    leadTimeDays:         "lead_time_days",
+    unitCost:             "unit_cost",
+    totalValue:           "total_value",
+    onHoldQty:            "on_hold_qty",
+    openPOQty:            "open_po_qty",
+    demandPerDay:         "demand_per_day",
+    buyRecommendation:    "buy_recommendation",
+    recommendedQty:       "recommended_qty",
+    lastReceiptDate:      "last_receipt_date",
+    orderMultiple:        "order_multiple",
+    // products
+    listPrice:            "list_price",
+    makeBuy:              "make_buy",
+    productFamily:        "product_family",
+    abcClass:             "abc_class",
+    // suppliers
+    supplierCode:         "supplier_code",
+    qualityRating:        "quality_rating",
+    onTimePct:            "on_time_pct",
+    paymentTerms:         "payment_terms",
+    approvedSince:        "approved_since",
+    // purchase_orders
+    poNumber:             "po_number",
+    supplierName:         "supplier_name",
+    itemName:             "item_name",
+    lineNumber:           "line_number",
+    qtyOrdered:           "qty_ordered",
+    qtyReceived:          "qty_received",
+    qtyOpen:              "qty_open",
+    lineValue:            "line_value",
+    orderDate:            "order_date",
+    expectedDate:         "expected_date",
+    confirmedEta:         "confirmed_eta",
+    totalAmount:          "line_value",  // legacy alias
+  };
+  if (ALIASES[field]) return ALIASES[field];
+  // camelCase → snake_case fallback
+  return field.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+}
 
 export async function POST(req: Request) {
   const ctx = await getSessionOrg();
@@ -52,193 +86,58 @@ export async function POST(req: Request) {
   }
 
   const orgId = ctx.org.id;
-  const { field, operator, value } = condition as { field: string; operator: string; value: unknown };
+  const dataset = ENTITY_TO_DATASET[entity];
+  if (!dataset) return badRequest(`Unsupported entity: ${entity}`);
 
-  if (!PRISMA_OP[operator]) {
-    return badRequest(`Unsupported operator: ${operator}`);
-  }
+  const rawField = condition.field as string;
+  const operator = condition.operator as string;
+  const rawValue = condition.value;
 
-  // Detect if value is a cross-column field reference (non-numeric string)
-  const isFieldRef =
-    typeof value === "string" &&
-    value !== "" &&
-    isNaN(Number(value));
+  const field = normaliseField(rawField);
 
-  if (isFieldRef) {
-    // Validate both field names against the whitelist to prevent SQL injection
-    const allowedFields = FIELD_WHITELIST[entity];
-    const tableName = TABLE_NAME[entity];
-    const sqlOp = SQL_OP[operator];
+  // Build a filter map the record-query engine understands
+  const OP_MAP: Record<string, string> = {
+    lt: "lt", lte: "lte", gt: "gt", gte: "gte", eq: "eq", neq: "not",
+  };
+  const mappedOp = OP_MAP[operator];
+  if (!mappedOp) return badRequest(`Unsupported operator: ${operator}`);
 
-    if (!allowedFields || !tableName || !sqlOp) {
-      return badRequest(`Unsupported entity: ${entity}`);
-    }
-    if (!allowedFields.has(field)) {
-      return badRequest(`Field "${field}" is not allowed for ${entity}`);
-    }
-    if (!allowedFields.has(value as string)) {
-      return badRequest(`Field reference "${value}" is not allowed for ${entity}`);
-    }
-
-    try {
-      // Use raw SQL for cross-column comparisons — identifiers are whitelisted above
-      const matchCountRows = await prisma.$queryRaw<[{ count: bigint }]>(
-        Prisma.sql`SELECT COUNT(*)::bigint as count FROM ${Prisma.raw(`"${tableName}"`)}
-          WHERE "organizationId" = ${orgId}
-          AND ${Prisma.raw(`"${field}"`)} ${Prisma.raw(sqlOp)} ${Prisma.raw(`"${value as string}"`)}`
-      );
-      const totalCountRows = await prisma.$queryRaw<[{ count: bigint }]>(
-        Prisma.sql`SELECT COUNT(*)::bigint as count FROM ${Prisma.raw(`"${tableName}"`)}
-          WHERE "organizationId" = ${orgId}`
-      );
-
-      // Fetch samples (limited select to keep response small)
-      const samples = await prisma.$queryRaw<Record<string, unknown>[]>(
-        Prisma.sql`SELECT id, ${Prisma.raw(`"${field}"`)} as matched_field, ${Prisma.raw(`"${value as string}"`)} as ref_field
-          FROM ${Prisma.raw(`"${tableName}"`)}
-          WHERE "organizationId" = ${orgId}
-          AND ${Prisma.raw(`"${field}"`)} ${Prisma.raw(sqlOp)} ${Prisma.raw(`"${value as string}"`)}
-          LIMIT 5`
-      );
-
-      return NextResponse.json({
-        matchCount: Number(matchCountRows[0]?.count ?? 0),
-        totalCount: Number(totalCountRows[0]?.count ?? 0),
-        samples,
-      });
-    } catch (err) {
-      console.error("[preview] Cross-column query error:", err);
-      const message = err instanceof Error ? err.message : "Query failed";
-      return NextResponse.json({ error: message }, { status: 500 });
-    }
-  }
-
-  // Literal value comparison — coerce to number if possible
+  // Coerce value — numeric where possible
   const coerced =
-    value === "" || value === null || value === undefined
+    rawValue === "" || rawValue === null || rawValue === undefined
       ? 0
-      : isNaN(Number(value))
-        ? value
-        : Number(value);
+      : isNaN(Number(rawValue))
+      ? rawValue
+      : Number(rawValue);
 
-  const op = PRISMA_OP[operator];
-  const filterClause =
-    op === "not"
-      ? { [field]: { not: coerced } }
-      : { [field]: { [op]: coerced } };
+  const filterValue =
+    mappedOp === "eq"
+      ? coerced
+      : { [mappedOp]: coerced };
 
-  const baseWhere = { organizationId: orgId };
-  const where = { ...baseWhere, ...filterClause };
+  const matchFilters: Record<string, unknown> = { [field]: filterValue };
 
   try {
-    let matchCount = 0;
-    let totalCount = 0;
-    let samples: Record<string, unknown>[] = [];
+    const [matchResult, totalResult] = await Promise.all([
+      // Count matching rows by fetching with filter
+      aggregateRecords({ dataset, orgId, metric: "COUNT", filters: matchFilters }).catch(() => ({ result: 0 })),
+      // Total rows in this dataset
+      aggregateRecords({ dataset, orgId, metric: "COUNT" }).catch(() => ({ result: 0 })),
+    ]);
 
-    if (entity === "InventoryItem") {
-      [matchCount, totalCount, samples] = await Promise.all([
-        prisma.inventoryItem.count({ where }),
-        prisma.inventoryItem.count({ where: baseWhere }),
-        prisma.inventoryItem.findMany({
-          where,
-          select: {
-            id: true,
-            quantity: true,
-            reorderPoint: true,
-            reorderQty: true,
-            reservedQty: true,
-            unitCost: true,
-            totalValue: true,
-            daysOfSupply: true,
-            leadTimeDays: true,
-            qtyOnHold: true,
-            qtyOnHandTotal: true,
-            qtyOpenPO: true,
-            qtyOnHandPlusPO: true,
-            demandCurrentMonth: true,
-            demandNextMonth: true,
-            demandMonth3: true,
-            demandPerDay: true,
-            outflow7d: true,
-            outflow30d: true,
-            outflow60d: true,
-            outflow92d: true,
-            moq: true,
-            orderMultiple: true,
-            buyRecommendation: true,
-            recommendedQty: true,
-            uom: true,
-            lastReceiptDate: true,
-            product: { select: { sku: true, name: true } },
-            location: { select: { name: true } },
-          },
-          take: 5,
-        }),
-      ]);
-    } else if (entity === "Product") {
-      [matchCount, totalCount, samples] = await Promise.all([
-        prisma.product.count({ where }),
-        prisma.product.count({ where: baseWhere }),
-        prisma.product.findMany({
-          where,
-          select: {
-            id: true,
-            sku: true,
-            name: true,
-            category: true,
-            unitCost: true,
-            leadTimeDays: true,
-            reorderPoint: true,
-          },
-          take: 5,
-        }),
-      ]);
-    } else if (entity === "Supplier") {
-      [matchCount, totalCount, samples] = await Promise.all([
-        prisma.supplier.count({ where }),
-        prisma.supplier.count({ where: baseWhere }),
-        prisma.supplier.findMany({
-          where,
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            leadTimeDays: true,
-            qualityRating: true,
-            onTimePct: true,
-            status: true,
-            country: true,
-            city: true,
-            paymentTerms: true,
-            certifications: true,
-            active: true,
-          },
-          take: 5,
-        }),
-      ]);
-    } else if (entity === "Order") {
-      [matchCount, totalCount, samples] = await Promise.all([
-        prisma.order.count({ where }),
-        prisma.order.count({ where: baseWhere }),
-        prisma.order.findMany({
-          where,
-          select: {
-            id: true,
-            orderNumber: true,
-            type: true,
-            status: true,
-            totalAmount: true,
-            expectedDate: true,
-            supplier: { select: { name: true } },
-          },
-          take: 5,
-        }),
-      ]);
-    } else {
-      return badRequest(`Unsupported entity: ${entity}`);
-    }
+    // Fetch sample rows that match the filter
+    const { rows: samples } = await queryRecords({
+      dataset,
+      orgId,
+      filters: matchFilters,
+      limit: 5,
+    }).catch(() => ({ rows: [] }));
 
-    return NextResponse.json({ matchCount, totalCount, samples });
+    return NextResponse.json({
+      matchCount: Number(matchResult.result ?? 0),
+      totalCount: Number(totalResult.result ?? 0),
+      samples,
+    });
   } catch (err) {
     console.error("[preview] Query error:", err);
     const message = err instanceof Error ? err.message : "Query failed";

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -8,7 +8,20 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
+
+// Rotating status copy shown while the sign-in request is in flight.
+// Order is intentional — the user sees a sense of forward progress
+// ("verifying → creating session → loading workspace") even though
+// the actual network round-trip is a single request. The last entry
+// stays on screen if the server is slow so we never cycle back to
+// "Verifying…" after we've already told the user we're almost done.
+const SIGN_IN_MESSAGES = [
+  "Verifying your code…",
+  "Creating your session…",
+  "Loading your workspace…",
+  "Almost there — just a moment…",
+];
 
 function VerifyOtpForm() {
   const router = useRouter();
@@ -17,19 +30,48 @@ function VerifyOtpForm() {
 
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
   const [resending, setResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
+
+  // Rotating message shown inside the sign-in overlay. Cycles every
+  // 1.5s while isVerifying; frozen on the last copy once we reach it
+  // so the user doesn't see the cycle loop back to the start if the
+  // navigation hasn't fired yet.
+  const [messageIdx, setMessageIdx] = useState(0);
+  const messageTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // If no pendingId in URL, send back to login
   useEffect(() => {
     if (!pendingId) router.replace("/login");
   }, [pendingId, router]);
 
+  // Advance the overlay message while the sign-in request is live.
+  useEffect(() => {
+    if (!isVerifying) {
+      if (messageIdx !== 0) setMessageIdx(0);
+      return;
+    }
+    messageTimer.current = setInterval(() => {
+      setMessageIdx((i) => Math.min(i + 1, SIGN_IN_MESSAGES.length - 1));
+    }, 1500);
+    return () => {
+      if (messageTimer.current) clearInterval(messageTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVerifying]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    setLoading(true);
+    setIsVerifying(true);
+
+    // Flag flipped only on the *error* paths below — on success we
+    // leave isVerifying true so the overlay keeps running through
+    // the navigation. Resetting it in a finally block would cause a
+    // visible flicker between "Almost there…" and the dashboard
+    // first paint.
+    let failed = false;
 
     try {
       // Step 1: verify the OTP code and exchange it for a one-time sign-in token
@@ -42,6 +84,7 @@ function VerifyOtpForm() {
       const data = await res.json();
 
       if (!res.ok) {
+        failed = true;
         if (data.error === "locked") {
           setError("Too many failed attempts. Please sign in again.");
           setTimeout(() => router.replace("/login"), 2_000);
@@ -67,15 +110,18 @@ function VerifyOtpForm() {
       });
 
       if (result?.error || !result?.ok) {
+        failed = true;
         setError("Sign-in failed. Please try again.");
         return;
       }
 
+      // Success — overlay stays up through the full-page nav.
       window.location.href = "/dashboard";
     } catch {
+      failed = true;
       setError("Something went wrong. Please try again.");
     } finally {
-      setLoading(false);
+      if (failed) setIsVerifying(false);
     }
   }
 
@@ -150,7 +196,41 @@ function VerifyOtpForm() {
       </div>
 
       {/* Right panel */}
-      <div className="flex-1 flex items-center justify-center p-8">
+      <div className="flex-1 flex items-center justify-center p-8 relative">
+        {/* Sign-in progress overlay — mounted while isVerifying is
+            true, stays in place through the window.location redirect
+            so the user doesn't see the form reappear between
+            "verifying" and the first dashboard paint. A concentric
+            triple-ring animation reads as ambient progress without
+            suggesting a specific percentage. */}
+        {isVerifying && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-6 bg-[hsl(var(--background))]/95 backdrop-blur-sm animate-in fade-in duration-200"
+          >
+            <div className="relative w-16 h-16">
+              <div className="absolute inset-0 rounded-full border-2 border-[hsl(var(--primary))]/20" />
+              <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[hsl(var(--primary))] animate-spin" />
+              <div
+                className="absolute inset-2 rounded-full border-2 border-transparent border-t-[hsl(var(--primary))]/60 animate-spin"
+                style={{ animationDirection: "reverse", animationDuration: "1.5s" }}
+              />
+            </div>
+            <div className="text-center space-y-1 max-w-[22rem] px-6">
+              <p className="text-lg font-semibold text-foreground">
+                Signing you in
+              </p>
+              <p
+                key={messageIdx}
+                className="text-sm text-muted-foreground animate-in fade-in duration-300"
+              >
+                {SIGN_IN_MESSAGES[messageIdx]}
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="w-full max-w-sm">
           <Link href="/" className="flex items-center gap-2 mb-10 lg:hidden">
             <Image src="/logo.svg" alt="Focus" width={32} height={32} />
@@ -180,6 +260,7 @@ function VerifyOtpForm() {
                 className="text-center tracking-[0.4em] text-lg font-mono"
                 required
                 autoFocus
+                disabled={isVerifying}
               />
             </div>
 
@@ -199,13 +280,13 @@ function VerifyOtpForm() {
             <Button
               type="submit"
               className="w-full mt-1"
-              disabled={loading || code.length < 6}
+              disabled={isVerifying || code.length < 6}
             >
-              {loading ? (
-                <span className="flex items-center gap-2">
-                  <span className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  Verifying…
-                </span>
+              {isVerifying ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Signing you in…
+                </>
               ) : (
                 "Verify & sign in"
               )}

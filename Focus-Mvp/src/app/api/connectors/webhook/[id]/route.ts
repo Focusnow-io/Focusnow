@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 /**
  * POST /api/connectors/webhook/[id]
  *
@@ -38,36 +40,28 @@ export async function POST(
 
   const config = connector.config as unknown as WebhookConnectorConfig;
 
-  // Signature verification (optional but recommended)
-  if (config.secret) {
-    const rawBody = await req.text();
-    const sig =
-      req.headers.get("x-hub-signature-256") ??
-      req.headers.get("x-webhook-signature");
-
-    if (!verifyWebhookSignature(rawBody, config.secret, sig)) {
-      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-    }
-
-    let payload: unknown;
-    try {
-      payload = JSON.parse(rawBody);
-    } catch {
-      return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
-    }
-
-    const result = await processWebhookPayload(
-      connector.organizationId,
-      connectorId,
-      payload
+  // Signature verification — required when a secret is configured.
+  // Webhooks without a secret reject all requests to prevent unauthenticated
+  // payloads from triggering data ingestion.
+  if (!config.secret) {
+    return NextResponse.json(
+      { error: "Webhook not configured: no secret set. Add a secret to this connector." },
+      { status: 401 },
     );
-    return NextResponse.json({ result });
   }
 
-  // No signature required — parse body directly
+  const rawBody = await req.text();
+  const sig =
+    req.headers.get("x-hub-signature-256") ??
+    req.headers.get("x-webhook-signature");
+
+  if (!verifyWebhookSignature(rawBody, config.secret, sig)) {
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  }
+
   let payload: unknown;
   try {
-    payload = await req.json();
+    payload = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
   }

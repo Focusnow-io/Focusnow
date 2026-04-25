@@ -17,9 +17,10 @@ import {
   upsertOrder,
 } from "@/lib/ode/state-manager";
 import { suggestCanonicalMapping } from "@/lib/ode/canonical-schema";
-import { linkRelationships } from "@/lib/normalization/relationship-linker";
-import { calculateCompleteness } from "@/lib/normalization/completeness-detector";
-import { checkConsistency } from "@/lib/normalization/consistency-checker";
+// Normalization pipeline removed with the legacy relational import flow.
+// Connectors no longer trigger graph relinking / completeness / consistency
+// checks — those were tied to the per-entity Prisma tables that are no
+// longer populated by the pipeline.
 import type { IConnector, ConnectorConfig } from "./types";
 import type { CanonicalRecord, SyncResult, OdeEntityType } from "@/lib/ode/types";
 
@@ -127,16 +128,10 @@ export abstract class BaseConnector implements IConnector {
         }
       }
 
-      // Rebuild operational graph after sync
+      // buildOperationalGraph is stubbed to return an empty graph
+      // while the ODE is rewritten against ImportRecord. Call it
+      // anyway so any downstream cache is refreshed.
       await buildOperationalGraph(organizationId);
-
-      // Run normalization pipeline (non-blocking)
-      setTimeout(() => {
-        linkRelationships(organizationId)
-          .then(() => calculateCompleteness(organizationId))
-          .then(() => checkConsistency(organizationId))
-          .catch((err) => console.error("[normalization] connector pipeline error:", err));
-      }, 0);
 
       const finalStatus: SyncResult["status"] =
         recordsFailed > 0 && recordsUpserted === 0

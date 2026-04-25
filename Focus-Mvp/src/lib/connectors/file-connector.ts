@@ -25,7 +25,7 @@ export class FileConnector extends BaseConnector {
     const { dataSourceId } = config as FileConnectorConfig;
 
     // FileConnector defers to the existing DataSource process pipeline.
-    // The actual row-by-row iteration happens inside the /api/data/sources/[id]/process
+    // The actual row-by-row iteration happens inside the /api/data/sources/[id]/process-v2
     // route.  Here we yield nothing — syncing a FileConnector simply re-triggers
     // the existing process endpoint.  This stub is intentionally empty so that
     // callers who trigger a FileConnector sync via the ODE API get a consistent
