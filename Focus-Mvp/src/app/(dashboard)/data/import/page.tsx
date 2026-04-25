@@ -386,27 +386,41 @@ function ImportPageInner() {
                 <div
                   key={concept.id}
                   className={cn(
-                    "flex items-center justify-between gap-4 px-4 py-3 hover:bg-muted/30 transition-colors",
+                    "flex items-center justify-between gap-4 px-4 py-3.5 transition-colors relative",
                     !isLast && "border-b border-border",
+                    hasData
+                      ? "bg-emerald-50/60 dark:bg-emerald-950/20 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                      : "hover:bg-muted/30",
                   )}
                 >
-                  <div className="flex items-baseline gap-3 min-w-0 flex-1">
-                    <p className="text-sm font-medium text-foreground shrink-0">
+                  {/* Green left accent bar for uploaded datasets */}
+                  {hasData && (
+                    <span className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl bg-emerald-500" />
+                  )}
+
+                  <div className="flex items-baseline gap-3 min-w-0 flex-1 pl-1">
+                    <p className={cn(
+                      "text-sm shrink-0",
+                      hasData ? "font-semibold text-foreground" : "font-medium text-foreground",
+                    )}>
                       {concept.label}
                     </p>
                     <span className="text-sm text-muted-foreground shrink-0" aria-hidden>·</span>
-                    <p className="text-sm text-muted-foreground truncate">
+                    <p className={cn(
+                      "text-sm truncate",
+                      hasData ? "text-muted-foreground/80" : "text-muted-foreground",
+                    )}>
                       {concept.description}
                     </p>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
                     {hasData && cov && (
-                      <p className="flex items-center gap-1 text-xs text-emerald-600 mr-2">
-                        <CheckCircle2 className="w-3 h-3 shrink-0" />
+                      <p className="flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400 font-medium mr-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                         <span className="whitespace-nowrap">
                           {cov.importedRows.toLocaleString()} {concept.unit}
-                          <span className="text-muted-foreground">
+                          <span className="text-muted-foreground font-normal">
                             {" "}· {formatRelativeDate(cov.lastImported)}
                           </span>
                         </span>
@@ -419,7 +433,7 @@ function ImportPageInner() {
                           variant="outline"
                           size="sm"
                           onClick={() => startImport(concept.id, "merge")}
-                          className="w-20"
+                          className="w-20 border-emerald-300 hover:border-emerald-400 hover:bg-emerald-50"
                         >
                           Update
                         </Button>
