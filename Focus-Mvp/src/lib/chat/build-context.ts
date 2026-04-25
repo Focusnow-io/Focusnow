@@ -169,15 +169,22 @@ async function buildContextInternal(orgId: string): Promise<string> {
     const statusField = STATUS_FIELDS[datasetName];
     if (statusField) {
       try {
+        // Use Prisma.raw for the field name so all three occurrences
+        // (SELECT, WHERE, GROUP BY) compile to the same SQL literal
+        // rather than separate bind parameters ($1, $2, $3).
+        // PostgreSQL requires GROUP BY to reference the identical
+        // expression used in SELECT — different parameter slots fail
+        // with error 42803 even when they hold the same value.
+        const fieldLiteral = Prisma.raw(`'${statusField}'`);
         const statusRows = await prisma.$queryRaw<
           Array<{ val: string | null; cnt: bigint }>
         >(Prisma.sql`
-          SELECT "data"->>${statusField} AS val, COUNT(*)::bigint AS cnt
+          SELECT "data"->>${fieldLiteral} AS val, COUNT(*)::bigint AS cnt
           FROM "ImportRecord"
           WHERE "organizationId" = ${orgId}
             AND "datasetName" = ${datasetName}
-            AND "data"->>${statusField} IS NOT NULL
-          GROUP BY "data"->>${statusField}
+            AND "data"->>${fieldLiteral} IS NOT NULL
+          GROUP BY "data"->>${fieldLiteral}
           ORDER BY COUNT(*) DESC
           LIMIT 10
         `);
