@@ -22,6 +22,49 @@ import { queryRecords, aggregateRecords } from "@/lib/chat/record-query";
 import type { DatasetName } from "@/lib/ingestion/datasets";
 import type { DataFilter, DataQuery } from "@/components/apps/widgets/types";
 
+// ─── Field name normalisation ──────────────────────────────────────────────
+//
+// Apps generated before the system-prompt fix used camelCase field names
+// (e.g. totalAmount, createdAt, poNumber). `assertField` in record-query.ts
+// rejects these, causing silent 0/empty results. We normalise every field
+// reference to snake_case before it reaches the query engine so old configs
+// continue to work without migration.
+
+function camelToSnake(s: string): string {
+  return s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+}
+
+/** Explicit aliases for renames that aren't pure casing changes. */
+const FIELD_ALIASES: Record<string, string> = {
+  // old AI name → canonical
+  total_amount:   "line_value",
+  amount:         "line_value",
+  total_value:    "line_value",   // inventory has its own total_value, keep as-is below
+  // prisma/camel aliases → canonical date fields
+  created_at:     "order_date",
+  updated_at:     "order_date",
+  // product field renamed in system prompt
+  category:       "type",
+  // supplier aliases
+  on_time:        "on_time_pct",
+  on_time_delivery: "on_time_pct",
+};
+
+// Fields that exist verbatim in a dataset should NOT be re-aliased above.
+// total_value IS a real inventory field, so we keep it only for datasets
+// that don't have it. The query engine's assertField will accept it for
+// inventory and reject it elsewhere — that's the desired behavior.
+delete FIELD_ALIASES["total_value"];
+
+function normalizeField(field: string): string {
+  if (!field) return field;
+  // Skip dot-notation relation references (e.g. "supplier.name") —
+  // buildFilterMap already strips these, and we don't want to mangle them.
+  if (field.includes(".")) return field;
+  const snake = camelToSnake(field);
+  return FIELD_ALIASES[snake] ?? snake;
+}
+
 // ─── Widget entity → dataset mapping ───────────────────────────────────────
 
 const ENTITY_TO_DATASET: Record<string, DatasetName | null> = {
@@ -35,14 +78,46 @@ const ENTITY_TO_DATASET: Record<string, DatasetName | null> = {
   sales_orders: "sales_orders",
   bom: "bom",
   locations: "locations",
-  // Legacy alias — "orders" used to mean POs in the widget layer.
-  orders: "purchase_orders",
+
+  // Singular forms — old AI-generated apps may use singular entity names.
+  product: "products",
+  supplier: "suppliers",
+  customer: "customers",
+  location: "locations",
+  purchase_order: "purchase_orders",
+  sales_order: "sales_orders",
+
+  // Abbreviations / common aliases from old prompts.
+  orders: "purchase_orders",   // legacy
+  po: "purchase_orders",
+  pos: "purchase_orders",
+  so: "sales_orders",
+  sos: "sales_orders",
+  inv: "inventory",
+  stock: "inventory",
+  items: "inventory",
+  item: "inventory",
+  skus: "inventory",
+  parts: "products",
+  catalog: "products",
+  vendors: "suppliers",
+  vendor: "suppliers",
+  clients: "customers",
+  client: "customers",
+  warehouses: "locations",
+  warehouse: "locations",
+
   // Not yet in the JSONB store — widgets get an empty result until
   // these land. Returning null (vs. a random dataset) means
   // aggregations return 0 and list queries return [] cleanly.
   work_orders: null,
+  work_order: null,
   lots: null,
+  lot: null,
   forecasts: null,
+  forecast: null,
+  shipments: null,
+  shipment: null,
 };
 
 // ─── Backward-compat passthroughs (no-ops in the new world) ────────────────
@@ -169,32 +244,34 @@ function buildFilterMap(filters: DataFilter[] | undefined): Record<string, unkno
   for (const f of filters ?? []) {
     if (f.field.includes(".")) continue;
 
+    const key = normalizeField(f.field);
+
     if (f.value === "TODAY") {
-      out[f.field] = { lt: new Date().toISOString().split("T")[0] };
+      out[key] = { lt: new Date().toISOString().split("T")[0] };
       continue;
     }
 
     switch (f.op) {
       case "eq":
-        out[f.field] = f.value;
+        out[key] = f.value;
         break;
       case "ne":
-        out[f.field] = { not: f.value };
+        out[key] = { not: f.value };
         break;
       case "lt":
-        out[f.field] = { lt: f.value };
+        out[key] = { lt: f.value };
         break;
       case "lte":
-        out[f.field] = { lte: f.value };
+        out[key] = { lte: f.value };
         break;
       case "gt":
-        out[f.field] = { gt: f.value };
+        out[key] = { gt: f.value };
         break;
       case "gte":
-        out[f.field] = { gte: f.value };
+        out[key] = { gte: f.value };
         break;
       case "contains":
-        out[f.field] = { contains: f.value };
+        out[key] = { contains: f.value };
         break;
     }
   }
@@ -211,13 +288,17 @@ export async function runQuery(
   const {
     entity,
     aggregation,
-    field,
-    groupBy,
     sort,
     limit,
     timeBucket,
     computedField,
   } = query;
+
+  // Normalise field references: camelCase → snake_case + explicit aliases.
+  // This makes apps generated before the system-prompt fix work without
+  // needing to migrate their stored configs.
+  const field   = query.field   ? normalizeField(query.field)   : query.field;
+  const groupBy = query.groupBy ? normalizeField(query.groupBy) : query.groupBy;
 
   const datasetName = ENTITY_TO_DATASET[entity];
   if (!datasetName) {
@@ -260,49 +341,44 @@ export async function runQuery(
     }
 
     if (groupBy && aggregation) {
-      const metric = aggregation.toUpperCase();
-      if (metric !== "COUNT" && metric !== "SUM" && metric !== "AVG") {
-        // min / max not supported server-side — client-side over raw rows.
-        const { rows } = await queryRecords({
-          dataset: datasetName,
-          orgId,
-          filters: recordFilters,
-          limit: 10_000,
-        });
-        const groups = new Map<string, number[]>();
-        for (const row of rows) {
-          const label = String(row[groupBy] ?? "null");
-          const valRaw = field ? row[field] : 1;
-          const v = typeof valRaw === "number" ? valRaw : Number(valRaw);
-          if (!isFinite(v)) continue;
-          const arr = groups.get(label) ?? [];
-          arr.push(v);
-          groups.set(label, arr);
-        }
-        return Array.from(groups.entries())
-          .map(([label, nums]) => ({
-            label,
-            value: aggregation === "min" ? Math.min(...nums) : Math.max(...nums),
-          }))
-          .sort((a, b) => b.value - a.value)
-          .slice(0, limit ?? 50);
-      }
-
-      const result = await aggregateRecords({
+      // All groupBy aggregations run client-side over raw rows for reliability.
+      // The SQL GROUP BY path (aggregateRecords with groupByField) can silently
+      // fail with composite Prisma.Sql fragments, causing the catch to return
+      // { value: 0 } instead of [], which makes ChartWidget show "No data available"
+      // even when the dataset has records. Client-side grouping is always correct.
+      const { rows } = await queryRecords({
         dataset: datasetName,
         orgId,
-        metric,
-        valueField: field,
-        groupByField: groupBy,
         filters: recordFilters,
+        limit: 10_000,
       });
-      if (typeof result.result === "object" && result.result !== null) {
-        return Object.entries(result.result as Record<string, number>)
-          .map(([label, value]) => ({ label, value }))
-          .sort((a, b) => b.value - a.value)
-          .slice(0, limit ?? 50);
+
+      const agg = aggregation.toLowerCase();
+      const groups = new Map<string, number[]>();
+      for (const row of rows) {
+        const rawLabel = row[groupBy];
+        const labelStr = rawLabel !== null && rawLabel !== undefined ? String(rawLabel).trim() : "";
+        const label = labelStr !== "" ? labelStr : "(None)";
+        const valRaw = field ? row[field] : 1;
+        const v = agg === "count" ? 1 : (typeof valRaw === "number" ? valRaw : Number(valRaw));
+        if (agg !== "count" && !isFinite(v)) continue;
+        const arr = groups.get(label) ?? [];
+        arr.push(v);
+        groups.set(label, arr);
       }
-      return [];
+
+      return Array.from(groups.entries())
+        .map(([label, nums]) => {
+          let value = 0;
+          if (agg === "count")  value = nums.length;
+          else if (agg === "sum")  value = nums.reduce((a, b) => a + b, 0);
+          else if (agg === "avg")  value = nums.length > 0 ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+          else if (agg === "min")  value = Math.min(...nums);
+          else if (agg === "max")  value = Math.max(...nums);
+          return { label, value };
+        })
+        .sort((a, b) => b.value - a.value)
+        .slice(0, limit ?? 50);
     }
 
     if (aggregation && !groupBy) {
@@ -339,7 +415,7 @@ export async function runQuery(
       dataset: datasetName,
       orgId,
       filters: recordFilters,
-      orderBy: sort ? { field: sort.field, direction: sort.dir } : undefined,
+      orderBy: sort ? { field: normalizeField(sort.field), direction: sort.dir } : undefined,
       limit: limit ?? 100,
     });
     return rows;
@@ -348,7 +424,9 @@ export async function runQuery(
       `[widget-query] ${datasetName} failed:`,
       err instanceof Error ? err.message : err,
     );
-    return aggregation ? { value: 0 } : [];
+    // groupBy queries must return [] so ChartWidget's Array.isArray check passes.
+    // Returning { value: 0 } would make every chart show "No data available".
+    return groupBy ? [] : aggregation ? { value: 0 } : [];
   }
 }
 
@@ -371,7 +449,7 @@ export async function fetchRawRows(
       orgId,
       filters: recordFilters,
       orderBy: query.sort
-        ? { field: query.sort.field, direction: query.sort.dir }
+        ? { field: normalizeField(query.sort.field), direction: query.sort.dir }
         : undefined,
       limit: query.limit ?? 500,
     });

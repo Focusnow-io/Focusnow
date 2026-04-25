@@ -2083,6 +2083,8 @@ model TokenUsage {
 model ImportDataset {
   id             String   @id @default(cuid())
   organizationId String
+  // Back-link to the DataSource that triggered this upload.
+  dataSourceId   String?
   // Canonical dataset name: "inventory", "purchase_orders", "bom", etc.
   name           String
   // Display label: "Inventory", "Purchase Orders", "Bill of Materials".
@@ -2107,6 +2109,7 @@ model ImportDataset {
 
   @@index([organizationId, name])
   @@index([organizationId, importedAt])
+  @@index([dataSourceId])
 }
 
 model ImportRecord {

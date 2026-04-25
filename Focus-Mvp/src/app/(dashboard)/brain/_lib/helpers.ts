@@ -22,10 +22,10 @@ export function flattenSample(
       for (const [subKey, subVal] of Object.entries(
         val as Record<string, unknown>
       )) {
-        result[subKey] = subVal == null ? "\u2014" : String(subVal);
+        result[subKey] = subVal == null ? "" : String(subVal);
       }
     } else {
-      result[key] = val == null ? "\u2014" : String(val);
+      result[key] = val == null ? "" : String(val);
     }
   }
   return result;

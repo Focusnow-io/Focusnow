@@ -17,6 +17,9 @@ export interface CanonicalDatasetField {
   label: string;
   type: "string" | "number" | "boolean" | "date";
   identity?: boolean;
+  /** In merge mode, ADD the incoming value to the existing value instead of overwriting.
+   *  Only meaningful for numeric fields (e.g. inventory quantity received). */
+  accumulate?: boolean;
 }
 
 export const DATASETS = {
@@ -35,9 +38,15 @@ export const DATASETS = {
       moq:              { label: "Min Order Qty",       type: "number" },
       order_multiple:   { label: "Order Multiple",      type: "number" },
       product_family:   { label: "Product Family",      type: "string" },
+      product_line:     { label: "Product Line",        type: "string" },
       abc_class:        { label: "ABC Class",           type: "string" },
       safety_stock:     { label: "Safety Stock",        type: "number" },
       reorder_point:    { label: "Reorder Point",       type: "number" },
+      status:           { label: "Status",              type: "string" },
+      shelf_life_days:  { label: "Shelf Life (Days)",   type: "number" },
+      drawing_number:   { label: "Drawing Number",      type: "string" },
+      revision:         { label: "Revision",            type: "string" },
+      regulatory_class: { label: "Regulatory Class",   type: "string" },
     },
     identityFields: ["sku"],
   },
@@ -102,7 +111,7 @@ export const DATASETS = {
     fields: {
       sku:              { label: "SKU / Product Code",  type: "string", identity: true },
       location_code:    { label: "Location Code",       type: "string", identity: true },
-      quantity:         { label: "Quantity on Hand",    type: "number" },
+      quantity:         { label: "Quantity on Hand",    type: "number", accumulate: true },
       reorder_point:    { label: "Reorder Point",       type: "number" },
       safety_stock:     { label: "Safety Stock",        type: "number" },
       unit_cost:        { label: "Unit Cost",           type: "number" },
@@ -252,13 +261,28 @@ export const DATASET_FIELD_ALIASES: Record<DatasetName, Record<string, string[]>
     type: ["type", "product_type", "item_type", "category"],
     uom: ["uom", "unit", "unit_of_measure", "unitofmeasure", "measure"],
     unit_cost: ["unit_cost", "cost", "standard_cost", "std_cost", "purchase_price"],
-    lead_time_days: ["lead_time_days", "lead_time", "leadtime", "lt_days", "lt"],
-    moq: ["moq", "min_order_qty", "minimum_order_qty", "min_order_quantity"],
+    list_price: ["list_price", "list price", "selling_price", "sales_price", "price"],
+    lead_time_days: ["lead_time_days", "lead_time", "leadtime", "lt_days", "lt",
+                     "lead time", "lead time (days)", "lead_time_(days)"],
+    moq: ["moq", "min_order_qty", "minimum_order_qty", "min_order_quantity",
+          "min order qty", "minimum order qty"],
     order_multiple: ["order_multiple", "order_mult", "rounding"],
     make_buy: ["make_buy", "makebuy", "make/buy", "source"],
-    abc_class: ["abc_class", "abc", "abc_classification"],
+    product_family: ["product_family", "product family", "family", "product_group",
+                     "product group"],
+    product_line: ["product_line", "product line", "line", "product_range",
+                   "product range"],
+    abc_class: ["abc_class", "abc", "abc_classification", "abc class"],
     safety_stock: ["safety_stock", "ss", "safety_qty", "buffer_stock"],
     reorder_point: ["reorder_point", "rop", "reorder_level", "min_stock"],
+    status: ["status", "product_status", "item_status", "active"],
+    shelf_life_days: ["shelf_life_days", "shelf life days", "shelf_life",
+                      "shelf life", "expiry_days", "expiry days"],
+    drawing_number: ["drawing_number", "drawing number", "dwg_number", "dwg number",
+                     "drawing_no", "drawing no", "dwg", "drawing"],
+    revision: ["revision", "rev", "bom_revision", "version", "drawing_revision"],
+    regulatory_class: ["regulatory_class", "regulatory class", "reg_class", "reg class",
+                       "regulatory", "device_class", "risk_class"],
   },
   suppliers: {
     supplier_code: ["supplier_code", "supplier code", "suppliercode", "vendor_code",

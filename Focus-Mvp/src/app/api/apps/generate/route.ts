@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import Anthropic from "@anthropic-ai/sdk";
 import type { CustomAppConfig } from "@/components/apps/widgets/types";
 import { checkTokenBudget, recordTokenUsage } from "@/lib/usage/token-tracker";
+import { sanitizeForApi } from "@/lib/utils/sanitize";
 
 // ---------------------------------------------------------------------------
 // System prompt — comprehensive with all entities, advanced features, examples
@@ -109,28 +110,28 @@ Example — Scrap rate:
 ## Widget Config Examples
 
 ### stat_card
-{ "id": "total-po-value", "type": "stat_card", "title": "Open PO Value", "query": { "entity": "purchase_orders", "aggregation": "sum", "field": "totalAmount", "filters": [{ "field": "status", "op": "ne", "value": "RECEIVED" }, { "field": "status", "op": "ne", "value": "CANCELLED" }] }, "display": { "format": "currency", "color": "blue" }, "size": "sm" }
+{ "id": "total-po-value", "type": "stat_card", "title": "Open PO Value", "query": { "entity": "purchase_orders", "aggregation": "sum", "field": "line_value", "filters": [{ "field": "status", "op": "ne", "value": "RECEIVED" }, { "field": "status", "op": "ne", "value": "CANCELLED" }] }, "display": { "format": "currency", "color": "blue" }, "size": "sm" }
 
 ### bar_chart
 { "id": "po-by-status", "type": "bar_chart", "title": "POs by Status", "query": { "entity": "purchase_orders", "aggregation": "count", "groupBy": "status" }, "display": { "valueField": "value", "labelField": "label" }, "size": "md" }
 
 ### pie_chart
-{ "id": "products-by-category", "type": "pie_chart", "title": "Products by Category", "query": { "entity": "products", "aggregation": "count", "groupBy": "category" }, "display": { "valueField": "value", "labelField": "label" }, "size": "md" }
+{ "id": "products-by-type", "type": "pie_chart", "title": "Products by Type", "query": { "entity": "products", "aggregation": "count", "groupBy": "type" }, "display": { "valueField": "value", "labelField": "label" }, "size": "md" }
 
 ### line_chart with timeBucket
-{ "id": "po-trend-monthly", "type": "line_chart", "title": "PO Volume by Month", "query": { "entity": "purchase_orders", "aggregation": "sum", "field": "totalAmount", "groupBy": "createdAt", "timeBucket": "month" }, "display": { "format": "currency", "valueField": "value", "labelField": "label" }, "size": "md" }
+{ "id": "po-trend-monthly", "type": "line_chart", "title": "PO Volume by Month", "query": { "entity": "purchase_orders", "aggregation": "sum", "field": "line_value", "groupBy": "order_date", "timeBucket": "month" }, "display": { "format": "currency", "valueField": "value", "labelField": "label" }, "size": "md" }
 
 ### table
-{ "id": "recent-pos", "type": "table", "title": "Recent Purchase Orders", "query": { "entity": "purchase_orders", "sort": { "field": "createdAt", "dir": "desc" }, "limit": 10 }, "display": { "columns": [{ "key": "poNumber", "label": "PO #" }, { "key": "supplier.name", "label": "Supplier" }, { "key": "status", "label": "Status" }, { "key": "totalAmount", "label": "Amount", "format": "currency" }, { "key": "expectedDate", "label": "Expected", "format": "date" }] }, "size": "full" }
+{ "id": "recent-pos", "type": "table", "title": "Recent Purchase Orders", "query": { "entity": "purchase_orders", "sort": { "field": "order_date", "dir": "desc" }, "limit": 10 }, "display": { "columns": [{ "key": "po_number", "label": "PO #" }, { "key": "supplier_name", "label": "Supplier" }, { "key": "status", "label": "Status" }, { "key": "line_value", "label": "Amount", "format": "currency" }, { "key": "expected_date", "label": "Expected", "format": "date" }] }, "size": "full" }
 
 ### alert_list
-{ "id": "overdue-pos", "type": "alert_list", "title": "Overdue Purchase Orders", "query": { "entity": "purchase_orders", "filters": [{ "field": "expectedDate", "op": "lt", "value": "TODAY" }, { "field": "status", "op": "ne", "value": "RECEIVED" }, { "field": "status", "op": "ne", "value": "CANCELLED" }], "sort": { "field": "expectedDate", "dir": "asc" }, "limit": 20 }, "display": { "columns": [{ "key": "poNumber", "label": "PO #" }, { "key": "supplier.name", "label": "Supplier" }, { "key": "expectedDate", "label": "Due Date", "format": "date" }, { "key": "totalAmount", "label": "Amount", "format": "currency" }] }, "size": "full" }
+{ "id": "overdue-pos", "type": "alert_list", "title": "Overdue Purchase Orders", "query": { "entity": "purchase_orders", "filters": [{ "field": "expected_date", "op": "lt", "value": "TODAY" }, { "field": "status", "op": "ne", "value": "RECEIVED" }, { "field": "status", "op": "ne", "value": "CANCELLED" }], "sort": { "field": "expected_date", "dir": "asc" }, "limit": 20 }, "display": { "columns": [{ "key": "po_number", "label": "PO #" }, { "key": "supplier_name", "label": "Supplier" }, { "key": "expected_date", "label": "Due Date", "format": "date" }, { "key": "line_value", "label": "Amount", "format": "currency" }] }, "size": "full" }
 
 ### progress_bar (fill rate)
 { "id": "wo-fill-rate", "type": "progress_bar", "title": "Production Fill Rate", "query": { "entity": "work_orders", "computedField": { "operation": "percentage", "numerator": "actualQty", "denominator": "plannedQty" } }, "display": { "format": "percentage", "color": "green", "targetValue": 100 }, "size": "sm" }
 
 ### customer table
-{ "id": "top-customers", "type": "table", "title": "Top Customers", "query": { "entity": "customers", "sort": { "field": "creditLimit", "dir": "desc" }, "limit": 10 }, "display": { "columns": [{ "key": "name", "label": "Customer" }, { "key": "country", "label": "Country" }, { "key": "creditLimit", "label": "Credit Limit", "format": "currency" }, { "key": "paymentTerms", "label": "Terms" }] }, "size": "full" }
+{ "id": "top-customers", "type": "table", "title": "Top Customers", "query": { "entity": "customers", "sort": { "field": "credit_limit", "dir": "desc" }, "limit": 10 }, "display": { "columns": [{ "key": "name", "label": "Customer" }, { "key": "country", "label": "Country" }, { "key": "credit_limit", "label": "Credit Limit", "format": "currency" }, { "key": "payment_terms", "label": "Terms" }] }, "size": "full" }
 
 ### forecast trend
 { "id": "demand-forecast", "type": "line_chart", "title": "Demand Forecast by Period", "query": { "entity": "forecasts", "aggregation": "sum", "field": "qty", "groupBy": "period" }, "display": { "valueField": "value", "labelField": "label", "format": "number" }, "size": "md" }
@@ -166,7 +167,7 @@ Example — Scrap rate:
 - "sales" or "revenue" → SO-focused: revenue stat, customer breakdown, status pipeline, trend
 - "quality" → Use products/lots entities with filtering
 - "customer" → Customer count, country breakdown, credit limits, top customers table
-- "inventory" or "warehouse" → Inventory by location/category (use groupBy: "location.name" on inventory entity), stock alerts, days of supply, reorder needs
+- "inventory" or "warehouse" → Inventory by location/category (use groupBy: "location_code" on inventory entity, groupBy: "type" on products entity), stock alerts, days of supply, reorder needs
 - "forecast" or "demand" → Forecast trend line, forecast by type, planned vs actual comparison
 - "supplier" → Supplier count, country distribution, lead times, PO values per supplier
 - When the user mentions "overdue", filter by date < TODAY
@@ -194,7 +195,7 @@ Properties:
 Other widgets reference the filter_bar by adding: interactions: { listenTo: ["<filter-bar-id>"] }
 
 Example:
-{ "id": "filters", "type": "filter_bar", "title": "Filters", "query": { "entity": "products", "aggregation": "count" }, "size": "full", "filterOptions": [{ "field": "product.category", "label": "Category", "type": "select", "entity": "products", "optionsField": "category" }, { "field": "name", "label": "Search", "type": "search" }] }
+{ "id": "filters", "type": "filter_bar", "title": "Filters", "query": { "entity": "products", "aggregation": "count" }, "size": "full", "filterOptions": [{ "field": "type", "label": "Type", "type": "select", "entity": "products", "optionsField": "type" }, { "field": "sku", "label": "Search", "type": "search" }] }
 
 ### form
 An input form for creating or updating records. Supports multi-step wizards and conditional fields.
@@ -205,13 +206,13 @@ Properties:
 - formFields: array of { key, label, type, required?, placeholder?, options?, optionsFrom?, defaultValue?, step?, showWhen? }
   - type: "text", "number", "select", "date", "textarea"
   - options: static { label, value } pairs for select
-  - optionsFrom: { entity, field } to fetch dynamic options from the database. Works with ANY entity and ANY top-level field (e.g., { entity: "products", field: "sku" }, { entity: "products", field: "category" }, { entity: "suppliers", field: "name" }, etc.). The dropdown will auto-populate with distinct values.
+  - optionsFrom: { entity, field } to fetch dynamic options from the database. Works with ANY entity and ANY top-level field (e.g., { entity: "products", field: "sku" }, { entity: "products", field: "type" }, { entity: "suppliers", field: "name" }, etc.). The dropdown will auto-populate with distinct values.
   - step: (number, 1-based) assign fields to steps for multi-step wizard forms
   - showWhen: { field, value } — conditionally show field when another field has a specific value
 - formAction: { type: "create" | "update", entity: "<entity>" }
 
 Example — Multi-step product creation:
-{ "id": "add-product", "type": "form", "title": "Add Product", "query": { "entity": "products", "aggregation": "count" }, "size": "md", "formFields": [{ "key": "sku", "label": "SKU", "type": "text", "required": true, "step": 1 }, { "key": "name", "label": "Name", "type": "text", "required": true, "step": 1 }, { "key": "type", "label": "Type", "type": "select", "options": [{"label":"Finished Good","value":"FINISHED_GOOD"},{"label":"Raw Material","value":"RAW_MATERIAL"}], "step": 1 }, { "key": "category", "label": "Category", "type": "select", "optionsFrom": { "entity": "products", "field": "category" }, "step": 2 }, { "key": "unitCost", "label": "Unit Cost", "type": "number", "step": 2 }, { "key": "leadTimeDays", "label": "Lead Time (days)", "type": "number", "showWhen": { "field": "type", "value": "RAW_MATERIAL" }, "step": 2 }], "formAction": { "type": "create", "entity": "products" } }
+{ "id": "add-product", "type": "form", "title": "Add Product", "query": { "entity": "products", "aggregation": "count" }, "size": "md", "formFields": [{ "key": "sku", "label": "SKU", "type": "text", "required": true, "step": 1 }, { "key": "name", "label": "Name", "type": "text", "required": true, "step": 1 }, { "key": "type", "label": "Type", "type": "select", "options": [{"label":"Finished Good","value":"FINISHED_GOOD"},{"label":"Raw Material","value":"RAW_MATERIAL"}], "step": 1 }, { "key": "product_family", "label": "Product Family", "type": "select", "optionsFrom": { "entity": "products", "field": "product_family" }, "step": 2 }, { "key": "unit_cost", "label": "Unit Cost", "type": "number", "step": 2 }, { "key": "lead_time_days", "label": "Lead Time (days)", "type": "number", "showWhen": { "field": "type", "value": "RAW_MATERIAL" }, "step": 2 }], "formAction": { "type": "create", "entity": "products" } }
 
 ### Table with action buttons
 Tables now support: search, column sorting, pagination (15 rows/page), bulk select + bulk delete, detail panel slide-out, and row actions.
@@ -230,7 +231,7 @@ Properties:
 Tables automatically paginate at 15 rows, with column headers clickable for sorting.
 
 Example — PO management table with detail panel:
-{ "id": "po-mgmt", "type": "table", "title": "Manage Purchase Orders", "query": { "entity": "purchase_orders", "sort": { "field": "createdAt", "dir": "desc" }, "limit": 50 }, "display": { "columns": [{ "key": "poNumber", "label": "PO #" }, { "key": "supplier.name", "label": "Supplier" }, { "key": "status", "label": "Status" }, { "key": "totalAmount", "label": "Amount", "format": "currency" }] }, "detailPanel": true, "bulkActions": true, "actions": [{ "label": "Confirm", "type": "updateStatus", "targetStatus": "CONFIRMED", "color": "blue", "showWhen": { "field": "status", "op": "eq", "value": "DRAFT" } }, { "label": "Mark Received", "type": "updateStatus", "targetStatus": "RECEIVED", "color": "green", "showWhen": { "field": "status", "op": "eq", "value": "CONFIRMED" } }, { "label": "Cancel", "type": "updateStatus", "targetStatus": "CANCELLED", "color": "red", "confirm": true }], "size": "full" }
+{ "id": "po-mgmt", "type": "table", "title": "Manage Purchase Orders", "query": { "entity": "purchase_orders", "sort": { "field": "order_date", "dir": "desc" }, "limit": 50 }, "display": { "columns": [{ "key": "po_number", "label": "PO #" }, { "key": "supplier_name", "label": "Supplier" }, { "key": "status", "label": "Status" }, { "key": "line_value", "label": "Amount", "format": "currency" }] }, "detailPanel": true, "bulkActions": true, "actions": [{ "label": "Confirm", "type": "updateStatus", "targetStatus": "CONFIRMED", "color": "blue", "showWhen": { "field": "status", "op": "eq", "value": "DRAFT" } }, { "label": "Mark Received", "type": "updateStatus", "targetStatus": "RECEIVED", "color": "green", "showWhen": { "field": "status", "op": "eq", "value": "CONFIRMED" } }, { "label": "Cancel", "type": "updateStatus", "targetStatus": "CANCELLED", "color": "red", "confirm": true }], "size": "full" }
 
 ### detail_view
 A table that automatically opens a slide-out detail panel when any row is clicked. The panel shows all fields with labels and supports inline editing + save.
@@ -252,7 +253,7 @@ Example — Work Order Kanban:
 { "id": "wo-kanban", "type": "kanban", "title": "Work Order Board", "query": { "entity": "work_orders", "limit": 100 }, "size": "full", "kanbanStatusField": "status", "kanbanColumns": ["PLANNED", "RELEASED", "IN_PROGRESS", "COMPLETED"], "kanbanTitleField": "woNumber", "kanbanCardFields": ["sku", "plannedQty"] }
 
 Example — PO Pipeline:
-{ "id": "po-kanban", "type": "kanban", "title": "PO Pipeline", "query": { "entity": "purchase_orders", "limit": 50 }, "size": "full", "kanbanStatusField": "status", "kanbanColumns": ["DRAFT", "SENT", "CONFIRMED", "PARTIAL", "RECEIVED"], "kanbanTitleField": "poNumber", "kanbanCardFields": ["supplier.name", "totalAmount"] }
+{ "id": "po-kanban", "type": "kanban", "title": "PO Pipeline", "query": { "entity": "purchase_orders", "limit": 50 }, "size": "full", "kanbanStatusField": "status", "kanbanColumns": ["DRAFT", "SENT", "CONFIRMED", "PARTIAL", "RECEIVED"], "kanbanTitleField": "po_number", "kanbanCardFields": ["supplier_name", "line_value"] }
 
 ### insight (AI-generated analysis)
 An AI-powered analysis widget that fetches data from multiple entities, sends it to Claude for analysis, and renders the response as styled markdown (bullet points, bold text, headers).
@@ -297,8 +298,8 @@ Stat cards can show a mini trend chart (sparkline) with period-over-period chang
 
 Properties:
 - sparkline: { entity, dateField, valueField, aggregation, timeBucket, periods? }
-  - dateField: the date field to bucket (e.g., "createdAt")
-  - valueField: the numeric field to aggregate (e.g., "totalAmount")
+  - dateField: the date field to bucket (e.g., "order_date" for purchase_orders, "order_date" for sales_orders, "last_receipt_date" for inventory)
+  - valueField: the numeric field to aggregate (e.g., "line_value" for purchase_orders, "quantity" for inventory)
   - aggregation: "count" | "sum" | "avg"
   - timeBucket: "day" | "week" | "month" | "quarter"
   - periods: number of time periods to show (default 12)
@@ -306,7 +307,7 @@ Properties:
 The sparkline automatically shows an up/down trend indicator comparing the last two periods.
 
 Example — Monthly PO value with sparkline:
-{ "id": "po-value", "type": "stat_card", "title": "Open PO Value", "query": { "entity": "purchase_orders", "aggregation": "sum", "field": "totalAmount", "filters": [{ "field": "status", "op": "ne", "value": "RECEIVED" }, { "field": "status", "op": "ne", "value": "CANCELLED" }] }, "display": { "format": "currency", "description": "vs last month" }, "sparkline": { "entity": "purchase_orders", "dateField": "createdAt", "valueField": "totalAmount", "aggregation": "sum", "timeBucket": "month", "periods": 6 }, "size": "sm" }
+{ "id": "po-value", "type": "stat_card", "title": "Open PO Value", "query": { "entity": "purchase_orders", "aggregation": "sum", "field": "line_value", "filters": [{ "field": "status", "op": "ne", "value": "RECEIVED" }, { "field": "status", "op": "ne", "value": "CANCELLED" }] }, "display": { "format": "currency", "description": "vs last month" }, "sparkline": { "entity": "purchase_orders", "dateField": "order_date", "valueField": "line_value", "aggregation": "sum", "timeBucket": "month", "periods": 6 }, "size": "sm" }
 
 ## Widget Interactions
 
@@ -525,8 +526,11 @@ export async function POST(req: Request) {
         const response = await client.messages.create({
           model: "claude-sonnet-4-6",
           max_tokens: 16384,
-          system: SYSTEM_PROMPT + "\n\n" + dataContext,
-          messages,
+          system: sanitizeForApi(SYSTEM_PROMPT + "\n\n" + dataContext),
+          messages: messages.map((m: { role: "user" | "assistant"; content: string }) => ({
+            ...m,
+            content: sanitizeForApi(m.content),
+          })),
           stream: true,
         });
 

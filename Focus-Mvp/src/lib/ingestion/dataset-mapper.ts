@@ -23,10 +23,14 @@ function normalise(s: string): string {
 }
 
 export interface MappingResult {
-  /** canonical field → source CSV column header */
+  /** canonical field → primary source CSV column header */
   mapping: Record<string, string>;
   /** canonical field → confidence score 0..1 */
   confidence: Record<string, number>;
+  /** canonical field → ALL candidate source headers ordered best-first.
+   *  Used by applyDatasetMapping to coalesce across multiple columns that
+   *  alias to the same field (e.g. "SKU", "Item No", "Product Code"). */
+  fallbackMapping: Record<string, string[]>;
   /** columns not mapped to any canonical field */
   unmappedColumns: string[];
   /** canonical fields not covered by any column */
@@ -91,22 +95,74 @@ export function suggestDatasetMapping(
     }
   }
 
+  // Second pass: for each field, collect ALL headers (including those claimed
+  // by other fields) that score ≥ 0.6, ordered best-first. Used by
+  // applyDatasetMapping to coalesce across multiple columns that alias to the
+  // same canonical field (e.g. a messy CSV where "SKU", "Item No", and
+  // "Product Code" all carry the same data but only one column is filled per row).
+  const fallbackMapping: Record<string, string[]> = {};
+  for (const fieldKey of fields) {
+    const fieldAliases = (aliases as Record<string, string[]> | undefined)?.[fieldKey] ?? [];
+    const candidates = [fieldKey, ...fieldAliases].map(normalise);
+
+    const scored: Array<{ header: string; score: number }> = [];
+    for (const { orig, norm } of normHeaders) {
+      let bestScore = 0;
+      for (const alias of candidates) {
+        if (norm === alias) {
+          bestScore = Math.max(bestScore, 1.0);
+        } else if (norm.includes(alias) || alias.includes(norm)) {
+          const score =
+            Math.min(norm.length, alias.length) /
+            Math.max(norm.length, alias.length);
+          bestScore = Math.max(bestScore, score);
+        }
+      }
+      if (bestScore >= 0.6) {
+        scored.push({ header: orig, score: bestScore });
+      }
+    }
+
+    if (scored.length > 0) {
+      scored.sort((a, b) => b.score - a.score);
+      fallbackMapping[fieldKey] = scored.map((s) => s.header);
+    }
+  }
+
   const unmappedColumns = headers.filter((h) => !mappedHeaders.has(h));
   const unmappedFields = fields.filter((f) => !mapping[f]);
 
-  return { mapping, confidence, unmappedColumns, unmappedFields };
+  return { mapping, confidence, fallbackMapping, unmappedColumns, unmappedFields };
 }
 
+/** Sentinel values that are treated as "empty" during fallback coalescing.
+ *  Avoids propagating literal text artefacts from messy CSVs. */
+const EMPTY_SENTINELS = new Set(["null", "n/a", "na", "none", "-", "--", ""]);
+
 /** Apply a canonical→source mapping to turn one raw CSV row into a
- *  canonical-key-keyed object ready for record-importer's coercion. */
+ *  canonical-key-keyed object ready for record-importer's coercion.
+ *
+ *  When `fallbackMapping` is provided, each canonical field is resolved
+ *  by iterating through its candidate source columns in order and using
+ *  the first non-empty, non-sentinel value. This handles messy CSVs where
+ *  the same data (e.g. a SKU) is spread across multiple columns that are
+ *  only partially filled per row. */
 export function applyDatasetMapping(
   row: Record<string, string>,
   mapping: Record<string, string>,
+  fallbackMapping?: Record<string, string[]>,
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  for (const [canonicalKey, sourceHeader] of Object.entries(mapping)) {
-    if (sourceHeader && row[sourceHeader] !== undefined) {
-      result[canonicalKey] = row[sourceHeader];
+  for (const [canonicalKey, primaryHeader] of Object.entries(mapping)) {
+    const candidates = fallbackMapping?.[canonicalKey] ?? [primaryHeader];
+    for (const col of candidates) {
+      if (!col) continue;
+      const raw = row[col];
+      if (raw === undefined || raw === null) continue;
+      const str = String(raw).trim();
+      if (EMPTY_SENTINELS.has(str.toLowerCase())) continue;
+      result[canonicalKey] = raw;
+      break;
     }
   }
   return result;

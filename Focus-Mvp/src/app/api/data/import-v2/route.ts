@@ -28,7 +28,19 @@ export async function POST(req: Request) {
   );
   if (!perms.import) return forbidden();
 
-  const formData = await req.formData();
+  let formData: FormData;
+  try {
+    formData = await req.formData();
+  } catch {
+    return NextResponse.json(
+      {
+        error:
+          "Could not read the uploaded file. Please make sure you are uploading a CSV (.csv) or Excel (.xlsx / .xls) file.",
+      },
+      { status: 400 },
+    );
+  }
+
   const file = formData.get("file") as File | null;
   const datasetRaw = formData.get("dataset") as string | null;
   const importMode =
@@ -36,6 +48,25 @@ export async function POST(req: Request) {
 
   if (!file) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
+  }
+
+  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+  if (file.size > MAX_FILE_SIZE) {
+    return NextResponse.json(
+      { error: "File too large. Maximum allowed size is 50 MB." },
+      { status: 413 },
+    );
+  }
+
+  const allowedExtensions = [".csv", ".xlsx", ".xls"];
+  const fileExt = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+  if (!allowedExtensions.includes(fileExt)) {
+    return NextResponse.json(
+      {
+        error: `Unsupported file type "${fileExt}". Please upload a CSV (.csv) or Excel (.xlsx / .xls) file.`,
+      },
+      { status: 400 },
+    );
   }
   if (!datasetRaw || !(datasetRaw in DATASETS)) {
     return NextResponse.json(
@@ -82,7 +113,7 @@ export async function POST(req: Request) {
   // `unmappedColumns` from the alias pass is intentionally discarded —
   // we recompute it after the AI merge below so the response reflects
   // the final state (AI may rescue some of these, leave others).
-  const { mapping, confidence } = suggestDatasetMapping(
+  const { mapping, confidence, fallbackMapping } = suggestDatasetMapping(
     parsed.headers,
     dataset,
   );
@@ -218,6 +249,7 @@ export async function POST(req: Request) {
         dataset,
         mapping: finalMapping,
         confidence,
+        fallbackMapping,
         importMode,
         rawData: parsed.rows.slice(0, 10),
         rawFileBase64: buffer.toString("base64"),

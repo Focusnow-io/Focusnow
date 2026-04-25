@@ -34,6 +34,7 @@ export async function POST(
     const config = source.mappingConfig as {
       dataset?: DatasetName;
       mapping?: Record<string, string>;
+      fallbackMapping?: Record<string, string[]>;
       importMode?: "merge" | "replace";
       rawFileBase64?: string;
       rawFileType?: "csv" | "xlsx";
@@ -76,13 +77,14 @@ export async function POST(
     // (number/boolean/date) happens inside record-importer so the dataset
     // definitions stay the single source of truth.
     const canonicalRows = parsed.rows.map((row) =>
-      applyDatasetMapping(row, config.mapping!),
+      applyDatasetMapping(row, config.mapping!, config.fallbackMapping),
     );
 
     const datasetDef = DATASETS[config.dataset];
     const importDataset = await prisma.importDataset.create({
       data: {
         organizationId: ctx.org.id,
+        dataSourceId: id,
         name: config.dataset,
         label: datasetDef.label,
         sourceFile: source.originalName,

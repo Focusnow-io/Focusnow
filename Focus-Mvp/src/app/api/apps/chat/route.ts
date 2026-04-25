@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import Anthropic from "@anthropic-ai/sdk";
 import { checkTokenBudget, recordTokenUsage } from "@/lib/usage/token-tracker";
 import { buildOrgContext } from "@/lib/chat/build-context";
+import { sanitizeForApi } from "@/lib/utils/sanitize";
 
 /**
  * Apps chat — streaming Anthropic response with a dataset-vocabulary
@@ -61,20 +62,10 @@ export async function POST(req: Request) {
       ? await buildOrgContext(ctx.org.id)
       : "_No data has been imported yet. Ask the user to upload a CSV from the Import page before answering operational questions._";
 
-  // Active Brain rules — lightweight, useful for the AI to reference
-  // policy when making recommendations.
-  const rules = await prisma.brainRule.findMany({
-    where: { organizationId: ctx.org.id, status: "ACTIVE" },
-    select: { name: true, category: true },
-  });
-
   const systemPrompt = `You are Focus, a world-class supply chain and operations expert serving ${ctx.org.name}. You bring the depth of a seasoned VP of Supply Chain with 20+ years across procurement, inventory management, demand planning, manufacturing operations, and supplier relationship management. You are fluent in best practices (lean, JIT, S&OP, ABC/XYZ analysis, safety stock optimization, EOQ, MRP/MRP II) and apply them naturally when advising.
 
 ## Available Data
 ${orgContext}
-
-### Active Brain Rules (${rules.length})
-${rules.map((r) => `- ${r.name} (${r.category})`).join("\n") || "No active rules"}
 
 ## Response Guidelines
 
@@ -109,10 +100,10 @@ You are a world-class supply chain expert and precise operations analyst. Respon
         const anthropicStream = anthropic.messages.stream({
           model: "claude-opus-4-6",
           max_tokens: 2048,
-          system: systemPrompt,
+          system: sanitizeForApi(systemPrompt),
           messages: messages.map((m: { role: string; content: string }) => ({
             role: m.role as "user" | "assistant",
-            content: m.content,
+            content: sanitizeForApi(m.content),
           })),
         });
 

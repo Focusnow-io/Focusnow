@@ -318,6 +318,38 @@ async function executeQueryRecords(
       offset,
     });
 
+    // If the query returned nothing AND there are filters/search applied,
+    // check whether the dataset itself has any records. This lets the AI
+    // distinguish "no records match your filter" from "this dataset was
+    // never imported" and give the user an accurate explanation.
+    const hasFilters =
+      Object.keys(filters ?? {}).length > 0 || (search ?? "").length > 0;
+    if (result.total === 0 && hasFilters) {
+      const datasetTotal = await queryRecords({ dataset, orgId, limit: 1 });
+      if (datasetTotal.total === 0) {
+        return {
+          rows: [],
+          totalCount: 0,
+          returnedCount: 0,
+          dataset,
+          datasetNotImported: true,
+          note: `The "${dataset}" dataset has not been imported yet. Please upload a CSV for this data first.`,
+        };
+      }
+    }
+
+    // Even with no filters, a 0 total means no data imported for this dataset.
+    if (result.total === 0) {
+      return {
+        rows: [],
+        totalCount: 0,
+        returnedCount: 0,
+        dataset,
+        datasetNotImported: true,
+        note: `The "${dataset}" dataset has not been imported yet. Please upload a CSV for this data first.`,
+      };
+    }
+
     return {
       rows: result.rows,
       totalCount: result.total,
@@ -351,6 +383,21 @@ async function executeAggregateRecords(
       filters: (input.filters ?? {}) as Record<string, unknown>,
       rawWhere: typeof input.rawWhere === "string" ? input.rawWhere : undefined,
     });
+    // If COUNT returned 0, check whether this is "no data imported" vs
+    // "data exists but nothing matches the filter".
+    if (metric === "COUNT" && typeof result.result === "number" && result.result === 0) {
+      const datasetTotal = await aggregateRecords({ dataset, orgId, metric: "COUNT" }).catch(() => ({ result: 0 }));
+      if (Number(datasetTotal.result) === 0) {
+        return {
+          result: 0,
+          dataset,
+          metric,
+          datasetNotImported: true,
+          note: `The "${dataset}" dataset has not been imported yet. Please upload a CSV for this data first.`,
+        };
+      }
+    }
+
     return { ...result, dataset, metric };
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };

@@ -79,6 +79,13 @@ function buildFilterFragment(
 ): Prisma.Sql | null {
   if (value === null || value === undefined) return null;
 
+  // Skip filters on fields not declared in the dataset vocabulary — this
+  // gracefully handles old app configs that reference fields which have
+  // since been renamed or were never part of this dataset. Security is
+  // maintained: we only skip (not inject) unknown identifiers.
+  const fields = DATASETS[dataset].fields as Record<string, unknown>;
+  if (!(field in fields)) return null;
+
   const type = fieldType(dataset, field);
   const asNumeric = type === "number";
 
@@ -134,7 +141,10 @@ function buildOrderBy(
   orderBy: QueryOptions["orderBy"],
 ): Prisma.Sql {
   if (!orderBy) return Prisma.sql`"importedAt" DESC`;
-  assertField(dataset, orderBy.field);
+  // Fall back to default ordering if the field isn't in the dataset
+  // (handles old app configs with renamed/removed sort fields).
+  const fields = DATASETS[dataset].fields as Record<string, unknown>;
+  if (!(orderBy.field in fields)) return Prisma.sql`"importedAt" DESC`;
   const asNumeric = fieldType(dataset, orderBy.field) === "number";
   const col = colExpr(dataset, orderBy.field, asNumeric);
   const dir = orderBy.direction === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
@@ -153,7 +163,7 @@ export async function queryRecords(opts: QueryOptions): Promise<QueryResult> {
     offset = 0,
   } = opts;
 
-  const clampedLimit = Math.min(Math.max(1, limit), 500);
+  const clampedLimit = Math.min(Math.max(1, limit), 5000);
   const clampedOffset = Math.max(0, offset);
 
   const conditions: Prisma.Sql[] = [
@@ -180,9 +190,9 @@ export async function queryRecords(opts: QueryOptions): Promise<QueryResult> {
   const order = buildOrderBy(dataset, orderBy);
 
   const [rowResult, countResult] = await Promise.all([
-    prisma.$queryRaw<Array<{ data: Prisma.JsonValue }>>(
+    prisma.$queryRaw<Array<{ id: string; data: Prisma.JsonValue }>>(
       Prisma.sql`
-        SELECT "data"
+        SELECT "id", "data"
         FROM "ImportRecord"
         WHERE ${where}
         ORDER BY ${order}
@@ -199,7 +209,12 @@ export async function queryRecords(opts: QueryOptions): Promise<QueryResult> {
   ]);
 
   return {
-    rows: rowResult.map((r) => r.data as Record<string, unknown>),
+    // Inject the ImportRecord primary key as `id` so widgets can reference
+    // it for delete/update operations via /api/apps/widget-action.
+    rows: rowResult.map((r) => ({
+      id: r.id,
+      ...(r.data as Record<string, unknown>),
+    })),
     total: Number(countResult[0]?.count ?? 0),
     returnedCount: rowResult.length,
   };

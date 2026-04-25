@@ -93,24 +93,24 @@ export async function DELETE(
   });
   if (!source) return notFound();
 
-  // Find any ImportDataset rows created by this source (by matching
-  // sourceFile + created within the source's window). The upload-v2
-  // flow sets sourceFile = DataSource.originalName, so this is a safe
-  // linking key. ImportDataset has an onDelete: Cascade to ImportRecord,
-  // so deleting the dataset also removes every row it created.
-  const dataset = source.originalName
-    ? await prisma.importDataset.findFirst({
-        where: {
-          organizationId: orgId,
-          sourceFile: source.originalName,
-        },
-        orderBy: { importedAt: "desc" },
-        select: { id: true },
-      })
-    : null;
+  // Find the ImportDataset created by this source upload.
+  const importDataset = await prisma.importDataset.findFirst({
+    where: { dataSourceId: id, organizationId: orgId },
+    select: { id: true, name: true, importMode: true },
+  });
 
-  if (dataset) {
-    await prisma.importDataset.delete({ where: { id: dataset.id } });
+  if (importDataset) {
+    // Always delete only the ImportRecords that belong to this specific
+    // upload (identified by datasetId), then the ImportDataset row.
+    // This applies to both replace and merge modes — it subtracts only
+    // what this file contributed and leaves records from other uploads intact.
+    // (In replace mode the import already cleared previous records and
+    // re-created them all under this datasetId, so this still removes
+    // everything that came from this file.)
+    await prisma.importRecord.deleteMany({
+      where: { datasetId: importDataset.id },
+    });
+    await prisma.importDataset.delete({ where: { id: importDataset.id } });
   }
 
   await prisma.dataSource.delete({ where: { id } });

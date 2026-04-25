@@ -11,8 +11,33 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { DATASETS, buildExternalId, type DatasetName } from "./datasets";
+
+/** Build a JSONB SET fragment that adds `accumulate: true` field values
+ *  on top of the standard `||` merge. Returns the extra jsonb_build_object
+ *  to overlay, or an empty string when the dataset has no accumulate fields. */
+function buildAccumulateOverlay(datasetName: DatasetName): string {
+  const fields = DATASETS[datasetName].fields as Record<
+    string,
+    { type: string; accumulate?: boolean }
+  >;
+  const accFields = Object.entries(fields)
+    .filter(([, def]) => def.accumulate === true)
+    .map(([key]) => key);
+
+  if (accFields.length === 0) return "";
+
+  // Build: jsonb_build_object('field', coalesce(old::numeric,0) + coalesce(new::numeric,0), ...)
+  const pairs = accFields
+    .map(
+      (k) =>
+        `'${k}', to_jsonb(COALESCE(("ImportRecord".data->>'${k}')::numeric, 0) + COALESCE((EXCLUDED.data->>'${k}')::numeric, 0))`,
+    )
+    .join(", ");
+
+  return `|| jsonb_build_object(${pairs})`;
+}
 
 export interface ImportRowResult {
   created: number;
@@ -116,50 +141,45 @@ export async function importRecords(
             return;
           }
 
-          const existing = await prisma.importRecord.findUnique({
-            where: {
-              organizationId_datasetName_externalId: {
-                organizationId: orgId,
-                datasetName,
-                externalId,
-              },
-            },
-            select: { id: true, data: true },
-          });
+          // Atomic upsert — eliminates the findUnique+create race condition
+          // that fires when two rows in the same Promise.all batch share
+          // the same externalId (both read null, both try to create, second
+          // hits the unique constraint).
+          //
+          // In merge mode, `accumulate: true` fields (e.g. inventory.quantity)
+          // have their values ADDED to the existing stored value instead of
+          // being overwritten. All other fields are overwritten by the new value.
+          const isMerge = importMode === "merge";
+          const jsonData = JSON.stringify(data);
+          // accOverlay is a safe SQL fragment (field names come from the
+          // DATASETS constant, not user input) appended to the || merge.
+          const accOverlay = isMerge ? Prisma.raw(buildAccumulateOverlay(datasetName)) : Prisma.raw("");
 
-          if (existing) {
-            // Merge: union new fields over stored ones so re-importing a
-            // subset of columns doesn't wipe the rest. Replace: stored
-            // fields were already wiped by deleteMany — we'll only hit
-            // this branch for duplicate rows within the same file, where
-            // last-write-wins is fine.
-            const nextData =
-              importMode === "merge"
-                ? {
-                    ...((existing.data as Record<string, unknown>) ?? {}),
-                    ...data,
-                  }
-                : data;
-            await prisma.importRecord.update({
-              where: { id: existing.id },
-              data: {
-                data: nextData as Prisma.InputJsonValue,
-                datasetId,
-                importedAt: new Date(),
-              },
-            });
-            result.updated++;
-          } else {
-            await prisma.importRecord.create({
-              data: {
-                organizationId: orgId,
-                datasetId,
-                datasetName,
-                externalId,
-                data: data as Prisma.InputJsonValue,
-              },
-            });
+          const upsertResult = await prisma.$queryRaw<[{ inserted: boolean }]>`
+            INSERT INTO "ImportRecord" (id, "organizationId", "datasetId", "datasetName", "externalId", data, "importedAt")
+            VALUES (
+              gen_random_uuid(),
+              ${orgId},
+              ${datasetId},
+              ${datasetName},
+              ${externalId},
+              ${jsonData}::jsonb,
+              NOW()
+            )
+            ON CONFLICT ("organizationId", "datasetName", "externalId") DO UPDATE SET
+              data = CASE
+                WHEN ${isMerge} THEN "ImportRecord".data || EXCLUDED.data ${accOverlay}
+                ELSE EXCLUDED.data
+              END,
+              "datasetId" = EXCLUDED."datasetId",
+              "importedAt" = NOW()
+            RETURNING (xmax = 0) AS inserted
+          `;
+
+          if (upsertResult[0]?.inserted) {
             result.created++;
+          } else {
+            result.updated++;
           }
         } catch (err) {
           result.errors.push({

@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatDate(date: Date | string | null): string {
-  if (!date) return "—";
+  if (!date) return "-";
   return new Date(date).toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
@@ -15,7 +15,7 @@ export function formatDate(date: Date | string | null): string {
 }
 
 export function formatNumber(n: number | null | undefined): string {
-  if (n == null) return "—";
+  if (n == null) return "0";
   return new Intl.NumberFormat("en-US").format(n);
 }
 
@@ -23,7 +23,7 @@ export function formatCurrency(
   n: number | string | null | undefined,
   currency = "USD"
 ): string {
-  if (n == null) return "—";
+  if (n == null) return "0";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency,

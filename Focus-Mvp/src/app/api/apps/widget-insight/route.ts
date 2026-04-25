@@ -3,6 +3,7 @@ import { runQuery, filterCompatibleFilters } from "@/lib/widget-query";
 import type { DataQuery } from "@/components/apps/widgets/types";
 import Anthropic from "@anthropic-ai/sdk";
 import { checkTokenBudget, recordTokenUsage } from "@/lib/usage/token-tracker";
+import { sanitizeForApi } from "@/lib/utils/sanitize";
 
 const INSIGHT_SYSTEM = `You are a concise supply chain analyst. Given operational data, provide actionable analysis.
 
@@ -80,8 +81,8 @@ export async function POST(req: Request) {
           const response = await client.messages.create({
             model: "claude-sonnet-4-6",
             max_tokens: body.maxTokens ?? 1024,
-            system: INSIGHT_SYSTEM + "\n\n" + dataContext,
-            messages: [{ role: "user", content: prompt }],
+            system: sanitizeForApi(INSIGHT_SYSTEM + "\n\n" + dataContext),
+            messages: [{ role: "user", content: sanitizeForApi(prompt) }],
             stream: true,
           });
 

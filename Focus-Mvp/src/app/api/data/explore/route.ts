@@ -193,9 +193,29 @@ async function queryEntity(
     records = rowResult;
   }
 
+  // Discover all extra keys present in the actual data that aren't
+  // declared in the canonical schema. These come from fields that were
+  // stored before the schema was updated, or from CSV columns the mapper
+  // kept under their original names.
+  const canonicalKeySet = new Set(fieldEntries.map(([k]) => k));
+  const extraKeySet = new Set<string>();
+  for (const record of records) {
+    const data = (record.data as Record<string, unknown> | null) ?? {};
+    for (const key of Object.keys(data)) {
+      if (!canonicalKeySet.has(key) && key !== "_id") {
+        extraKeySet.add(key);
+      }
+    }
+  }
+  const allColumns: Col[] = [
+    ...columns,
+    ...[...extraKeySet].sort().map((key) => ({ key, label: key })),
+  ];
+
   const rows: Row[] = records.map((record) => {
     const data = (record.data as Record<string, unknown> | null) ?? {};
     const row: Row = { _id: record.id };
+    // Canonical fields with proper type coercion
     for (const [key, def] of fieldEntries) {
       const val = data[key];
       if (val === null || val === undefined) {
@@ -209,10 +229,15 @@ async function queryEntity(
         row[key] = String(val);
       }
     }
+    // Extra / non-canonical fields stored as raw strings
+    for (const key of extraKeySet) {
+      const val = data[key];
+      row[key] = val === null || val === undefined ? null : String(val);
+    }
     return row;
   });
 
-  return { columns, rows, total };
+  return { columns: allColumns, rows, total };
 }
 
 export async function GET(req: Request) {

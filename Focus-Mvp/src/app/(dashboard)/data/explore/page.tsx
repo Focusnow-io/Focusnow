@@ -99,8 +99,6 @@ export default function ExplorePage() {
   const [counts, setCounts] = useState<Record<string, number>>({});
 
   // Keep latest fetch params in a ref so the visibilitychange handler is never stale.
-  // The handler is set up once per pathname change but entity/page/search can change
-  // via URL query params without the pathname changing — this ref bridges that gap.
   const latestParamsRef = useRef({ entity: entityParam, page: pageParam, q: debouncedSearch });
   useEffect(() => {
     latestParamsRef.current = { entity: entityParam, page: pageParam, q: debouncedSearch };
@@ -114,22 +112,14 @@ export default function ExplorePage() {
   }, []);
 
   const fetchData = useCallback((entity: string, page: number, q: string, background = false) => {
-    // Background refetches (visibility/navigation triggers) keep old data visible.
-    // Only show the full loading spinner on an empty initial load or entity switch.
     if (background) {
       setRefreshing(true);
     } else {
       setLoading(true);
     }
-    const params = new URLSearchParams({
-      entity,
-      page: String(page),
-      ...(q && { q }),
-    });
+    const params = new URLSearchParams({ entity, page: String(page), ...(q && { q }) });
     fetch(`/api/data/explore?${params}`, { cache: "no-store" })
       .then(r => {
-        // Do NOT overwrite good data with an error body — if the API errors
-        // (session expired, DB hiccup, etc.) keep whatever is already displayed.
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
@@ -138,18 +128,27 @@ export default function ExplorePage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Refetch both counts and table data whenever the tab regains visibility
-  // OR when navigating back to this page within the SPA (pathname change).
-  // This ensures data is fresh after a delete/import on another page.
-  // On mount / SPA navigation back to this page: silently refresh in background
-  // so existing data stays visible and doesn't flash empty.
+  // Use replace (not push) for query-param updates — these are not real navigations,
+  // push would pollute browser history and trigger extra RSC server fetches.
+  const navigate = useCallback(
+    (entity: string, page: number, q: string) => {
+      const p = new URLSearchParams({ entity, page: String(page) });
+      if (q) p.set("q", q);
+      router.replace(`/data/explore?${p}`);
+    },
+    [router]
+  );
+
+  // Refresh counts + re-register visibilitychange listener only when the pathname
+  // changes (i.e. user navigates away and back). Do NOT call fetchData here —
+  // Effect below already handles the initial fetch and all param changes, so
+  // calling it here too would cause a double-fetch on every mount.
   useEffect(() => {
     fetchCounts();
-    fetchData(latestParamsRef.current.entity, latestParamsRef.current.page, latestParamsRef.current.q, /* background */ true);
     const handleVisible = () => {
       if (document.visibilityState === "visible") {
         fetchCounts();
-        fetchData(latestParamsRef.current.entity, latestParamsRef.current.page, latestParamsRef.current.q, /* background */ true);
+        fetchData(latestParamsRef.current.entity, latestParamsRef.current.page, latestParamsRef.current.q, true);
       }
     };
     document.addEventListener("visibilitychange", handleVisible);
@@ -157,31 +156,22 @@ export default function ExplorePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  // When entity / page / search changes, refresh data. Always background so existing
-  // data stays visible during the fetch — avoids blank flashes from React Strict Mode
-  // double-mounting in development, and keeps the table stable during pagination/search.
+  // Single source of truth for data fetching: re-run whenever entity/page/search changes.
   useEffect(() => {
-    fetchData(entityParam, pageParam, debouncedSearch, /* background */ true);
+    fetchData(entityParam, pageParam, debouncedSearch, true);
   }, [entityParam, pageParam, debouncedSearch, fetchData]);
 
-  // Reset to page 1 when search changes
+  // Reset to page 1 when search changes — track with a ref so we skip the initial mount.
+  const isMounted = useRef(false);
   const prevSearch = useRef(debouncedSearch);
   useEffect(() => {
+    if (!isMounted.current) { isMounted.current = true; return; }
     if (prevSearch.current !== debouncedSearch) {
       prevSearch.current = debouncedSearch;
       navigate(entityParam, 1, debouncedSearch);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
-
-  const navigate = useCallback(
-    (entity: string, page: number, q: string) => {
-      const p = new URLSearchParams({ entity, page: String(page) });
-      if (q) p.set("q", q);
-      router.push(`/data/explore?${p}`);
-    },
-    [router]
-  );
 
   const selectEntity = (key: string) => {
     setSearch("");

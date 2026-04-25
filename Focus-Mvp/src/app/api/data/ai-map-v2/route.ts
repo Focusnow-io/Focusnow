@@ -2,7 +2,9 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { sanitizeForApi } from "@/lib/utils/sanitize";
 import { getSessionOrg, unauthorized } from "@/lib/api-helpers";
+import { checkTokenBudget, recordTokenUsage } from "@/lib/usage/token-tracker";
 import { DATASETS, type DatasetName } from "@/lib/ingestion/datasets";
 
 /**
@@ -113,13 +115,23 @@ Respond with ONLY a JSON object mapping column headers to canonical field keys (
 }
 No explanation. No markdown. Just the JSON object.`;
 
+  const budget = await checkTokenBudget(ctx.org.id, ctx.session.user!.id!, ctx.org.plan ?? "free");
+  if (!budget.allowed) {
+    return NextResponse.json({ error: budget.message }, { status: 429 });
+  }
+
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
   try {
     const response = await anthropic.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 1000,
-      messages: [{ role: "user", content: prompt }],
+      messages: [{ role: "user", content: sanitizeForApi(prompt) }],
+    });
+
+    await recordTokenUsage(ctx.org.id, ctx.session.user!.id!, "ai-map", {
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
     });
 
     const text = response.content
