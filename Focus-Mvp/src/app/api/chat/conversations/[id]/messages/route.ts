@@ -319,14 +319,13 @@ export async function POST(
     data: { messageCount: { increment: 1 }, updatedAt: new Date() },
   });
 
-  // Check if org has any operational data before proceeding
-  const [productCount, inventoryCount, supplierCount, poCount] = await Promise.all([
-    prisma.product.count({ where: { organizationId: ctx.org.id } }),
-    prisma.inventoryItem.count({ where: { organizationId: ctx.org.id } }),
-    prisma.supplier.count({ where: { organizationId: ctx.org.id } }),
-    prisma.purchaseOrder.count({ where: { orgId: ctx.org.id } }),
-  ]);
-  const hasAnyData = productCount + inventoryCount + supplierCount + poCount > 0;
+  // Check if org has any operational data before proceeding.
+  // Must query ImportRecord (the JSONB pipeline) not the legacy Prisma
+  // entity tables — those are empty for all orgs using the new importer.
+  const importRecordCount = await prisma.importRecord.count({
+    where: { organizationId: ctx.org.id },
+  });
+  const hasAnyData = importRecordCount > 0;
 
   if (!hasAnyData) {
     const noDataMessage =
@@ -886,20 +885,25 @@ function buildAnthropicMessages(
       // native macOS / Windows autocorrect. Sanitize every user
       // message text the same way we sanitize the system prompt so
       // downstream ByteString conversions don't throw.
-      const userText = sanitizeForApi(msg.content);
+      const userText = sanitizeForApi(msg.content ?? "");
       if (pendingToolResults) {
-        // Merge tool_result blocks + user text into one user message
+        // Merge tool_result blocks + user text into one user message.
+        // Only include the text block when there's actual content —
+        // an empty text block alongside tool_results is still valid,
+        // but a pure-string user message of "" is rejected by the API.
+        const textBlocks = userText
+          ? [{ type: "text" as const, text: userText }]
+          : [];
         messages.push({
           role: "user",
-          content: [
-            ...pendingToolResults,
-            { type: "text" as const, text: userText },
-          ],
+          content: [...pendingToolResults, ...textBlocks],
         });
         pendingToolResults = null;
-      } else {
+      } else if (userText) {
         messages.push({ role: "user", content: userText });
       }
+      // If userText is empty and there are no pending tool results,
+      // skip the message — pushing content:"" is rejected by the API.
     } else if (msg.role === "ASSISTANT") {
       // Flush any pending tool results as a standalone user message
       // (shouldn't happen with well-formed history, but just in case)
